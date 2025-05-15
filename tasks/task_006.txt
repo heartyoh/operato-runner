@@ -1,0 +1,87 @@
+# Task ID: 6
+# Title: Implement ExecutorManager
+# Status: pending
+# Dependencies: 2, 3, 4, 5
+# Priority: high
+# Description: Create the ExecutorManager component that routes execution requests to the appropriate executor based on module type.
+# Details:
+Implement the ExecutorManager class to handle routing of execution requests:
+
+```python
+from typing import Dict, List, Any, Optional
+from .executor import Executor
+from .inline_executor import InlineExecutor
+from .venv_executor import VenvExecutor
+from .module_registry import ModuleRegistry
+from .models import ExecRequest, ExecResult, Module
+
+class ExecutorManager:
+    def __init__(self, module_registry: ModuleRegistry):
+        self.module_registry = module_registry
+        self.executors: Dict[str, Executor] = {
+            "inline": InlineExecutor(),
+            "venv": VenvExecutor()
+            # Additional executors will be added in Phase 2
+        }
+    
+    async def execute(self, request: ExecRequest) -> ExecResult:
+        """Execute a module with the appropriate executor"""
+        module_name = request.module
+        module = self.module_registry.get_module(module_name)
+        
+        if not module:
+            return ExecResult(
+                result_json={},
+                exit_code=1,
+                stderr=f"Module '{module_name}' not found",
+                stdout="",
+                duration=0
+            )
+        
+        executor = self.executors.get(module.env)
+        if not executor:
+            return ExecResult(
+                result_json={},
+                exit_code=1,
+                stderr=f"No executor available for environment '{module.env}'",
+                stdout="",
+                duration=0
+            )
+        
+        # Validate that the executor can run this module
+        if not await executor.validate(module_name):
+            return ExecResult(
+                result_json={},
+                exit_code=1,
+                stderr=f"Module '{module_name}' cannot be executed in environment '{module.env}'",
+                stdout="",
+                duration=0
+            )
+        
+        # Execute the module
+        return await executor.execute(request)
+    
+    def register_executor(self, env: str, executor: Executor) -> None:
+        """Register a new executor for a specific environment"""
+        self.executors[env] = executor
+    
+    def get_available_environments(self) -> List[str]:
+        """Get a list of available execution environments"""
+        return list(self.executors.keys())
+    
+    async def cleanup(self) -> None:
+        """Clean up all executors"""
+        for executor in self.executors.values():
+            await executor.cleanup()
+```
+
+This implementation provides a central manager for routing execution requests to the appropriate executor based on the module's environment. It also handles validation and error reporting.
+
+# Test Strategy:
+Write unit tests to verify:
+1. Routing requests to the correct executor
+2. Error handling for missing modules or executors
+3. Validation of modules before execution
+4. Registration of new executors
+5. Cleanup of all executors
+6. Integration with ModuleRegistry

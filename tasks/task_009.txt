@@ -1,0 +1,80 @@
+# Task ID: 9
+# Title: Implement Main Application Entry Point
+# Status: pending
+# Dependencies: 5, 6, 7, 8
+# Priority: medium
+# Description: Create the main application entry point that initializes and starts both REST and gRPC servers.
+# Details:
+Implement the main application entry point:
+
+```python
+import asyncio
+import argparse
+import uvicorn
+from typing import Dict, Any
+
+from .module_registry import ModuleRegistry
+from .executor_manager import ExecutorManager
+from .inline_executor import InlineExecutor
+from .venv_executor import VenvExecutor
+from .api.rest import app as rest_app
+from .api.grpc_server import serve as serve_grpc
+
+async def main():
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description="Operato Runner")
+    parser.add_argument("--config", default="./modules.yaml", help="Path to modules configuration file")
+    parser.add_argument("--rest-port", type=int, default=8000, help="REST API port")
+    parser.add_argument("--grpc-port", type=int, default=50051, help="gRPC server port")
+    parser.add_argument("--venv-path", default="./venvs", help="Path to virtual environments")
+    parser.add_argument("--no-rest", action="store_true", help="Disable REST API")
+    parser.add_argument("--no-grpc", action="store_true", help="Disable gRPC server")
+    args = parser.parse_args()
+    
+    # Initialize module registry
+    module_registry = ModuleRegistry(config_path=args.config)
+    
+    # Initialize executor manager
+    executor_manager = ExecutorManager(module_registry)
+    
+    # Register executors
+    executor_manager.register_executor("inline", InlineExecutor())
+    executor_manager.register_executor("venv", VenvExecutor(venv_path=args.venv_path))
+    
+    # Set up REST app context
+    rest_app.state.module_registry = module_registry
+    rest_app.state.executor_manager = executor_manager
+    
+    # Start servers
+    tasks = []
+    
+    if not args.no_grpc:
+        # Start gRPC server
+        grpc_server = await serve_grpc(module_registry, executor_manager, port=args.grpc_port)
+        await grpc_server.start()
+        print(f"gRPC server started on port {args.grpc_port}")
+        tasks.append(grpc_server.wait_for_termination())
+    
+    if not args.no_rest:
+        # Start REST server in a separate thread
+        config = uvicorn.Config(rest_app, host="0.0.0.0", port=args.rest_port, log_level="info")
+        server = uvicorn.Server(config)
+        tasks.append(server.serve())
+        print(f"REST API started on port {args.rest_port}")
+    
+    # Wait for servers to complete
+    await asyncio.gather(*tasks)
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+This implementation provides a main entry point that initializes the module registry and executor manager, registers the available executors, and starts both the REST and gRPC servers. It also provides command-line arguments for configuration.
+
+# Test Strategy:
+Write integration tests to verify:
+1. Command-line argument parsing
+2. Initialization of components
+3. Starting of servers
+4. Graceful shutdown
+5. Configuration loading

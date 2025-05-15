@@ -1,0 +1,61 @@
+syntax = "proto3";
+
+package operato.runner;
+
+service Executor {
+  rpc Execute(ExecRequest) returns (ExecResponse);
+  rpc ListModules(ListModulesRequest) returns (ListModulesResponse);
+  rpc GetModule(GetModuleRequest) returns (ModuleInfo);
+  rpc RegisterModule(RegisterModuleRequest) returns (ModuleInfo);
+  rpc DeleteModule(DeleteModuleRequest) returns (DeleteModuleResponse);
+}
+
+message ExecRequest {
+  string module = 1;
+  string json_input = 2;
+}
+
+message ExecResponse {
+  string result = 1;
+  int32 exit_code = 2;
+  string stderr = 3;
+  string stdout = 4;
+  double duration = 5;
+}
+
+message ListModulesRequest {
+  // Empty for now, could add filters later
+}
+
+message ListModulesResponse {
+  repeated ModuleInfo modules = 1;
+}
+
+message GetModuleRequest {
+  string name = 1;
+}
+
+message ModuleInfo {
+  string name = 1;
+  string env = 2;
+  string version = 3;
+  string created_at = 4;
+  repeated string tags = 5;
+}
+
+message RegisterModuleRequest {
+  string name = 1;
+  string env = 2;
+  string code = 3;
+  string path = 4;
+  string version = 5;
+  repeated string tags = 6;
+}
+
+message DeleteModuleRequest {
+  string name = 1;
+}
+
+message DeleteModuleResponse {
+  bool success = 1;
+} 

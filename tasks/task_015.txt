@@ -1,0 +1,343 @@
+# Task ID: 15
+# Title: Create Deployment Configuration
+# Status: done
+# Dependencies: 9
+# Priority: low
+# Description: Prepare deployment configuration for Kubernetes using Helm charts.
+# Details:
+Create a Helm chart for deploying the application to Kubernetes. First, create the directory structure:
+
+```
+operato-runner/
+├── Chart.yaml
+├── values.yaml
+├── templates/
+│   ├── deployment.yaml
+│   ├── service.yaml
+│   ├── configmap.yaml
+│   ├── secret.yaml
+│   └── _helpers.tpl
+└── .helmignore
+```
+
+Then, create the Chart.yaml file:
+
+```yaml
+apiVersion: v2
+name: operato-runner
+description: A Helm chart for Operato Runner
+type: application
+version: 0.1.0
+appVersion: 0.1.0
+```
+
+Create the values.yaml file with default configuration:
+
+```yaml
+# Default values for operato-runner
+replicaCount: 1
+
+image:
+  repository: operato/runner
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext: {}
+
+securityContext: {}
+
+service:
+  type: ClusterIP
+  restPort: 8000
+  grpcPort: 50051
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: chart-example.local
+      paths:
+        - path: /
+          pathType: ImplementationSpecific
+  tls: []
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 500m
+    memory: 512Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+config:
+  modulesPath: /app/modules.yaml
+  venvPath: /app/venvs
+  executionHistoryPath: /app/executions.db
+  jwtSecret: change-me-in-production
+
+persistence:
+  enabled: true
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  size: 10Gi
+```
+
+Create the deployment.yaml template:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "operato-runner.fullname" . }}
+  labels:
+    {{- include "operato-runner.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "operato-runner.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "operato-runner.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "operato-runner.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: JWT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "operato-runner.fullname" . }}
+                  key: jwt-secret
+          args:
+            - "--config=$(CONFIG_PATH)"
+            - "--venv-path=$(VENV_PATH)"
+            - "--rest-port=$(REST_PORT)"
+            - "--grpc-port=$(GRPC_PORT)"
+          env:
+            - name: CONFIG_PATH
+              value: {{ .Values.config.modulesPath }}
+            - name: VENV_PATH
+              value: {{ .Values.config.venvPath }}
+            - name: REST_PORT
+              value: "{{ .Values.service.restPort }}"
+            - name: GRPC_PORT
+              value: "{{ .Values.service.grpcPort }}"
+          ports:
+            - name: rest
+              containerPort: {{ .Values.service.restPort }}
+              protocol: TCP
+            - name: grpc
+              containerPort: {{ .Values.service.grpcPort }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: rest
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: rest
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "operato-runner.fullname" . }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+```
+
+Create the service.yaml template:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "operato-runner.fullname" . }}
+  labels:
+    {{- include "operato-runner.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.restPort }}
+      targetPort: rest
+      protocol: TCP
+      name: rest
+    - port: {{ .Values.service.grpcPort }}
+      targetPort: grpc
+      protocol: TCP
+      name: grpc
+  selector:
+    {{- include "operato-runner.selectorLabels" . | nindent 4 }}
+```
+
+Create the secret.yaml template:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "operato-runner.fullname" . }}
+  labels:
+    {{- include "operato-runner.labels" . | nindent 4 }}
+type: Opaque
+data:
+  jwt-secret: {{ .Values.config.jwtSecret | b64enc }}
+```
+
+Create the persistent volume claim if persistence is enabled:
+
+```yaml
+{{- if .Values.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "operato-runner.fullname" . }}
+  labels:
+    {{- include "operato-runner.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.persistence.accessMode }}
+  {{- if .Values.persistence.storageClass }}
+  storageClassName: {{ .Values.persistence.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.size }}
+{{- end }}
+```
+
+Create the _helpers.tpl file with common template functions:
+
+```
+{{/*
+Expand the name of the chart.
+*/}}
+{{- define "operato-runner.name" -}}
+{{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
+Create a default fully qualified app name.
+*/}}
+{{- define "operato-runner.fullname" -}}
+{{- if .Values.fullnameOverride }}
+{{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- $name := default .Chart.Name .Values.nameOverride }}
+{{- if contains $name .Release.Name }}
+{{- .Release.Name | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
+Create chart name and version as used by the chart label.
+*/}}
+{{- define "operato-runner.chart" -}}
+{{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
+Common labels
+*/}}
+{{- define "operato-runner.labels" -}}
+helm.sh/chart: {{ include "operato-runner.chart" . }}
+{{ include "operato-runner.selectorLabels" . }}
+{{- if .Chart.AppVersion }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+{{- end }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- end }}
+
+{{/*
+Selector labels
+*/}}
+{{- define "operato-runner.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "operato-runner.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+
+{{/*
+Create the name of the service account to use
+*/}}
+{{- define "operato-runner.serviceAccountName" -}}
+{{- if .Values.serviceAccount.create }}
+{{- default (include "operato-runner.fullname" .) .Values.serviceAccount.name }}
+{{- else }}
+{{- default "default" .Values.serviceAccount.name }}
+{{- end }}
+{{- end }}
+```
+
+This Helm chart provides a complete deployment configuration for Kubernetes, including deployment, service, secrets, and persistent volume claims. It can be customized through the values.yaml file to suit different environments.
+
+# Test Strategy:
+Test the Helm chart using:
+1. Helm lint to validate the chart structure
+2. Helm template to generate and validate the Kubernetes manifests
+3. Helm install --dry-run to simulate installation
+4. Deploy to a test Kubernetes cluster and verify functionality
+5. Test scaling and resource limits
+6. Verify persistence across pod restarts

@@ -1,0 +1,42 @@
+# Task ID: 1
+# Title: Define Core Data Models
+# Status: pending
+# Dependencies: None
+# Priority: high
+# Description: Create the foundational data models for the system including Module, ExecRequest, and ExecResult as specified in the PRD.
+# Details:
+Create Python classes or Pydantic models for:
+1. Module: name, env, path/code, created_at, version, tags
+2. ExecRequest: module, input_json
+3. ExecResult: result_json, exit_code, stderr, duration
+
+Implement serialization/deserialization methods for JSON and potentially protobuf compatibility. Use Pydantic for validation and FastAPI integration.
+
+Example Module model:
+```python
+from pydantic import BaseModel
+from datetime import datetime
+from typing import Optional, Dict, Any, List
+
+class Module(BaseModel):
+    name: str
+    env: str  # 'inline', 'venv', 'conda', 'docker'
+    code: Optional[str] = None
+    path: Optional[str] = None
+    created_at: datetime = datetime.now()
+    version: str = "0.1.0"
+    tags: List[str] = []
+    
+    def __str__(self) -> str:
+        return f"Module({self.name}, {self.env}, v{self.version})"
+```
+
+# Test Strategy:
+Write unit tests for each model to verify:
+1. Object creation with valid parameters
+2. Validation errors for invalid inputs
+3. Serialization to/from JSON
+4. Default value handling
+5. String representation
+
+Use pytest for testing framework.

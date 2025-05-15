@@ -1,0 +1,156 @@
+# Task ID: 11
+# Title: Implement DockerExecutor
+# Status: pending
+# Dependencies: 1, 2, 6
+# Priority: low
+# Description: Create the DockerExecutor that runs Python code in Docker containers.
+# Details:
+Implement the DockerExecutor class that runs code in Docker containers:
+
+```python
+import os
+import tempfile
+import json
+import time
+import docker
+from typing import Dict, Any
+from .executor import Executor
+from .models import ExecRequest, ExecResult
+
+class DockerExecutor(Executor):
+    def __init__(self, base_image="python:3.10-slim"):
+        self.client = docker.from_env()
+        self.base_image = base_image
+    
+    async def validate(self, module_name: str) -> bool:
+        # Check if module exists and is of type 'docker'
+        # Also verify Docker is available
+        try:
+            self.client.ping()
+            return True  # Simplified validation, should check if module is compatible
+        except Exception:
+            return False
+    
+    async def execute(self, request: ExecRequest) -> ExecResult:
+        start_time = time.time()
+        module_name = request.module
+        
+        # Create temporary directory for mounting
+        temp_dir = tempfile.mkdtemp()
+        
+        # Create input file
+        input_path = os.path.join(temp_dir, "input.json")
+        with open(input_path, "w") as f:
+            json.dump(request.input_json, f)
+        
+        # Create output file path
+        output_path = os.path.join(temp_dir, "output.json")
+        
+        # Get module code from registry
+        code = ""  # Placeholder, will come from ModuleRegistry
+        
+        # Create Python script file
+        script_path = os.path.join(temp_dir, "script.py")
+        with open(script_path, "w") as f:
+            f.write(code)
+            f.write("\n\n")
+            f.write("if __name__ == '__main__':\n")
+            f.write("    import json\n")
+            f.write("    with open('/data/input.json', 'r') as f:\n")
+            f.write("        input_data = json.load(f)\n")
+            f.write("    result = handler(input_data)\n")
+            f.write("    with open('/data/output.json', 'w') as f:\n")
+            f.write("        json.dump(result, f)\n")
+        
+        # Run Docker container
+        container = None
+        try:
+            container = self.client.containers.run(
+                self.base_image,
+                command=["python", "/data/script.py"],
+                volumes={temp_dir: {"bind": "/data", "mode": "rw"}},
+                detach=True,
+                mem_limit="512m",  # Limit memory usage
+                cpu_period=100000,  # Limit CPU usage
+                cpu_quota=50000,    # 50% of CPU
+                network_mode="none"  # Disable network access
+            )
+            
+            # Wait for container to finish with timeout
+            exit_code = container.wait(timeout=60)["StatusCode"]
+            
+            # Get logs
+            logs = container.logs(stdout=True, stderr=True).decode("utf-8")
+            stdout = ""
+            stderr = ""
+            
+            # Split logs into stdout and stderr (simplified)
+            if exit_code == 0:
+                stdout = logs
+            else:
+                stderr = logs
+            
+            # Read output file if it exists
+            if os.path.exists(output_path):
+                with open(output_path, "r") as f:
+                    result_json = json.load(f)
+            else:
+                result_json = {}
+                
+        except docker.errors.ContainerError as e:
+            exit_code = e.exit_status
+            stderr = str(e)
+            stdout = ""
+            result_json = {}
+        except Exception as e:
+            exit_code = 1
+            stderr = f"Error executing module: {str(e)}"
+            stdout = ""
+            result_json = {}
+        finally:
+            # Clean up container
+            if container:
+                try:
+                    container.remove(force=True)
+                except Exception:
+                    pass
+            
+            # Clean up temporary directory
+            import shutil
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        
+        duration = time.time() - start_time
+        
+        return ExecResult(
+            result_json=result_json,
+            exit_code=exit_code,
+            stderr=stderr,
+            stdout=stdout,
+            duration=duration
+        )
+    
+    async def cleanup(self) -> None:
+        # Clean up any dangling containers
+        try:
+            containers = self.client.containers.list(all=True, filters={"label": "operato-runner"})
+            for container in containers:
+                container.remove(force=True)
+        except Exception:
+            pass
+        
+    @property
+    def executor_type(self) -> str:
+        return "docker"
+```
+
+This implementation uses the Docker Python SDK to run code in containers. It creates temporary files for input and output, mounts them into the container, and runs the code in an isolated environment with resource limits.
+
+# Test Strategy:
+Write integration tests to verify:
+1. Execution in Docker containers
+2. Proper handling of dependencies within the container
+3. Correct passing of input/output between host and container
+4. Timeout handling for long-running containers
+5. Resource limits enforcement
+6. Network isolation
+7. Cleanup of containers and temporary files

@@ -1,0 +1,83 @@
+# Task ID: 13
+# Title: Implement Retry Policy for Failed Executions
+# Status: pending
+# Dependencies: 6
+# Priority: low
+# Description: Create a retry mechanism for handling transient failures during module execution.
+# Details:
+Implement a retry policy for handling transient failures:
+
+```python
+import asyncio
+from typing import Dict, Any, Optional, Callable, TypeVar, Generic
+from .models import ExecRequest, ExecResult
+
+T = TypeVar('T')
+
+class RetryPolicy(Generic[T]):
+    def __init__(self, max_retries: int = 3, delay: float = 1.0, backoff_factor: float = 2.0):
+        self.max_retries = max_retries
+        self.delay = delay
+        self.backoff_factor = backoff_factor
+    
+    async def execute_with_retry(self, func: Callable[..., T], *args, **kwargs) -> T:
+        """Execute a function with retry logic"""
+        last_exception = None
+        current_delay = self.delay
+        
+        for attempt in range(self.max_retries + 1):
+            try:
+                return await func(*args, **kwargs)
+            except Exception as e:
+                last_exception = e
+                
+                if attempt < self.max_retries:
+                    # Wait before retrying
+                    await asyncio.sleep(current_delay)
+                    current_delay *= self.backoff_factor
+                else:
+                    # Max retries reached, re-raise the exception
+                    raise
+
+class RetryableExecutorManager:
+    def __init__(self, executor_manager, retry_policy: Optional[RetryPolicy] = None):
+        self.executor_manager = executor_manager
+        self.retry_policy = retry_policy or RetryPolicy()
+    
+    async def execute(self, request: ExecRequest) -> ExecResult:
+        """Execute a module with retry logic"""
+        try:
+            return await self.retry_policy.execute_with_retry(
+                self.executor_manager.execute,
+                request
+            )
+        except Exception as e:
+            # If all retries fail, return an error result
+            return ExecResult(
+                result_json={},
+                exit_code=1,
+                stderr=f"Failed after {self.retry_policy.max_retries} retries: {str(e)}",
+                stdout="",
+                duration=0
+            )
+    
+    # Delegate other methods to the underlying executor manager
+    def register_executor(self, env: str, executor) -> None:
+        self.executor_manager.register_executor(env, executor)
+    
+    def get_available_environments(self):
+        return self.executor_manager.get_available_environments()
+    
+    async def cleanup(self) -> None:
+        await self.executor_manager.cleanup()
+```
+
+This implementation provides a generic retry policy that can be applied to any async function, as well as a retryable executor manager that wraps the standard executor manager with retry logic. The retry policy includes configurable parameters for maximum retries, initial delay, and backoff factor.
+
+# Test Strategy:
+Write unit tests to verify:
+1. Successful retry after transient failures
+2. Giving up after max retries
+3. Proper backoff delay between retries
+4. Error reporting after all retries fail
+5. Integration with executor manager

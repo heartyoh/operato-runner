@@ -1,0 +1,207 @@
+# Task ID: 8
+# Title: Implement gRPC Server
+# Status: pending
+# Dependencies: 1, 5, 6
+# Priority: medium
+# Description: Create the gRPC server interface to provide an alternative to REST for module execution.
+# Details:
+First, define the protobuf schema in a file named `executor.proto`:
+
+```proto
+syntax = "proto3";
+
+package operato.runner;
+
+service Executor {
+  rpc Execute(ExecRequest) returns (ExecResponse);
+  rpc ListModules(ListModulesRequest) returns (ListModulesResponse);
+  rpc GetModule(GetModuleRequest) returns (ModuleInfo);
+  rpc RegisterModule(RegisterModuleRequest) returns (ModuleInfo);
+  rpc DeleteModule(DeleteModuleRequest) returns (DeleteModuleResponse);
+}
+
+message ExecRequest {
+  string module = 1;
+  string json_input = 2;
+}
+
+message ExecResponse {
+  string result = 1;
+  int32 exit_code = 2;
+  string stderr = 3;
+  string stdout = 4;
+  double duration = 5;
+}
+
+message ListModulesRequest {
+  // Empty for now, could add filters later
+}
+
+message ListModulesResponse {
+  repeated ModuleInfo modules = 1;
+}
+
+message GetModuleRequest {
+  string name = 1;
+}
+
+message ModuleInfo {
+  string name = 1;
+  string env = 2;
+  string version = 3;
+  string created_at = 4;
+  repeated string tags = 5;
+}
+
+message RegisterModuleRequest {
+  string name = 1;
+  string env = 2;
+  string code = 3;
+  string path = 4;
+  string version = 5;
+  repeated string tags = 6;
+}
+
+message DeleteModuleRequest {
+  string name = 1;
+}
+
+message DeleteModuleResponse {
+  bool success = 1;
+}
+```
+
+Then, implement the gRPC server:
+
+```python
+import json
+import grpc
+from concurrent import futures
+from datetime import datetime
+from typing import Dict, List, Any
+
+# Import the generated protobuf code
+from .proto import executor_pb2, executor_pb2_grpc
+
+from .models import Module, ExecRequest as ModelExecRequest
+from .module_registry import ModuleRegistry
+from .executor_manager import ExecutorManager
+
+class ExecutorServicer(executor_pb2_grpc.ExecutorServicer):
+    def __init__(self, module_registry: ModuleRegistry, executor_manager: ExecutorManager):
+        self.module_registry = module_registry
+        self.executor_manager = executor_manager
+    
+    async def Execute(self, request, context):
+        # Convert protobuf request to model
+        try:
+            input_json = json.loads(request.json_input)
+        except json.JSONDecodeError:
+            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+            context.set_details("Invalid JSON input")
+            return executor_pb2.ExecResponse()
+        
+        exec_request = ModelExecRequest(
+            module=request.module,
+            input_json=input_json
+        )
+        
+        # Execute module
+        result = await self.executor_manager.execute(exec_request)
+        
+        # Convert result to protobuf response
+        return executor_pb2.ExecResponse(
+            result=json.dumps(result.result_json),
+            exit_code=result.exit_code,
+            stderr=result.stderr,
+            stdout=result.stdout,
+            duration=result.duration
+        )
+    
+    async def ListModules(self, request, context):
+        modules = self.module_registry.list_modules()
+        response = executor_pb2.ListModulesResponse()
+        
+        for module in modules:
+            module_info = executor_pb2.ModuleInfo(
+                name=module.name,
+                env=module.env,
+                version=module.version,
+                created_at=module.created_at.isoformat(),
+                tags=module.tags
+            )
+            response.modules.append(module_info)
+        
+        return response
+    
+    async def GetModule(self, request, context):
+        module = self.module_registry.get_module(request.name)
+        if not module:
+            context.set_code(grpc.StatusCode.NOT_FOUND)
+            context.set_details(f"Module '{request.name}' not found")
+            return executor_pb2.ModuleInfo()
+        
+        return executor_pb2.ModuleInfo(
+            name=module.name,
+            env=module.env,
+            version=module.version,
+            created_at=module.created_at.isoformat(),
+            tags=module.tags
+        )
+    
+    async def RegisterModule(self, request, context):
+        # Validate that either code or path is provided
+        if not request.code and not request.path:
+            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+            context.set_details("Either code or path must be provided")
+            return executor_pb2.ModuleInfo()
+        
+        # Create module
+        module = Module(
+            name=request.name,
+            env=request.env,
+            code=request.code if request.code else None,
+            path=request.path if request.path else None,
+            version=request.version if request.version else "0.1.0",
+            tags=list(request.tags)
+        )
+        
+        # Register module
+        self.module_registry.register_module(module)
+        
+        return executor_pb2.ModuleInfo(
+            name=module.name,
+            env=module.env,
+            version=module.version,
+            created_at=module.created_at.isoformat(),
+            tags=module.tags
+        )
+    
+    async def DeleteModule(self, request, context):
+        success = self.module_registry.delete_module(request.name)
+        if not success:
+            context.set_code(grpc.StatusCode.NOT_FOUND)
+            context.set_details(f"Module '{request.name}' not found")
+        
+        return executor_pb2.DeleteModuleResponse(success=success)
+
+def serve(module_registry: ModuleRegistry, executor_manager: ExecutorManager, port=50051):
+    server = grpc.aio.server(futures.ThreadPoolExecutor(max_workers=10))
+    executor_pb2_grpc.add_ExecutorServicer_to_server(
+        ExecutorServicer(module_registry, executor_manager),
+        server
+    )
+    server.add_insecure_port(f'[::]:{port}')
+    return server
+```
+
+This implementation provides a complete gRPC server for module management and execution. It includes methods for listing, creating, retrieving, and deleting modules, as well as executing modules.
+
+# Test Strategy:
+Write integration tests using the gRPC testing utilities to verify:
+1. Module CRUD operations
+2. Module execution
+3. Error handling for invalid requests
+4. Response format and status codes
+5. Performance under load
+6. Compatibility with different gRPC clients

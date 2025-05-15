@@ -1,0 +1,141 @@
+import os
+import json
+import sqlite3
+from datetime import datetime
+from typing import Dict, List, Any, Optional
+from models import ExecResult
+
+class ExecutionHistory:
+    def __init__(self, db_path="./executions.db"):
+        self.db_path = db_path
+        self._init_db()
+
+    def _init_db(self):
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS executions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            module_name TEXT NOT NULL,
+            timestamp TEXT NOT NULL,
+            duration REAL NOT NULL,
+            exit_code INTEGER NOT NULL,
+            input_json TEXT NOT NULL,
+            result_json TEXT NOT NULL,
+            stdout TEXT,
+            stderr TEXT
+        )
+        """)
+        conn.commit()
+        conn.close()
+
+    def record_execution(self, module_name: str, input_json: Dict[str, Any], result: ExecResult) -> int:
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        timestamp = datetime.now().isoformat()
+        cursor.execute("""
+        INSERT INTO executions 
+        (module_name, timestamp, duration, exit_code, input_json, result_json, stdout, stderr)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            module_name,
+            timestamp,
+            result.duration,
+            result.exit_code,
+            json.dumps(input_json),
+            json.dumps(result.result_json),
+            result.stdout,
+            result.stderr
+        ))
+        execution_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        return execution_id
+
+    def get_execution(self, execution_id: int) -> Optional[Dict[str, Any]]:
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM executions WHERE id = ?", (execution_id,))
+        row = cursor.fetchone()
+        conn.close()
+        if not row:
+            return None
+        return {
+            "id": row["id"],
+            "module_name": row["module_name"],
+            "timestamp": row["timestamp"],
+            "duration": row["duration"],
+            "exit_code": row["exit_code"],
+            "input_json": json.loads(row["input_json"]),
+            "result_json": json.loads(row["result_json"]),
+            "stdout": row["stdout"],
+            "stderr": row["stderr"]
+        }
+
+    def list_executions(self, module_name: Optional[str] = None, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        if module_name:
+            cursor.execute("""
+            SELECT id, module_name, timestamp, duration, exit_code
+            FROM executions
+            WHERE module_name = ?
+            ORDER BY timestamp DESC
+            LIMIT ? OFFSET ?
+            """, (module_name, limit, offset))
+        else:
+            cursor.execute("""
+            SELECT id, module_name, timestamp, duration, exit_code
+            FROM executions
+            ORDER BY timestamp DESC
+            LIMIT ? OFFSET ?
+            """, (limit, offset))
+        rows = cursor.fetchall()
+        conn.close()
+        return [{
+            "id": row["id"],
+            "module_name": row["module_name"],
+            "timestamp": row["timestamp"],
+            "duration": row["duration"],
+            "exit_code": row["exit_code"]
+        } for row in rows]
+
+    def get_module_stats(self, module_name: str) -> Dict[str, Any]:
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("""
+        SELECT 
+            COUNT(*) as total_executions,
+            AVG(duration) as avg_duration,
+            MIN(duration) as min_duration,
+            MAX(duration) as max_duration,
+            SUM(CASE WHEN exit_code = 0 THEN 1 ELSE 0 END) as successful_executions,
+            SUM(CASE WHEN exit_code != 0 THEN 1 ELSE 0 END) as failed_executions
+        FROM executions
+        WHERE module_name = ?
+        """, (module_name,))
+        row = cursor.fetchone()
+        conn.close()
+        if not row:
+            return {
+                "total_executions": 0,
+                "avg_duration": 0,
+                "min_duration": 0,
+                "max_duration": 0,
+                "successful_executions": 0,
+                "failed_executions": 0,
+                "success_rate": 0
+            }
+        total = row[0]
+        success_rate = (row[4] / total) * 100 if total > 0 else 0
+        return {
+            "total_executions": row[0],
+            "avg_duration": row[1],
+            "min_duration": row[2],
+            "max_duration": row[3],
+            "successful_executions": row[4],
+            "failed_executions": row[5],
+            "success_rate": success_rate
+        } 

@@ -1,0 +1,38 @@
+# Development environment values for operato-runner
+replicaCount: 1
+
+image:
+  repository: operato/runner
+  pullPolicy: Always
+  tag: "dev"
+
+service:
+  type: ClusterIP
+  restPort: 8000
+  grpcPort: 50051
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 200m
+    memory: 256Mi
+
+autoscaling:
+  enabled: false
+
+config:
+  modulesPath: /app/modules.yaml
+  venvPath: /app/venvs
+  executionHistoryPath: /app/executions.db
+  jwtSecret: dev-secret-change-me
+
+persistence:
+  enabled: true
+  size: 5Gi
+
+# 개발 환경 특화 설정
+env:
+  DEBUG: "true"
+  LOG_LEVEL: "DEBUG"

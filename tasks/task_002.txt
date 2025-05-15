@@ -1,0 +1,44 @@
+# Task ID: 2
+# Title: Implement Executor Interface
+# Status: pending
+# Dependencies: 1
+# Priority: high
+# Description: Define the base Executor interface that all specific executors will implement, establishing the contract for Python module execution.
+# Details:
+Create an abstract base class for Executor with the following methods:
+
+```python
+from abc import ABC, abstractmethod
+from typing import Dict, Any
+from .models import ExecRequest, ExecResult
+
+class Executor(ABC):
+    @abstractmethod
+    async def execute(self, request: ExecRequest) -> ExecResult:
+        """Execute the module with the given input and return the result"""
+        pass
+        
+    @abstractmethod
+    async def validate(self, module_name: str) -> bool:
+        """Validate if this executor can run the specified module"""
+        pass
+        
+    @abstractmethod
+    async def cleanup(self) -> None:
+        """Clean up any resources used by this executor"""
+        pass
+        
+    @property
+    @abstractmethod
+    def executor_type(self) -> str:
+        """Return the type of this executor (inline, venv, conda, docker)"""
+        pass
+```
+
+This interface will ensure all executors implement the required functionality while allowing for specialized behavior in each implementation.
+
+# Test Strategy:
+Create a mock executor implementation for testing. Verify that:
+1. Abstract methods cannot be instantiated directly
+2. Concrete implementations must provide all required methods
+3. The interface correctly defines the contract between ExecutorManager and specific executors

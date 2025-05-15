@@ -1,0 +1,93 @@
+# Task ID: 3
+# Title: Implement InlineExecutor
+# Status: pending
+# Dependencies: 1, 2
+# Priority: high
+# Description: Create the InlineExecutor that runs Python code directly in the current process with appropriate sandboxing.
+# Details:
+Implement the InlineExecutor class that inherits from the Executor interface:
+
+```python
+import ast
+import sys
+from io import StringIO
+from typing import Dict, Any
+from .executor import Executor
+from .models import ExecRequest, ExecResult
+import time
+
+class InlineExecutor(Executor):
+    def __init__(self):
+        self.executor_type = "inline"
+    
+    async def validate(self, module_name: str) -> bool:
+        # Check if module exists in registry and is of type 'inline'
+        # Implementation depends on ModuleRegistry
+        return True  # Placeholder
+    
+    async def execute(self, request: ExecRequest) -> ExecResult:
+        start_time = time.time()
+        # Get module code from registry
+        code = ""  # Placeholder, will come from ModuleRegistry
+        
+        # Capture stdout/stderr
+        old_stdout, old_stderr = sys.stdout, sys.stderr
+        stdout_capture, stderr_capture = StringIO(), StringIO()
+        sys.stdout, sys.stderr = stdout_capture, stderr_capture
+        
+        result_json = {}
+        exit_code = 0
+        
+        try:
+            # Basic security check (can be enhanced with RestrictedPython)
+            ast.parse(code)  # Will raise SyntaxError if code is invalid
+            
+            # Create namespace for execution
+            namespace = {"input": request.input_json}
+            
+            # Execute code
+            exec(code, namespace)
+            
+            # Extract handler result
+            if "handler" in namespace and callable(namespace["handler"]):
+                result_json = namespace["handler"](request.input_json)
+            else:
+                raise ValueError("Module must define a handler function")
+                
+        except Exception as e:
+            exit_code = 1
+            print(f"Error executing module: {str(e)}", file=sys.stderr)
+        finally:
+            # Restore stdout/stderr
+            sys.stdout, sys.stderr = old_stdout, old_stderr
+        
+        duration = time.time() - start_time
+        
+        return ExecResult(
+            result_json=result_json,
+            exit_code=exit_code,
+            stderr=stderr_capture.getvalue(),
+            stdout=stdout_capture.getvalue(),
+            duration=duration
+        )
+    
+    async def cleanup(self) -> None:
+        # Nothing to clean up for inline executor
+        pass
+        
+    @property
+    def executor_type(self) -> str:
+        return "inline"
+```
+
+Consider enhancing security with RestrictedPython or similar libraries to sandbox the execution environment.
+
+# Test Strategy:
+Write unit tests to verify:
+1. Successful execution of valid Python code
+2. Proper error handling for invalid code
+3. Correct capture of stdout/stderr
+4. Accurate timing measurement
+5. Security measures prevent dangerous operations
+6. Handler function is correctly called with input
+7. Result is properly formatted
