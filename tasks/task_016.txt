@@ -173,7 +173,7 @@ Testing for this task should be comprehensive and include:
 ### Details:
 
 
-## 10. Module 모델 클래스 작성 [pending]
+## 10. Module 모델 클래스 작성 [done]
 ### Dependencies: None
 ### Description: 모듈(Module) 테이블에 대한 SQLAlchemy 모델 클래스를 작성한다.
 ### Details:

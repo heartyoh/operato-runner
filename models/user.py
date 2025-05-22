@@ -10,6 +10,7 @@ class User(Base):
     hashed_password = Column(String(128), nullable=False)
     created_at = Column(DateTime, server_default=func.now())
     roles = relationship('Role', secondary='user_role', back_populates='users')
+    modules = relationship('Module', back_populates='owner')
 
     def __repr__(self):
         return f"<User(id={self.id}, username='{self.username}', email='{self.email}')>" 
