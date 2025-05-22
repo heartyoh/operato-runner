@@ -4,7 +4,7 @@ import tempfile
 import json
 import time
 from executors.base import Executor
-from module_models import ExecRequest, ExecResult
+from models import ExecRequest, ExecResult
 
 class VenvExecutor(Executor):
     def __init__(self, venv_path="./venvs", module_registry=None):
@@ -19,7 +19,7 @@ class VenvExecutor(Executor):
     async def execute(self, request: ExecRequest) -> ExecResult:
         start_time = time.time()
         module_name = request.module
-        module = self.module_registry.get_module(module_name)
+        module = await self.module_registry.get_module(module_name)
         if not module or not module.path:
             return ExecResult(
                 result_json={},

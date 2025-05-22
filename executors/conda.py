@@ -4,7 +4,7 @@ import tempfile
 import json
 import time
 from executors.base import Executor
-from module_models import ExecRequest, ExecResult
+from models import ExecRequest, ExecResult
 from module_registry import ModuleRegistry
 
 class CondaExecutor(Executor):
@@ -44,7 +44,7 @@ class CondaExecutor(Executor):
         # 모듈 경로 획득
         module_path = ""
         if self.module_registry:
-            module = self.module_registry.get_module(module_name)
+            module = await self.module_registry.get_module(module_name)
             if module and module.path:
                 module_path = module.path
         # 명령어 구성

@@ -2,7 +2,7 @@ import pytest
 import asyncio
 from executor_manager import ExecutorManager
 from module_registry import ModuleRegistry
-from module_models import Module, ExecRequest, ExecResult
+from models import ModuleSchema, ExecRequest, ExecResult
 from datetime import datetime
 from executors.base import Executor
 
@@ -23,7 +23,7 @@ class DummyExecutor(Executor):
         return "dummy"
 
 def make_module(name, env="inline"):
-    return Module(
+    return ModuleSchema(
         name=name,
         env=env,
         code="print('hi')",

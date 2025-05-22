@@ -1,15 +1,34 @@
-from passlib.context import CryptContext
 import re
+import traceback
+import bcrypt
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+print("[bcrypt] version:", getattr(bcrypt, "__version__", "?"))
+print("[bcrypt] C-extension:", getattr(bcrypt, "_bcrypt", None) is not None)
 
 # 비밀번호 해싱
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    try:
+        print("[hash_password] input type:", type(password), "value:", repr(password))
+        hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+        print("[hash_password] hashed type:", type(hashed), "value:", repr(hashed))
+        return hashed
+    except Exception as e:
+        print("[hash_password] Exception:", e)
+        traceback.print_exc()
+        raise
 
 # 비밀번호 검증
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+    try:
+        print("[verify_password] plain type:", type(plain_password), "value:", repr(plain_password))
+        print("[verify_password] hash type:", type(hashed_password), "value:", repr(hashed_password))
+        result = bcrypt.checkpw(plain_password.encode(), hashed_password.encode())
+        print("[verify_password] checkpw result:", result)
+        return result
+    except Exception as e:
+        print("[verify_password] Exception:", e)
+        traceback.print_exc()
+        return False
 
 # 비밀번호 정책 검사 (최소 8자, 대/소문자, 숫자, 특수문자 포함)
 def validate_password_policy(password: str) -> None:

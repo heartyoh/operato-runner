@@ -5,7 +5,6 @@ from typing import Optional, List, Dict, Any
 import os
 from datetime import timedelta
 from sqlalchemy.future import select
-from core.db import AsyncSessionLocal
 from models.user import User
 import hashlib
 from utils.jwt import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, create_access_token, decode_token

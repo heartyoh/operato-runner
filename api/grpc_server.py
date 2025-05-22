@@ -4,7 +4,7 @@ from concurrent import futures
 from typing import Any
 import asyncio
 from proto import executor_pb2, executor_pb2_grpc
-from module_models import Module, ExecRequest as ModelExecRequest
+from models import ModuleSchema, ExecRequest as ModelExecRequest
 from module_registry import ModuleRegistry
 from executor_manager import ExecutorManager
 from api.auth import get_current_user, User, SECRET_KEY, ALGORITHM
@@ -161,7 +161,7 @@ class ExecutorServicer(executor_pb2_grpc.ExecutorServicer):
             context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
             context.set_details("Either code or path must be provided")
             return executor_pb2.ModuleInfo()
-        module = Module(
+        module = ModuleSchema(
             name=request.name,
             env=request.env,
             code=request.code if request.code else None,

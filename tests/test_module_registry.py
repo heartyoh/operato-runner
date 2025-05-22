@@ -4,10 +4,10 @@ import yaml
 import pytest
 from datetime import datetime
 from module_registry import ModuleRegistry
-from module_models import Module
+from models import ModuleSchema
 
 def make_module(name, env="inline", tags=None):
-    return Module(
+    return ModuleSchema(
         name=name,
         env=env,
         code="print('hi')",

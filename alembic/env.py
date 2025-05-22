@@ -7,6 +7,23 @@ from alembic import context
 # 기존 경로에 프로젝트 루트 추가
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+# models 전체 import (모든 테이블 인식)
+from models.base import Base
+from models.user import User
+from models.module import Module
+from models.role import Role
+from models.deployment import Deployment
+from models.version import Version
+from models.audit_log import AuditLog
+
+from core.db import sync_engine
+
+target_metadata = Base.metadata
+
+# DB URL을 .env에서 읽어오도록 설정
+from dotenv import load_dotenv
+load_dotenv()
+
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
@@ -15,16 +32,6 @@ config = context.config
 # This line sets up loggers basically.
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
-
-# models.user.Base와 core.db.sync_engine import
-from models.user import Base
-from core.db import sync_engine
-
-target_metadata = Base.metadata
-
-# DB URL을 .env에서 읽어오도록 설정
-from dotenv import load_dotenv
-load_dotenv()
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:

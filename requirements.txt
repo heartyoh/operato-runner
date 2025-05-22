@@ -15,3 +15,14 @@ aiosqlite
 python-dotenv
 alembic
 greenlet 
+
+# --- 테스트 및 커버리지 ---
+pytest-cov
+pytest-asyncio
+coverage
+
+# --- 추가된 항목 ---
+email-validator
+dnspython
+passlib[bcrypt]
+httpx

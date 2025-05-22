@@ -3,7 +3,7 @@ from executors.base import Executor
 from executors.inline import InlineExecutor
 from executors.venv import VenvExecutor
 from module_registry import ModuleRegistry
-from module_models import ExecRequest, ExecResult
+from models import ExecRequest, ExecResult
 
 class ExecutorManager:
     def __init__(self, module_registry: ModuleRegistry):
@@ -12,7 +12,7 @@ class ExecutorManager:
 
     async def execute(self, request: ExecRequest) -> ExecResult:
         module_name = request.module
-        module = self.module_registry.get_module(module_name)
+        module = await self.module_registry.get_module(module_name)
         if not module:
             return ExecResult(
                 result_json={},

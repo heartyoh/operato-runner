@@ -58,3 +58,6 @@ charts/*.tgz
 # modules.yaml
 modules.yaml
 venvs/
+
+# DB
+*.sqlite3

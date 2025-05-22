@@ -3,7 +3,7 @@ import sys
 from io import StringIO
 import time
 from executors.base import Executor
-from module_models import ExecRequest, ExecResult
+from models import ExecRequest, ExecResult
 
 class InlineExecutor(Executor):
     def __init__(self, module_registry=None):
@@ -22,7 +22,7 @@ class InlineExecutor(Executor):
         # 모듈 레지스트리에서 코드 가져오기
         code = None
         if self.module_registry is not None and hasattr(request, 'module'):
-            module_obj = self.module_registry.get_module(request.module)
+            module_obj = await self.module_registry.get_module(request.module)
             if module_obj and getattr(module_obj, 'code', None):
                 code = module_obj.code
         if not code:

@@ -5,7 +5,7 @@ import time
 import shutil
 import docker
 from executors.base import Executor
-from module_models import ExecRequest, ExecResult
+from models import ExecRequest, ExecResult
 from module_registry import ModuleRegistry
 
 class DockerExecutor(Executor):
@@ -19,7 +19,7 @@ class DockerExecutor(Executor):
             self.client.ping()
             # 실제로는 module_registry에서 env 체크 필요
             if self.module_registry:
-                module = self.module_registry.get_module(module_name)
+                module = await self.module_registry.get_module(module_name)
                 return module and module.env == "docker"
             return True
         except Exception:
@@ -36,7 +36,7 @@ class DockerExecutor(Executor):
         # 모듈 코드 획득
         code = ""
         if self.module_registry:
-            module = self.module_registry.get_module(module_name)
+            module = await self.module_registry.get_module(module_name)
             if module and module.code:
                 code = module.code
             elif module and module.path and os.path.exists(module.path):

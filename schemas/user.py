@@ -20,5 +20,26 @@ class UserRead(UserBase):
     created_at: datetime
     roles: Optional[List[RoleRead]] = []
 
-    class Config:
-        orm_mode = True 
+    model_config = {
+        "from_attributes": True
+    }
+
+    @classmethod
+    def from_orm_safe(cls, user):
+        roles = []
+        if hasattr(user, "roles") and user.roles is not None:
+            try:
+                roles = [RoleRead.model_validate(r) for r in list(user.roles)]
+            except Exception:
+                roles = []
+        return cls(
+            id=user.id,
+            username=user.username,
+            email=user.email,
+            created_at=user.created_at,
+            roles=roles
+        )
+
+class UserLogin(BaseModel):
+    username: str
+    password: str 
