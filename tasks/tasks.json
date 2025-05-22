@@ -335,7 +335,7 @@
           "title": "Deployment 모델 클래스 작성",
           "description": "배포(Deployment) 테이블에 대한 SQLAlchemy 모델 클래스를 작성한다.",
           "details": "",
-          "status": "pending",
+          "status": "done",
           "dependencies": [],
           "parentTaskId": 16
         },

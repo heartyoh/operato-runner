@@ -10,6 +10,7 @@ class Version(Base):
     changelog = Column(Text, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     module = relationship('Module', back_populates='versions')
+    deployments = relationship('Deployment', back_populates='version')
 
     def __repr__(self):
         return f"<Version(id={self.id}, module_id={self.module_id}, version='{self.version}')>" 

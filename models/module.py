@@ -16,6 +16,7 @@ class Module(Base):
     owner_id = Column(Integer, ForeignKey('users.id'), nullable=True)
     owner = relationship('User', back_populates='modules')
     versions = relationship('Version', back_populates='module')
+    deployments = relationship('Deployment', back_populates='module')
 
     def __repr__(self):
         return f"<Module(id={self.id}, name='{self.name}', owner_id={self.owner_id})>" 
