@@ -9,7 +9,7 @@ from core.db import get_db
 from models.user import User
 from schemas.user import UserCreate, UserRead
 from utils.jwt import create_access_token
-from api.auth import verify_password, get_current_user
+from api.auth import verify_password, get_current_user, has_role
 import hashlib
 
 app = FastAPI(title="Operato Runner", description="Python module execution platform")
@@ -190,4 +190,8 @@ async def update_profile(update: UserCreate, db: AsyncSession = Depends(get_db),
         user.email = update.email
     await db.commit()
     await db.refresh(user)
-    return UserRead.from_orm(user) 
+    return UserRead.from_orm(user)
+
+@app.get("/admin")
+async def admin_only(current_user=Depends(has_role("admin"))):
+    return {"message": f"Hello, admin {current_user.username}!"} 

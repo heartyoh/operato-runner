@@ -63,6 +63,17 @@ async def get_current_active_user(current_user: UserOut = Depends(get_current_us
         raise HTTPException(status_code=400, detail="Inactive user")
     return current_user
 
+def has_role(required_role: str):
+    async def _has_role(current_user: UserOut = Depends(get_current_active_user)):
+        user_roles = [r.name if hasattr(r, 'name') else r for r in getattr(current_user, 'roles', [])]
+        if required_role not in user_roles:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Not enough permissions. Required role: {required_role}"
+            )
+        return current_user
+    return _has_role
+
 def has_scope(required_scope: str):
     async def _has_scope(current_user: UserOut = Depends(get_current_active_user)):
         if required_scope not in current_user.scopes:

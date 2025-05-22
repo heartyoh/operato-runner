@@ -371,7 +371,7 @@
           "title": "RBAC 미들웨어 구현",
           "description": "역할 기반 접근 제어(RBAC) 미들웨어를 구현하여 엔드포인트별 권한 체크를 수행한다.",
           "details": "",
-          "status": "pending",
+          "status": "done",
           "dependencies": [],
           "parentTaskId": 16
         },
