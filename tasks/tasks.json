@@ -353,7 +353,7 @@
           "title": "JWT 인증/인가 로직 구현",
           "description": "JWT 토큰 발급, 검증, 갱신 로직을 구현한다. 인증 미들웨어를 추가한다.",
           "details": "",
-          "status": "pending",
+          "status": "done",
           "dependencies": [],
           "parentTaskId": 16
         },

@@ -197,7 +197,7 @@ Testing for this task should be comprehensive and include:
 ### Details:
 
 
-## 14. JWT 인증/인가 로직 구현 [pending]
+## 14. JWT 인증/인가 로직 구현 [done]
 ### Dependencies: None
 ### Description: JWT 토큰 발급, 검증, 갱신 로직을 구현한다. 인증 미들웨어를 추가한다.
 ### Details:

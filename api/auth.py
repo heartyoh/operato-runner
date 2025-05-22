@@ -1,14 +1,14 @@
 from fastapi import HTTPException, Depends, Security
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from jose import jwt, JWTError
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import os
-from datetime import datetime, timedelta
+from datetime import timedelta
 from sqlalchemy.future import select
 from core.db import AsyncSessionLocal
 from models.user import User
 import hashlib
+from utils.jwt import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, create_access_token, decode_token
 
 # Models
 class Token(BaseModel):
@@ -24,11 +24,6 @@ class UserOut(BaseModel):
     disabled: Optional[bool] = None
     scopes: List[str] = []
 
-# Configuration
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-secret-key")
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
-
 # Security
 security = HTTPBearer()
 
@@ -41,16 +36,6 @@ async def get_user_by_username(username: str):
 def verify_password(plain_password, hashed_password):
     return hashlib.sha256(plain_password.encode('utf-8')).hexdigest() == hashed_password
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
-    to_encode = data.copy()
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    else:
-        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
-
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Security(security)):
     credentials_exception = HTTPException(
         status_code=401,
@@ -59,13 +44,13 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Security(
     )
     try:
         token = credentials.credentials
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = decode_token(token)
         username: str = payload.get("sub")
         if username is None:
             raise credentials_exception
         token_scopes = payload.get("scopes", [])
         token_data = TokenData(username=username, scopes=token_scopes)
-    except JWTError:
+    except Exception:
         raise credentials_exception
     user = await get_user_by_username(token_data.username)
     if user is None:
