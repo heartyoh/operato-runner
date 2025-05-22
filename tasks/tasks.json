@@ -389,7 +389,7 @@
           "title": "감사 로그/이벤트 기록 기능 구현",
           "description": "인증 및 주요 행위에 대한 감사 로그/이벤트 기록 기능을 구현한다.",
           "details": "",
-          "status": "pending",
+          "status": "done",
           "dependencies": [],
           "parentTaskId": 16
         },

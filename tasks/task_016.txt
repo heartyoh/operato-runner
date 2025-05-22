@@ -221,7 +221,7 @@ Testing for this task should be comprehensive and include:
 ### Details:
 
 
-## 18. 감사 로그/이벤트 기록 기능 구현 [pending]
+## 18. 감사 로그/이벤트 기록 기능 구현 [done]
 ### Dependencies: None
 ### Description: 인증 및 주요 행위에 대한 감사 로그/이벤트 기록 기능을 구현한다.
 ### Details:

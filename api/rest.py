@@ -12,6 +12,9 @@ from utils.jwt import create_access_token
 from api.auth import verify_password, get_current_user, has_role
 from utils.security import hash_password, validate_password_policy
 import hashlib
+from utils.audit import log_audit_event
+from models.audit_log import AuditLog
+from schemas.audit_log import AuditLogRead
 
 app = FastAPI(title="Operato Runner", description="Python module execution platform")
 
@@ -78,7 +81,9 @@ async def get_module(name: str, module_registry: ModuleRegistry = Depends(get_mo
 @app.post("/modules", response_model=ModuleResponse, status_code=201)
 async def create_module(
     module_data: ModuleCreate,
-    module_registry: ModuleRegistry = Depends(get_module_registry)
+    module_registry: ModuleRegistry = Depends(get_module_registry),
+    db: AsyncSession = Depends(get_db),
+    current_user: UserRead = Depends(get_current_user)
 ):
     if not module_data.code and not module_data.path:
         raise HTTPException(status_code=400, detail="Either code or path must be provided")
@@ -91,6 +96,8 @@ async def create_module(
         tags=module_data.tags
     )
     module_registry.register_module(module)
+    # 감사 로그 기록
+    await log_audit_event(db, action="module_deploy", detail=f"Module {module.name} deployed", user_id=current_user.id)
     return ModuleResponse(
         name=module.name,
         env=module.env,
@@ -174,6 +181,8 @@ async def login(form: UserCreate, db: AsyncSession = Depends(get_db)):
     if not verify_password(form.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Incorrect username or password")
     access_token = create_access_token({"sub": user.username, "scopes": []})
+    # 감사 로그 기록
+    await log_audit_event(db, action="login", detail=f"User {user.username} logged in", user_id=user.id)
     return {"access_token": access_token, "token_type": "bearer"}
 
 @app.get("/users/me", response_model=UserRead)
@@ -203,4 +212,10 @@ async def update_profile(update: UserCreate, db: AsyncSession = Depends(get_db),
 
 @app.get("/admin")
 async def admin_only(current_user=Depends(has_role("admin"))):
-    return {"message": f"Hello, admin {current_user.username}!"} 
+    return {"message": f"Hello, admin {current_user.username}!"}
+
+@app.get("/audit/logs", response_model=List[AuditLogRead])
+async def get_audit_logs(db: AsyncSession = Depends(get_db), current_user=Depends(has_role("admin"))):
+    result = await db.execute(AuditLog.__table__.select().order_by(AuditLog.created_at.desc()))
+    logs = result.fetchall()
+    return [AuditLogRead.from_orm(row if not isinstance(row, tuple) else row[0]) for row in logs] 
