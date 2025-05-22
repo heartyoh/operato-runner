@@ -1,10 +1,11 @@
 # Task ID: 16.6
 # Title: FastAPI 프로젝트 구조 생성 및 의존성 관리
-# Status: pending
+# Status: cancelled
 # Dependencies: None
 # Priority: high
 
 # Description:
+불필요한 작업(이미 프로젝트에 구현되어 있음)
 FastAPI 기반의 백엔드 프로젝트를 초기화하고, poetry 또는 pip로 의존성 관리를 설정한다. 개발 표준 구조(예: app, models, api, core, tests 등)를 만든다.
 
 # Details:
