@@ -1,0 +1,27 @@
+# Task ID: 16.12
+# Title: Deployment 모델 클래스 작성
+# Status: pending
+# Dependencies: 16.11
+# Priority: high
+
+# Description:
+배포(Deployment) 테이블에 대한 SQLAlchemy 모델 클래스를 작성한다.
+
+# Details:
+- Deployment 테이블의 필드(예: id, module_id, version_id, status, deployed_at 등) 설계
+- SQLAlchemy Base를 상속받는 Deployment 모델 클래스 구현
+- Module-Deployment, Version-Deployment 관계 설계 및 관계 필드 추가
+- Deployment 모델에 대한 Pydantic 스키마(DeploymentCreate, DeploymentRead 등) 작성
+- DB 마이그레이션 반영(초기 테이블 생성)
+
+# Acceptance Criteria:
+- Deployment 모델 클래스가 models/deployment.py 등 별도 파일에 구현되어 있음
+- 필수 필드 및 타입이 명확히 정의되어 있음
+- Alembic 마이그레이션으로 Deployment 테이블이 DB에 생성됨
+- Module/Version-Deployment 관계가 DB에 반영됨
+- Pydantic 스키마가 API 입력/출력에 활용됨
+
+# Test Strategy:
+- DB에 Deployment 테이블이 정상 생성되는지 확인
+- Module/Version-Deployment 관계가 정상적으로 동작하는지 테스트
+- DeploymentCreate, DeploymentRead 스키마로 데이터 검증 테스트 

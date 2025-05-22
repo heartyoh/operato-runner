@@ -1,0 +1,21 @@
+# Task ID: 17.8
+# Title: 관리자 UI 연동 및 자동화 테스트
+# Status: pending
+# Dependencies: 17.7
+# Priority: medium
+
+# Description:
+관리자 대시보드(React 등)에서 모듈 업로드/배포/상태조회/이력조회 등 기능을 연동하고, 주요 플로우에 대한 자동화 테스트를 작성한다.
+
+# Details:
+- 프론트엔드에서 API 연동
+- 주요 플로우(업로드→배포→실행→상태조회) 자동화 테스트 작성
+- Playwright, Cypress 등 도구 활용
+
+# Acceptance Criteria:
+- 관리자 UI에서 모든 기능이 정상 동작
+- 자동화 테스트가 주요 시나리오를 커버
+
+# Test Strategy:
+- E2E(End-to-End) 자동화 테스트
+- UI/UX 및 API 연동 정상 동작 확인 

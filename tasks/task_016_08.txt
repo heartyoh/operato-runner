@@ -1,0 +1,26 @@
+# Task ID: 16.13
+# Title: Alembic 마이그레이션 스크립트 작성
+# Status: pending
+# Dependencies: 16.12
+# Priority: high
+
+# Description:
+DB 스키마 관리를 위한 Alembic 마이그레이션 환경을 구축하고, 초기 마이그레이션 스크립트를 작성한다.
+
+# Details:
+- Alembic 패키지 설치 및 프로젝트에 연동
+- alembic init 명령으로 마이그레이션 환경 생성
+- env.py, alembic.ini 등 설정 파일 수정(SQLAlchemy 모델 경로, DB URL 등)
+- models 전체를 반영하는 초기 마이그레이션 스크립트 생성
+- 마이그레이션 적용 및 롤백 테스트
+
+# Acceptance Criteria:
+- alembic/ 디렉토리 및 설정 파일이 프로젝트에 추가됨
+- models 전체가 DB에 정상 반영됨(테이블 생성)
+- 마이그레이션 적용/롤백이 정상 동작함
+- README.md에 마이그레이션 사용법이 명시됨
+
+# Test Strategy:
+- alembic upgrade head/down 명령으로 마이그레이션 적용/롤백 테스트
+- DB에 모든 테이블이 정상 생성/삭제되는지 확인
+- 마이그레이션 스크립트의 버전 관리 확인 

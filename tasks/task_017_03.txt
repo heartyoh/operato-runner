@@ -1,0 +1,25 @@
+# Task ID: 17.3
+# Title: requirements.txt 파싱 및 의존성 설치 자동화
+# Status: pending
+# Dependencies: 17.2
+# Priority: high
+
+# Description:
+requirements.txt를 파싱하여 subprocess로 pip install을 자동 실행하고, 설치 결과/에러를 로깅한다.
+
+# Details:
+- requirements.txt 파일 파싱 및 유효성 검사
+- subprocess로 pip install 명령 실행
+- 설치 성공/실패 결과 및 로그 저장
+- 설치 실패 시 에러 메시지 반환
+- 의존성 설치 결과를 DB/로그에 기록
+
+# Acceptance Criteria:
+- requirements.txt가 정상 파싱되고, 의존성 설치가 자동화됨
+- 설치 실패 시 명확한 에러 메시지 반환
+- 설치 결과가 DB/로그에 기록됨
+
+# Test Strategy:
+- 정상/비정상 requirements.txt 업로드 시나리오 테스트
+- pip install 성공/실패 케이스 검증
+- 설치 로그/결과 DB 기록 확인 

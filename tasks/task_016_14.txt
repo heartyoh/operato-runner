@@ -1,0 +1,26 @@
+# Task ID: 16.19
+# Title: 단위 테스트 작성(pytest)
+# Status: pending
+# Dependencies: 16.18
+# Priority: high
+
+# Description:
+FastAPI 백엔드의 각 기능별 단위 테스트를 pytest로 작성한다.
+
+# Details:
+- pytest, httpx 등 테스트 관련 패키지 설치
+- 주요 모델/서비스/엔드포인트별 단위 테스트 함수 작성
+- 테스트용 DB/환경 분리 및 설정
+- 인증/권한/예외 처리 등 다양한 시나리오 테스트
+- 커버리지 측정 및 미달 구간 보완
+
+# Acceptance Criteria:
+- tests/ 디렉토리에 테스트 코드가 분리되어 있음
+- 모든 주요 기능에 대한 단위 테스트가 작성됨
+- pytest 실행 시 모든 테스트가 통과함
+- 커버리지 리포트가 80% 이상 달성됨
+
+# Test Strategy:
+- pytest 명령으로 전체 테스트 실행
+- 실패/누락 테스트 보완 및 반복 실행
+- 커버리지 리포트 확인 및 미달 구간 추가 테스트 작성 

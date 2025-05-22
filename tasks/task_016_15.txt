@@ -1,0 +1,26 @@
+# Task ID: 16.20
+# Title: API 문서화(OpenAPI)
+# Status: pending
+# Dependencies: 16.19
+# Priority: high
+
+# Description:
+FastAPI의 OpenAPI 스펙을 활용하여 자동 API 문서화를 구현한다.
+
+# Details:
+- FastAPI의 내장 OpenAPI 문서(/docs, /redoc) 활성화
+- 각 엔드포인트/모델에 docstring, 설명, 예시 등 추가
+- 커스텀 스키마/응답/에러 포맷 문서화
+- API 버전/인증/권한 등 주요 정책 명시
+- README.md에 API 문서 접근 방법 안내
+
+# Acceptance Criteria:
+- /docs, /redoc에서 모든 엔드포인트/모델이 문서화됨
+- 주요 입력/출력/에러 응답이 명확히 문서화됨
+- API 정책(인증/권한/버전 등)이 문서에 포함됨
+- README.md에 문서 접근/활용법이 안내됨
+
+# Test Strategy:
+- /docs, /redoc에서 문서화 상태 확인
+- 엔드포인트/모델/에러 응답별 문서화 누락 여부 점검
+- 문서화 내용이 최신 코드와 일치하는지 검증 

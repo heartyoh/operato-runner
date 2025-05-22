@@ -1,0 +1,26 @@
+# Task ID: 16.7
+# Title: SQLite 연동 및 SQLAlchemy 설정
+# Status: pending
+# Dependencies: 16.6
+# Priority: high
+
+# Description:
+SQLite 데이터베이스와 연동하고, SQLAlchemy ORM을 설정한다. DB 연결 환경변수 및 설정 파일을 SQLite 기준으로 작성한다.
+
+# Details:
+- .env 또는 config.py에 SQLite DB 파일 경로 환경변수 추가 (예: db.sqlite3)
+- SQLAlchemy를 이용한 DB 연결 코드 작성
+- SQLAlchemy 세션 관리 및 엔진 생성 코드 구현
+- FastAPI 앱에 DB 세션 의존성 주입
+- DB 연결 테스트용 엔드포인트(예: /health/db) 임시 구현
+
+# Acceptance Criteria:
+- SQLite DB 파일이 자동 생성되고, 연결이 정상적으로 이루어짐
+- SQLAlchemy 세션/엔진 코드가 별도 모듈로 분리되어 있음
+- 환경변수/설정 파일에서 DB 경로를 쉽게 변경 가능
+- DB 연결 상태를 확인할 수 있는 엔드포인트가 동작함
+
+# Test Strategy:
+- 서버 기동 시 DB 파일 생성 및 연결 확인
+- /health/db 엔드포인트 호출로 DB 연결 상태 확인
+- 환경변수 변경 시 DB 파일 경로가 반영되는지 테스트 

@@ -1,0 +1,21 @@
+# Task ID: 17.5
+# Title: 모듈 메타데이터 및 버전 정보 DB 저장
+# Status: pending
+# Dependencies: 17.4
+# Priority: high
+
+# Description:
+업로드된 모듈의 이름, 버전, 설명, requirements, venv 경로 등 메타데이터를 DB에 저장한다. 중복 버전 업로드는 방지한다.
+
+# Details:
+- 업로드 성공 시 DB에 모듈 정보 저장
+- 중복 버전 업로드 시 에러 반환
+- DB 모델: Module, ModuleVersion 등 설계
+
+# Acceptance Criteria:
+- DB에 정보가 정상 저장됨
+- 중복 버전 업로드 시 업로드 거부 및 에러 반환
+
+# Test Strategy:
+- 정상/중복 업로드 시나리오 테스트
+- DB 저장/조회/에러 처리 검증 

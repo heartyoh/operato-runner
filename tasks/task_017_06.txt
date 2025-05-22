@@ -1,0 +1,22 @@
+# Task ID: 17.6
+# Title: 모듈 배포(activate)/비활성화(deactivate)/삭제(delete) API
+# Status: pending
+# Dependencies: 17.5
+# Priority: high
+
+# Description:
+업로드된 모듈을 운영 환경에 배포(activate), 비활성화(deactivate), 삭제(delete)하는 API를 구현한다. 상태 변경 시 venv 및 DB 정리, 이력 기록을 포함한다.
+
+# Details:
+- 배포 시 venv 활성화 및 handler 정상 동작 여부 확인
+- 비활성화/삭제 시 venv 및 DB 정리
+- 상태 변경 이력 DB 기록
+- API: /modules/{id}/activate, /modules/{id}/deactivate, /modules/{id}/delete 등
+
+# Acceptance Criteria:
+- 각 API가 정상 동작하며, 상태 변경이 DB/이력에 기록됨
+- 비정상 상황(예: 이미 활성화된 모듈 재배포 등)에서 적절한 에러 반환
+
+# Test Strategy:
+- 배포/비활성화/삭제 정상/비정상 시나리오 테스트
+- 상태 변경 이력 DB 기록 검증 

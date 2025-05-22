@@ -1,0 +1,28 @@
+# Task ID: 16.6
+# Title: FastAPI 프로젝트 구조 생성 및 의존성 관리
+# Status: pending
+# Dependencies: None
+# Priority: high
+
+# Description:
+FastAPI 기반의 백엔드 프로젝트를 초기화하고, poetry 또는 pip로 의존성 관리를 설정한다. 개발 표준 구조(예: app, models, api, core, tests 등)를 만든다.
+
+# Details:
+- 새로운 Python 프로젝트 디렉토리 생성 (예: backend/)
+- poetry 또는 pipenv로 가상환경 및 의존성 관리 도구 초기화
+- FastAPI, Uvicorn, SQLAlchemy, pydantic 등 필수 패키지 설치
+- src/app, src/models, src/api, src/core, src/tests 등 표준 디렉토리 구조 생성
+- main.py(엔트리포인트) 및 기본 FastAPI 인스턴스 생성
+- README.md, .gitignore, requirements.txt/pyproject.toml 등 기본 파일 작성
+- 개발/운영 환경 분리(예: .env, config.py 등)
+
+# Acceptance Criteria:
+- FastAPI 서버가 `uvicorn main:app --reload`로 정상 기동됨
+- 의존성 관리(pyproject.toml/requirements.txt) 파일이 존재함
+- 표준 디렉토리 구조가 생성되어 있음
+- README.md에 프로젝트 구조 및 실행 방법이 명시됨
+
+# Test Strategy:
+- `uvicorn main:app --reload` 명령으로 서버 기동 테스트
+- `GET /docs`로 OpenAPI 문서 접근 확인
+- 디렉토리/파일 구조 및 의존성 파일 존재 여부 확인 

@@ -1,0 +1,25 @@
+# Task ID: 17.2
+# Title: 업로드 모듈 구조/핸들러 자동 검증
+# Status: pending
+# Dependencies: 17.1
+# Priority: high
+
+# Description:
+업로드된 모듈의 handler 함수 존재 여부, requirements.txt, README 등 필수 파일을 자동 검사한다. 검증 실패 시 에러 응답을 반환한다.
+
+# Details:
+- 업로드된 압축파일/폴더의 구조 파싱
+- handler.py(또는 handler 함수) 존재 여부 검사
+- requirements.txt, README 등 필수 파일 체크
+- 검증 실패 시 상세 에러 메시지 반환
+- 검증 결과를 DB 또는 로그에 기록
+
+# Acceptance Criteria:
+- handler 함수 및 필수 파일이 없을 경우 업로드가 거부됨
+- 검증 실패 시 명확한 에러 메시지 반환
+- 검증 결과가 DB/로그에 기록됨
+
+# Test Strategy:
+- handler 누락, requirements.txt 누락 등 다양한 실패 케이스 테스트
+- 정상 구조/비정상 구조 업로드 시나리오 검증
+- 검증 결과 DB/로그 기록 확인 

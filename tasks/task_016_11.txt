@@ -1,0 +1,25 @@
+# Task ID: 16.16
+# Title: RBAC 미들웨어 구현
+# Status: pending
+# Dependencies: 16.15
+# Priority: high
+
+# Description:
+역할 기반 접근 제어(RBAC) 미들웨어를 구현하여 엔드포인트별 권한 체크를 수행한다.
+
+# Details:
+- 엔드포인트별 required_role/permission 지정 방식 설계
+- FastAPI Dependency로 RBAC 미들웨어 구현
+- JWT 토큰에서 사용자 권한 추출 및 검증
+- 권한 부족 시 403 Forbidden 에러 반환
+- 테스트용 보호 엔드포인트(/admin 등) 구현
+
+# Acceptance Criteria:
+- RBAC 미들웨어가 모든 보호된 엔드포인트에 적용됨
+- 권한 없는 사용자는 접근 불가(403 반환)
+- 엔드포인트별 권한 요구사항이 명확히 정의됨
+
+# Test Strategy:
+- 권한별 접근 시나리오 테스트(관리자/일반 사용자 등)
+- 권한 없는 접근 시 403 에러 응답 확인
+- 엔드포인트별 required_role/permission 동작 검증 

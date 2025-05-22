@@ -1,0 +1,26 @@
+# Task ID: 17.4
+# Title: 모듈별 독립 실행 환경(venv) 자동 생성
+# Status: pending
+# Dependencies: 17.3
+# Priority: high
+
+# Description:
+업로드된 모듈마다 별도 venv 디렉토리를 생성하고, venv 활성화 및 의존성 설치 스크립트를 구현한다. 환경 생성/설치 성공 여부를 검증한다.
+
+# Details:
+- 업로드된 모듈별로 고유 venv 디렉토리 생성
+- venv 활성화 및 requirements.txt 기반 의존성 설치
+- venv 생성/설치 성공 여부 확인 및 에러 처리
+- venv 경로/상태를 DB에 저장
+- venv 삭제/정리 스크립트 구현
+
+# Acceptance Criteria:
+- 각 모듈별로 독립적인 venv가 생성됨
+- 의존성 설치가 venv 환경에서만 이루어짐
+- venv 생성/설치 실패 시 에러 반환
+- venv 경로/상태가 DB에 기록됨
+
+# Test Strategy:
+- 여러 모듈 업로드 시 venv가 각각 생성되는지 확인
+- venv 환경에서만 의존성 설치/실행이 되는지 테스트
+- venv 삭제/정리 동작 검증 

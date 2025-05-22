@@ -1,0 +1,21 @@
+# Task ID: 17.7
+# Title: 모듈 실행/상태조회/이력조회 API
+# Status: pending
+# Dependencies: 17.6
+# Priority: high
+
+# Description:
+업로드된 모듈을 실제로 실행(test run)하고, 상태 및 이력을 조회하는 API를 구현한다.
+
+# Details:
+- handler 함수 실행 및 결과 반환 API
+- 실행 로그/결과 DB 기록
+- 상태/이력 조회 엔드포인트 구현
+
+# Acceptance Criteria:
+- 정상/비정상 모듈 실행 시 결과/에러 반환
+- 실행 결과/로그/이력 DB 기록 확인
+
+# Test Strategy:
+- 정상/비정상 실행 시나리오 테스트
+- 상태/이력 조회 API 검증 

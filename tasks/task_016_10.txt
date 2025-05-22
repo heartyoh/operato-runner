@@ -1,0 +1,27 @@
+# Task ID: 16.15
+# Title: 사용자 등록/로그인/프로필 API 구현
+# Status: pending
+# Dependencies: 16.14
+# Priority: high
+
+# Description:
+회원가입, 로그인, 프로필 조회/수정 API를 구현한다.
+
+# Details:
+- /auth/register(회원가입), /auth/login(로그인) 엔드포인트 구현
+- JWT 토큰 발급 및 응답에 포함
+- /users/me(프로필 조회/수정) 엔드포인트 구현
+- 입력/출력 데이터 검증(Pydantic 스키마 활용)
+- 인증 미들웨어 적용 및 권한 체크
+- 예외 처리 및 에러 응답 표준화
+
+# Acceptance Criteria:
+- 회원가입/로그인/프로필 API가 정상 동작함
+- JWT 토큰이 로그인 시 정상 발급됨
+- 인증된 사용자만 프로필 조회/수정 가능
+- 입력/출력 데이터가 스키마로 검증됨
+
+# Test Strategy:
+- 회원가입/로그인/프로필 API에 대한 단위/통합 테스트
+- 인증/비인증 사용자 시나리오 테스트
+- 잘못된 입력/권한 없는 접근에 대한 에러 응답 확인 

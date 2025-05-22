@@ -1,0 +1,26 @@
+# Task ID: 16.8
+# Title: User 모델 클래스 작성
+# Status: pending
+# Dependencies: 16.7
+# Priority: high
+
+# Description:
+사용자(User) 테이블에 대한 SQLAlchemy 모델 클래스를 작성한다.
+
+# Details:
+- User 테이블의 필드(예: id, username, email, hashed_password, created_at 등) 설계
+- SQLAlchemy Base를 상속받는 User 모델 클래스 구현
+- __repr__, __str__ 등 편의 메서드 추가
+- User 모델에 대한 Pydantic 스키마(UserCreate, UserRead 등) 작성
+- DB 마이그레이션 반영(초기 테이블 생성)
+
+# Acceptance Criteria:
+- User 모델 클래스가 models/user.py 등 별도 파일에 구현되어 있음
+- 필수 필드 및 타입이 명확히 정의되어 있음
+- Alembic 마이그레이션으로 User 테이블이 DB에 생성됨
+- Pydantic 스키마가 API 입력/출력에 활용됨
+
+# Test Strategy:
+- DB에 User 테이블이 정상 생성되는지 확인
+- UserCreate, UserRead 스키마로 데이터 검증 테스트
+- User 인스턴스 생성 및 __repr__ 동작 확인 

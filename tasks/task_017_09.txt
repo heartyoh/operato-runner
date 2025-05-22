@@ -1,0 +1,21 @@
+# Task ID: 17.9
+# Title: 롤백 및 버전 관리
+# Status: pending
+# Dependencies: 17.8
+# Priority: medium
+
+# Description:
+모듈의 이전 버전으로 롤백하고, 버전별 활성화/비활성화 및 이력 관리를 구현한다.
+
+# Details:
+- 롤백 API 및 UI 구현
+- 버전별 활성화/비활성화 지원
+- 롤백 이력 및 상태 관리
+
+# Acceptance Criteria:
+- 롤백 시 이전 버전이 정상 활성화됨
+- 버전별 상태/이력 관리가 가능함
+
+# Test Strategy:
+- 롤백/버전 활성화/비활성화 시나리오 테스트
+- 이력 관리 DB/화면 검증 
