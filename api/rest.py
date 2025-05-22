@@ -4,6 +4,8 @@ from pydantic import BaseModel
 from models import Module, ExecRequest, ExecResult
 from module_registry import ModuleRegistry
 from executor_manager import ExecutorManager
+from sqlalchemy.ext.asyncio import AsyncSession
+from core.db import get_db
 
 app = FastAPI(title="Operato Runner", description="Python module execution platform")
 
@@ -123,4 +125,13 @@ async def run_module(
 async def list_environments(
     executor_manager: ExecutorManager = Depends(get_executor_manager)
 ):
-    return {"environments": executor_manager.get_available_environments()} 
+    return {"environments": executor_manager.get_available_environments()}
+
+# DB 연결 상태 확인 엔드포인트
+@app.get("/health/db")
+async def health_check(db: AsyncSession = Depends(get_db)):
+    try:
+        await db.execute("SELECT 1")
+        return {"status": "ok"}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)} 

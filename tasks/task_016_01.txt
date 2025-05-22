@@ -1,6 +1,6 @@
 # Task ID: 16.6
 # Title: FastAPI 프로젝트 구조 생성 및 의존성 관리
-# Status: cancelled
+# Status: done
 # Dependencies: None
 # Priority: high
 
@@ -27,3 +27,6 @@ FastAPI 기반의 백엔드 프로젝트를 초기화하고, poetry 또는 pip�
 - `uvicorn main:app --reload` 명령으로 서버 기동 테스트
 - `GET /docs`로 OpenAPI 문서 접근 확인
 - 디렉토리/파일 구조 및 의존성 파일 존재 여부 확인 
+
+# 완료 메모:
+2024-06-09: 실 프로젝트 구조 및 의존성 관리가 이미 구현되어 있어 완료 처리함. 
