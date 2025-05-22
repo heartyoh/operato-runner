@@ -380,7 +380,7 @@
           "title": "비밀번호 해싱/보안 적용",
           "description": "비밀번호 해싱 및 보안 정책을 적용한다. 안전한 인증을 위한 best practice를 따른다.",
           "details": "",
-          "status": "pending",
+          "status": "done",
           "dependencies": [],
           "parentTaskId": 16
         },

@@ -9,6 +9,7 @@ from core.db import AsyncSessionLocal
 from models.user import User
 import hashlib
 from utils.jwt import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, create_access_token, decode_token
+from utils.security import hash_password, verify_password, validate_password_policy
 
 # Models
 class Token(BaseModel):
@@ -82,4 +83,7 @@ def has_scope(required_scope: str):
                 detail=f"Not enough permissions. Required scope: {required_scope}"
             )
         return current_user
-    return _has_scope 
+    return _has_scope
+
+# 회원가입/비밀번호 변경 시 validate_password_policy, hash_password 사용
+# 로그인 시 verify_password 사용 

@@ -10,6 +10,7 @@ from models.user import User
 from schemas.user import UserCreate, UserRead
 from utils.jwt import create_access_token
 from api.auth import verify_password, get_current_user, has_role
+from utils.security import hash_password, validate_password_policy
 import hashlib
 
 app = FastAPI(title="Operato Runner", description="Python module execution platform")
@@ -150,7 +151,11 @@ async def register(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
     existing = result.first()
     if existing:
         raise HTTPException(status_code=400, detail="Username already registered")
-    hashed_pw = hashlib.sha256(user_in.password.encode("utf-8")).hexdigest()
+    try:
+        validate_password_policy(user_in.password)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    hashed_pw = hash_password(user_in.password)
     user = User(username=user_in.username, email=user_in.email, hashed_password=hashed_pw)
     db.add(user)
     await db.commit()
@@ -185,7 +190,11 @@ async def update_profile(update: UserCreate, db: AsyncSession = Depends(get_db),
         raise HTTPException(status_code=404, detail="User not found")
     user = user[0] if isinstance(user, tuple) else user
     if update.password:
-        user.hashed_password = hashlib.sha256(update.password.encode("utf-8")).hexdigest()
+        try:
+            validate_password_policy(update.password)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        user.hashed_password = hash_password(update.password)
     if update.email:
         user.email = update.email
     await db.commit()
