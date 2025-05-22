@@ -6,6 +6,11 @@ from module_registry import ModuleRegistry
 from executor_manager import ExecutorManager
 from sqlalchemy.ext.asyncio import AsyncSession
 from core.db import get_db
+from models.user import User
+from schemas.user import UserCreate, UserRead
+from utils.jwt import create_access_token
+from api.auth import verify_password, get_current_user
+import hashlib
 
 app = FastAPI(title="Operato Runner", description="Python module execution platform")
 
@@ -134,4 +139,55 @@ async def health_check(db: AsyncSession = Depends(get_db)):
         await db.execute("SELECT 1")
         return {"status": "ok"}
     except Exception as e:
-        return {"status": "error", "detail": str(e)} 
+        return {"status": "error", "detail": str(e)}
+
+@app.post("/auth/register", response_model=UserRead, status_code=201)
+async def register(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
+    # 이미 존재하는 사용자 체크
+    result = await db.execute(
+        User.__table__.select().where(User.username == user_in.username)
+    )
+    existing = result.first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Username already registered")
+    hashed_pw = hashlib.sha256(user_in.password.encode("utf-8")).hexdigest()
+    user = User(username=user_in.username, email=user_in.email, hashed_password=hashed_pw)
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+    return UserRead.from_orm(user)
+
+@app.post("/auth/login")
+async def login(form: UserCreate, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        User.__table__.select().where(User.username == form.username)
+    )
+    user = result.first()
+    if not user:
+        raise HTTPException(status_code=401, detail="Incorrect username or password")
+    user = user[0] if isinstance(user, tuple) else user
+    if not verify_password(form.password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="Incorrect username or password")
+    access_token = create_access_token({"sub": user.username, "scopes": []})
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@app.get("/users/me", response_model=UserRead)
+async def get_profile(current_user: UserRead = Depends(get_current_user)):
+    return current_user
+
+@app.patch("/users/me", response_model=UserRead)
+async def update_profile(update: UserCreate, db: AsyncSession = Depends(get_db), current_user: UserRead = Depends(get_current_user)):
+    result = await db.execute(
+        User.__table__.select().where(User.username == current_user.username)
+    )
+    user = result.first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user = user[0] if isinstance(user, tuple) else user
+    if update.password:
+        user.hashed_password = hashlib.sha256(update.password.encode("utf-8")).hexdigest()
+    if update.email:
+        user.email = update.email
+    await db.commit()
+    await db.refresh(user)
+    return UserRead.from_orm(user) 

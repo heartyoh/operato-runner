@@ -203,7 +203,7 @@ Testing for this task should be comprehensive and include:
 ### Details:
 
 
-## 15. 사용자 등록/로그인/프로필 API 구현 [pending]
+## 15. 사용자 등록/로그인/프로필 API 구현 [done]
 ### Dependencies: None
 ### Description: 회원가입, 로그인, 프로필 조회/수정 API를 구현한다.
 ### Details:
