@@ -3,7 +3,7 @@ import sys
 from io import StringIO
 import time
 from executors.base import Executor
-from models import ExecRequest, ExecResult
+from module_models import ExecRequest, ExecResult
 
 class InlineExecutor(Executor):
     def __init__(self, module_registry=None):

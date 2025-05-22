@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Depends, Body, Request
 from typing import Dict, List, Any, Optional
 from pydantic import BaseModel
-from models import Module, ExecRequest, ExecResult
+from module_models import Module, ExecRequest, ExecResult
 from module_registry import ModuleRegistry
 from executor_manager import ExecutorManager
 from sqlalchemy.ext.asyncio import AsyncSession

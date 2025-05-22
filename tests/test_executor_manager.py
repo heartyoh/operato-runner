@@ -2,7 +2,7 @@ import pytest
 import asyncio
 from executor_manager import ExecutorManager
 from module_registry import ModuleRegistry
-from models import Module, ExecRequest, ExecResult
+from module_models import Module, ExecRequest, ExecResult
 from datetime import datetime
 from executors.base import Executor
 

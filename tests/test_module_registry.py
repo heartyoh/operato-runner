@@ -4,7 +4,7 @@ import yaml
 import pytest
 from datetime import datetime
 from module_registry import ModuleRegistry
-from models import Module
+from module_models import Module
 
 def make_module(name, env="inline", tags=None):
     return Module(

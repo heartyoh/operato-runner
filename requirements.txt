@@ -12,4 +12,6 @@ protobuf
 # --- DB/ORM 및 환경변수 관리 ---
 sqlalchemy
 aiosqlite
-python-dotenv 
+python-dotenv
+alembic
+greenlet 

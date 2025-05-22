@@ -5,6 +5,10 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import os
 from datetime import datetime, timedelta
+from sqlalchemy.future import select
+from core.db import AsyncSessionLocal
+from models.user import User
+import hashlib
 
 # Models
 class Token(BaseModel):
@@ -15,7 +19,7 @@ class TokenData(BaseModel):
     username: Optional[str] = None
     scopes: List[str] = []
 
-class User(BaseModel):
+class UserOut(BaseModel):
     username: str
     disabled: Optional[bool] = None
     scopes: List[str] = []
@@ -28,21 +32,14 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 30
 # Security
 security = HTTPBearer()
 
-# Fake user database for demonstration
-fake_users_db = {
-    "admin": {
-        "username": "admin",
-        "password": "password",  # In production, use hashed passwords
-        "disabled": False,
-        "scopes": ["modules:read", "modules:write", "execute:all"]
-    },
-    "user": {
-        "username": "user",
-        "password": "password",
-        "disabled": False,
-        "scopes": ["modules:read", "execute:limited"]
-    }
-}
+# DB 기반 사용자 조회
+async def get_user_by_username(username: str):
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(User).where(User.username == username))
+        return result.scalars().first()
+
+def verify_password(plain_password, hashed_password):
+    return hashlib.sha256(plain_password.encode('utf-8')).hexdigest() == hashed_password
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
@@ -70,18 +67,19 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Security(
         token_data = TokenData(username=username, scopes=token_scopes)
     except JWTError:
         raise credentials_exception
-    user = fake_users_db.get(token_data.username)
+    user = await get_user_by_username(token_data.username)
     if user is None:
         raise credentials_exception
-    return User(username=user["username"], disabled=user["disabled"], scopes=user["scopes"])
+    # scopes/disabled 필드는 User 모델에 맞게 확장 필요
+    return UserOut(username=user.username, disabled=False, scopes=token_data.scopes)
 
-async def get_current_active_user(current_user: User = Depends(get_current_user)):
+async def get_current_active_user(current_user: UserOut = Depends(get_current_user)):
     if current_user.disabled:
         raise HTTPException(status_code=400, detail="Inactive user")
     return current_user
 
 def has_scope(required_scope: str):
-    async def _has_scope(current_user: User = Depends(get_current_active_user)):
+    async def _has_scope(current_user: UserOut = Depends(get_current_active_user)):
         if required_scope not in current_user.scopes:
             raise HTTPException(
                 status_code=403,

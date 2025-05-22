@@ -1,5 +1,5 @@
 import pytest
-from models import Module, ExecRequest, ExecResult
+from module_models import Module, ExecRequest, ExecResult
 from datetime import datetime
 from pydantic import ValidationError
 

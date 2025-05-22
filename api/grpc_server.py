@@ -4,7 +4,7 @@ from concurrent import futures
 from typing import Any
 import asyncio
 from proto import executor_pb2, executor_pb2_grpc
-from models import Module, ExecRequest as ModelExecRequest
+from module_models import Module, ExecRequest as ModelExecRequest
 from module_registry import ModuleRegistry
 from executor_manager import ExecutorManager
 from api.auth import get_current_user, User, SECRET_KEY, ALGORITHM

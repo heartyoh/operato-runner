@@ -1,7 +1,6 @@
 from pydantic import BaseModel, Field, ValidationError, StrictStr
 from datetime import datetime
 from typing import Optional, Dict, Any, List
-
 class Module(BaseModel):
     name: StrictStr
     env: StrictStr  # 'inline', 'venv', 'conda', 'docker'

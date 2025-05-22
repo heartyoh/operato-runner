@@ -3,7 +3,7 @@ from executors.base import Executor
 from executors.inline import InlineExecutor
 from executors.venv import VenvExecutor
 from module_registry import ModuleRegistry
-from models import ExecRequest, ExecResult
+from module_models import ExecRequest, ExecResult
 
 class ExecutorManager:
     def __init__(self, module_registry: ModuleRegistry):

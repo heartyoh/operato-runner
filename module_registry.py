@@ -2,7 +2,7 @@ import os
 import yaml
 from typing import Dict, List, Optional, Any
 from datetime import datetime
-from models import Module
+from module_models import Module
 
 class ModuleRegistry:
     def __init__(self, config_path="./modules.yaml"):

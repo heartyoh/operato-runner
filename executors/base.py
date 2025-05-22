@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Any
-from models import ExecRequest, ExecResult
+from module_models import ExecRequest, ExecResult
 
 class Executor(ABC):
     @abstractmethod
