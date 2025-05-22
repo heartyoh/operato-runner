@@ -53,3 +53,7 @@ venvs/
 *.tgz
 .helm/
 charts/*.tgz
+
+# modules.yaml
+modules.yaml
+venvs/

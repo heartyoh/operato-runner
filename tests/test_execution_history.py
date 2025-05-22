@@ -23,7 +23,6 @@ def sample_result():
         duration=0.5
     )
 
-@pytest.mark.asyncio
 def test_db_init(exec_history):
     # DB 파일이 생성되고 테이블이 존재해야 함
     assert os.path.exists(exec_history.db_path)
@@ -35,7 +34,6 @@ def test_db_init(exec_history):
     assert cursor.fetchone() is not None
     conn.close()
 
-@pytest.mark.asyncio
 def test_record_and_get(exec_history, sample_result):
     eid = exec_history.record_execution("mod1", {"x": 1}, sample_result)
     row = exec_history.get_execution(eid)
@@ -46,7 +44,6 @@ def test_record_and_get(exec_history, sample_result):
     assert row["stdout"] == "ok"
     assert row["stderr"] == ""
 
-@pytest.mark.asyncio
 def test_list_executions(exec_history, sample_result):
     for i in range(5):
         exec_history.record_execution("modA", {"i": i}, sample_result)
@@ -62,7 +59,6 @@ def test_list_executions(exec_history, sample_result):
     paged = exec_history.list_executions(limit=2, offset=1)
     assert len(paged) == 2
 
-@pytest.mark.asyncio
 def test_get_module_stats(exec_history, sample_result):
     # 성공 3, 실패 2
     for i in range(3):

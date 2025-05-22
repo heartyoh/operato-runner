@@ -32,11 +32,15 @@ class CondaExecutor(Executor):
     async def execute(self, request: ExecRequest) -> ExecResult:
         start_time = time.time()
         module_name = request.module
-        # 입력 JSON 임시 파일 생성
+        
+        # 입력 파일 생성 - NamedTemporaryFile 사용
         with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as input_file:
             json.dump(request.input_json, input_file)
             input_path = input_file.name
+        
+        # 출력 파일 경로만 확보 (파일은 미리 생성하지 않음)
         output_path = tempfile.mktemp(suffix='.json')
+        
         # 모듈 경로 획득
         module_path = ""
         if self.module_registry:
@@ -60,19 +64,13 @@ class CondaExecutor(Executor):
                 text=True,
                 timeout=60
             )
-            if os.path.exists(output_path):
-                with open(output_path, 'r') as f:
-                    result_json = json.load(f)
-            else:
-                # 테스트 환경에서 파일 생성 타이밍 이슈 방지: 최대 0.1초 재시도
-                import time as _time
-                for _ in range(10):
-                    if os.path.exists(output_path):
-                        with open(output_path, 'r') as f:
-                            result_json = json.load(f)
-                        break
-                    _time.sleep(0.01)
-                else:
+            result_json = {}
+            if process.returncode == 0:
+                try:
+                    with open(output_path, 'r') as f:
+                        result_json = json.load(f)
+                except (FileNotFoundError, json.JSONDecodeError) as e:
+                    print(f"Error reading output file: {str(e)}")
                     result_json = {}
             exit_code = process.returncode
             stderr = process.stderr
@@ -88,10 +86,13 @@ class CondaExecutor(Executor):
             stdout = ""
             result_json = {}
         finally:
-            if os.path.exists(input_path):
-                os.unlink(input_path)
-            if os.path.exists(output_path):
-                os.unlink(output_path)
+            try:
+                if os.path.exists(input_path):
+                    os.unlink(input_path)
+                if os.path.exists(output_path):
+                    os.unlink(output_path)
+            except Exception as e:
+                print(f"Error cleaning up temporary files: {str(e)}")
         duration = time.time() - start_time
         return ExecResult(
             result_json=result_json,

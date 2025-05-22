@@ -9,20 +9,37 @@ from module_registry import ModuleRegistry
 from executor_manager import ExecutorManager
 from api.auth import get_current_user, User, SECRET_KEY, ALGORITHM
 from jose import jwt, JWTError
+import contextvars
 
 # --- gRPC JWT 인증 인터셉터 ---
+user_ctx_var = contextvars.ContextVar("grpc_user", default=None)
+
 class JwtAuthInterceptor(grpc.aio.ServerInterceptor):
     async def intercept_service(self, continuation, handler_call_details):
-        # 메타데이터에서 authorization 추출
         metadata = dict(handler_call_details.invocation_metadata)
         token = None
         auth_header = metadata.get('authorization')
         if auth_header and auth_header.lower().startswith('bearer '):
             token = auth_header[7:]
+
+        async def unauthenticated(request, context):
+            await context.abort(grpc.StatusCode.UNAUTHENTICATED, "Missing or invalid JWT token")
+
+        handler = await continuation(handler_call_details)
+        if not handler:
+            return None
+
+        def get_handler_wrapper(handler_type):
+            if not handler_type:
+                return None
+            return getattr(grpc, f"{handler_type}_rpc_method_handler")(unauthenticated)
+
         if not token:
-            def unauthenticated_behavior(request, context):
-                context.abort(grpc.StatusCode.UNAUTHENTICATED, 'Missing JWT token')
-            return grpc.aio.unary_unary_rpc_method_handler(unauthenticated_behavior)
+            for handler_type in ["unary_unary", "unary_stream", "stream_unary", "stream_stream"]:
+                if getattr(handler, handler_type, None):
+                    return get_handler_wrapper(handler_type)
+            return None
+
         try:
             payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
             username = payload.get('sub')
@@ -30,22 +47,55 @@ class JwtAuthInterceptor(grpc.aio.ServerInterceptor):
             if not username:
                 raise JWTError('No subject in token')
             user = User(username=username, scopes=scopes)
-        except JWTError as e:
-            def unauthenticated_behavior(request, context):
-                context.abort(grpc.StatusCode.UNAUTHENTICATED, f'Invalid JWT: {str(e)}')
-            return grpc.aio.unary_unary_rpc_method_handler(unauthenticated_behavior)
-        # 인증 성공: context에 user 주입
-        handler = await continuation(handler_call_details)
-        async def new_behavior(request, context):
-            context.user = user
-            return await handler.unary_unary(request, context)
-        return grpc.aio.unary_unary_rpc_method_handler(new_behavior)
+        except JWTError:
+            for handler_type in ["unary_unary", "unary_stream", "stream_unary", "stream_stream"]:
+                if getattr(handler, handler_type, None):
+                    return get_handler_wrapper(handler_type)
+            return None
+
+        def wrap(orig_func):
+            if not orig_func:
+                return None
+            async def wrapper(request, context):
+                token = user_ctx_var.set(user)
+                try:
+                    return await orig_func(request, context)
+                finally:
+                    user_ctx_var.reset(token)
+            return wrapper
+
+        # 핸들러 타입별로 직렬화/역직렬화 체인 유지하며 래핑
+        if getattr(handler, "unary_unary", None):
+            return grpc.unary_unary_rpc_method_handler(
+                wrap(handler.unary_unary),
+                request_deserializer=handler.request_deserializer,
+                response_serializer=handler.response_serializer,
+            )
+        if getattr(handler, "unary_stream", None):
+            return grpc.unary_stream_rpc_method_handler(
+                wrap(handler.unary_stream),
+                request_deserializer=handler.request_deserializer,
+                response_serializer=handler.response_serializer,
+            )
+        if getattr(handler, "stream_unary", None):
+            return grpc.stream_unary_rpc_method_handler(
+                wrap(handler.stream_unary),
+                request_deserializer=handler.request_deserializer,
+                response_serializer=handler.response_serializer,
+            )
+        if getattr(handler, "stream_stream", None):
+            return grpc.stream_stream_rpc_method_handler(
+                wrap(handler.stream_stream),
+                request_deserializer=handler.request_deserializer,
+                response_serializer=handler.response_serializer,
+            )
+        return None
 
 # --- 권한 체크 함수 ---
-def require_scope(context, required_scope):
-    user = getattr(context, 'user', None)
+async def require_scope(context, required_scope):
+    user = user_ctx_var.get()
     if not user or required_scope not in user.scopes:
-        context.abort(grpc.StatusCode.PERMISSION_DENIED, f"Not enough permissions. Required scope: {required_scope}")
+        await context.abort(grpc.StatusCode.PERMISSION_DENIED, f"Not enough permissions. Required scope: {required_scope}")
 
 class ExecutorServicer(executor_pb2_grpc.ExecutorServicer):
     def __init__(self, module_registry: ModuleRegistry, executor_manager: ExecutorManager):
@@ -53,10 +103,9 @@ class ExecutorServicer(executor_pb2_grpc.ExecutorServicer):
         self.executor_manager = executor_manager
 
     async def Execute(self, request, context):
-        # 실행 권한 체크
-        user = getattr(context, 'user', None)
+        user = user_ctx_var.get()
         if not user or (('execute:all' not in user.scopes) and ('execute:limited' not in user.scopes)):
-            context.abort(grpc.StatusCode.PERMISSION_DENIED, "Not enough permissions. Required scope: execute:all or execute:limited")
+            await context.abort(grpc.StatusCode.PERMISSION_DENIED, "Not enough permissions. Required scope: execute:all or execute:limited")
         try:
             input_json = json.loads(request.json_input)
         except json.JSONDecodeError:
@@ -77,7 +126,7 @@ class ExecutorServicer(executor_pb2_grpc.ExecutorServicer):
         )
 
     async def ListModules(self, request, context):
-        require_scope(context, "modules:read")
+        await require_scope(context, "modules:read")
         modules = self.module_registry.list_modules()
         response = executor_pb2.ListModulesResponse()
         for module in modules:
@@ -92,7 +141,7 @@ class ExecutorServicer(executor_pb2_grpc.ExecutorServicer):
         return response
 
     async def GetModule(self, request, context):
-        require_scope(context, "modules:read")
+        await require_scope(context, "modules:read")
         module = self.module_registry.get_module(request.name)
         if not module:
             context.set_code(grpc.StatusCode.NOT_FOUND)
@@ -107,7 +156,7 @@ class ExecutorServicer(executor_pb2_grpc.ExecutorServicer):
         )
 
     async def RegisterModule(self, request, context):
-        require_scope(context, "modules:write")
+        await require_scope(context, "modules:write")
         if not request.code and not request.path:
             context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
             context.set_details("Either code or path must be provided")
@@ -130,7 +179,7 @@ class ExecutorServicer(executor_pb2_grpc.ExecutorServicer):
         )
 
     async def DeleteModule(self, request, context):
-        require_scope(context, "modules:write")
+        await require_scope(context, "modules:write")
         success = self.module_registry.delete_module(request.name)
         if not success:
             context.set_code(grpc.StatusCode.NOT_FOUND)

@@ -8,10 +8,7 @@ from models import ExecRequest, ExecResult
 class ExecutorManager:
     def __init__(self, module_registry: ModuleRegistry):
         self.module_registry = module_registry
-        self.executors: Dict[str, Executor] = {
-            "inline": InlineExecutor(),
-            "venv": VenvExecutor()
-        }
+        self.executors: Dict[str, Executor] = {}
 
     async def execute(self, request: ExecRequest) -> ExecResult:
         module_name = request.module

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, Body
+from fastapi import FastAPI, HTTPException, Depends, Body, Request
 from typing import Dict, List, Any, Optional
 from pydantic import BaseModel
 from models import Module, ExecRequest, ExecResult
@@ -33,15 +33,12 @@ class RunResponse(BaseModel):
     stdout: str
     duration: float
 
-# DI
-module_registry = ModuleRegistry()
-executor_manager = ExecutorManager(module_registry)
+# DI (app.state에서 가져오도록 수정)
+def get_module_registry(request: Request):
+    return request.app.state.module_registry
 
-def get_module_registry():
-    return module_registry
-
-def get_executor_manager():
-    return executor_manager
+def get_executor_manager(request: Request):
+    return request.app.state.executor_manager
 
 # 라우트
 @app.get("/modules", response_model=List[ModuleResponse])

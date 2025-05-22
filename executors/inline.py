@@ -6,6 +6,9 @@ from executors.base import Executor
 from models import ExecRequest, ExecResult
 
 class InlineExecutor(Executor):
+    def __init__(self, module_registry=None):
+        self.module_registry = module_registry
+
     @property
     def executor_type(self) -> str:
         return "inline"
@@ -16,8 +19,14 @@ class InlineExecutor(Executor):
 
     async def execute(self, request: ExecRequest) -> ExecResult:
         start_time = time.time()
-        # 실제 구현에서는 registry에서 코드를 가져와야 하지만, 여기서는 input_json["code"] 사용
-        code = request.input_json.get("code", "")
+        # 모듈 레지스트리에서 코드 가져오기
+        code = None
+        if self.module_registry is not None and hasattr(request, 'module'):
+            module_obj = self.module_registry.get_module(request.module)
+            if module_obj and getattr(module_obj, 'code', None):
+                code = module_obj.code
+        if not code:
+            code = request.input_json.get("code", "")
         old_stdout, old_stderr = sys.stdout, sys.stderr
         stdout_capture, stderr_capture = StringIO(), StringIO()
         sys.stdout, sys.stderr = stdout_capture, stderr_capture
