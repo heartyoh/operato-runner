@@ -197,3 +197,36 @@ helm install operato-runner-dev ./operato-runner -f values-dev.yaml
 ## 기여하기
 
 기여는 언제나 환영합니다! [CONTRIBUTING.md](CONTRIBUTING.md) 파일을 참조하여 기여 방법을 확인하세요.
+
+## 데이터베이스 마이그레이션(Alembic) 사용법
+
+이 프로젝트는 DB 스키마 관리를 위해 Alembic을 사용합니다.
+
+### 마이그레이션 환경 준비
+
+- Alembic 패키지 설치: `pip install alembic`
+- 환경설정: `alembic.ini`, `alembic/env.py`에서 DB URL, 모델 경로 등 확인
+
+### 마이그레이션 스크립트 생성
+
+```bash
+alembic revision --autogenerate -m "설명"
+```
+
+### 마이그레이션 적용
+
+```bash
+alembic upgrade head
+```
+
+### 마이그레이션 롤백
+
+```bash
+alembic downgrade base
+```
+
+### 참고
+
+- DB URL 등 환경설정은 `alembic.ini`/`alembic/env.py`에서 관리
+- 모델 구조 변경 시 반드시 새 마이그레이션을 생성해야 함
+- 마이그레이션 버전 관리는 `alembic/versions/` 디렉토리에서 확인

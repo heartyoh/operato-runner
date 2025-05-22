@@ -191,7 +191,7 @@ Testing for this task should be comprehensive and include:
 ### Details:
 
 
-## 13. Alembic 마이그레이션 스크립트 작성 [pending]
+## 13. Alembic 마이그레이션 스크립트 작성 [done]
 ### Dependencies: None
 ### Description: DB 스키마 관리를 위한 Alembic 마이그레이션 환경을 구축하고, 초기 마이그레이션 스크립트를 작성한다.
 ### Details:

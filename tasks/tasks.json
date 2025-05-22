@@ -344,7 +344,7 @@
           "title": "Alembic 마이그레이션 스크립트 작성",
           "description": "DB 스키마 관리를 위한 Alembic 마이그레이션 환경을 구축하고, 초기 마이그레이션 스크립트를 작성한다.",
           "details": "",
-          "status": "pending",
+          "status": "done",
           "dependencies": [],
           "parentTaskId": 16
         },
