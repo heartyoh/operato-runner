@@ -42,4 +42,12 @@ class ModuleRegistry:
 
     async def get_modules_by_tag(self, tag: str) -> List[Module]:
         result = await self.db.execute(select(Module))
-        return [m for m in result.scalars().all() if m.tags and tag in m.tags] 
+        return [m for m in result.scalars().all() if m.tags and tag in m.tags]
+
+    async def get_versions(self, name: str):
+        module = await self.get_module(name)
+        if not module:
+            return []
+        return module.versions
+
+    # 롤백/활성화/비활성화/이력 관련 메서드는 FastAPI에서 직접 처리하므로, 필요시 여기에 추가 구현 가능 

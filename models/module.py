@@ -44,6 +44,7 @@ class Module(Base):
     versions = relationship('Version', back_populates='module')
     deployments = relationship('Deployment', back_populates='module')
     env = Column(String(20), default="inline", nullable=False)  # 실행 환경 필드 추가
+    is_active = Column(Integer, default=1)  # 1: 활성, 0: 비활성
 
     def __repr__(self):
         return f"<Module(id={self.id}, name='{self.name}', owner_id={self.owner_id})>" 

@@ -23,6 +23,11 @@ import zipfile
 import os
 from fastapi.responses import JSONResponse
 from models.validation_log import ModuleValidationLog
+from models.module_history import ModuleHistory
+from models.version import Version
+from models.deployment import Deployment
+from schemas.module_history import ModuleHistoryRead
+from sqlalchemy import update
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Operato Runner", description="Python module execution platform")
@@ -588,6 +593,102 @@ def create_app() -> FastAPI:
         result = await db.execute(AuditLog.__table__.select().where(AuditLog.detail.contains(str(id))).order_by(AuditLog.created_at.desc()))
         logs = result.fetchall()
         return [dict(row) if not isinstance(row, tuple) else dict(row[0]) for row in logs]
+
+    @app.get("/api/modules/{name}/versions")
+    async def get_module_versions(name: str, db: AsyncSession = Depends(get_db)):
+        # 해당 모듈의 모든 버전 및 상태 조회
+        result = await db.execute(select(Module).where(Module.name == name))
+        module = result.scalars().first()
+        if not module:
+            raise HTTPException(status_code=404, detail="Module not found")
+        versions = await db.execute(select(Version).where(Version.module_id == module.id))
+        version_list = versions.scalars().all()
+        deployments = await db.execute(select(Deployment).where(Deployment.module_id == module.id))
+        deployment_list = deployments.scalars().all()
+        # 버전별 상태 매핑
+        version_status = {d.version_id: d.status for d in deployment_list}
+        return [
+            {
+                "id": v.id,
+                "version": v.version,
+                "created_at": v.created_at,
+                "status": version_status.get(v.id, "inactive")
+            } for v in version_list
+        ]
+
+    @app.post("/api/modules/{name}/rollback")
+    async def rollback_module(name: str, version: str = Body(..., embed=True), db: AsyncSession = Depends(get_db), current_user: UserRead = Depends(get_current_user)):
+        # 롤백: 해당 모듈의 지정 버전을 활성화, 나머지는 비활성화
+        result = await db.execute(select(Module).where(Module.name == name))
+        module = result.scalars().first()
+        if not module:
+            raise HTTPException(status_code=404, detail="Module not found")
+        v_result = await db.execute(select(Version).where(Version.module_id == module.id, Version.version == version))
+        version_obj = v_result.scalars().first()
+        if not version_obj:
+            raise HTTPException(status_code=404, detail="Version not found")
+        # deployments: 해당 버전만 active, 나머지 inactive
+        deployments = await db.execute(select(Deployment).where(Deployment.module_id == module.id))
+        for d in deployments.scalars().all():
+            d.status = "active" if d.version_id == version_obj.id else "inactive"
+        # modules 테이블도 is_active=1로 갱신
+        module.version = version
+        module.is_active = 1
+        await db.commit()
+        # 이력 기록
+        history = ModuleHistory(module_id=module.id, version_id=version_obj.id, action="rollback", operator=current_user.username)
+        db.add(history)
+        await db.commit()
+        return {"detail": f"롤백 완료: {name} v{version}"}
+
+    @app.post("/api/modules/{name}/activate")
+    async def activate_module_version(name: str, version: str = Body(..., embed=True), db: AsyncSession = Depends(get_db), current_user: UserRead = Depends(get_current_user)):
+        result = await db.execute(select(Module).where(Module.name == name))
+        module = result.scalars().first()
+        if not module:
+            raise HTTPException(status_code=404, detail="Module not found")
+        v_result = await db.execute(select(Version).where(Version.module_id == module.id, Version.version == version))
+        version_obj = v_result.scalars().first()
+        if not version_obj:
+            raise HTTPException(status_code=404, detail="Version not found")
+        deployments = await db.execute(select(Deployment).where(Deployment.module_id == module.id))
+        for d in deployments.scalars().all():
+            d.status = "active" if d.version_id == version_obj.id else "inactive"
+        module.version = version
+        module.is_active = 1
+        await db.commit()
+        history = ModuleHistory(module_id=module.id, version_id=version_obj.id, action="activate", operator=current_user.username)
+        db.add(history)
+        await db.commit()
+        return {"detail": f"활성화 완료: {name} v{version}"}
+
+    @app.post("/api/modules/{name}/deactivate")
+    async def deactivate_module_version(name: str, version: str = Body(..., embed=True), db: AsyncSession = Depends(get_db), current_user: UserRead = Depends(get_current_user)):
+        result = await db.execute(select(Module).where(Module.name == name))
+        module = result.scalars().first()
+        if not module:
+            raise HTTPException(status_code=404, detail="Module not found")
+        v_result = await db.execute(select(Version).where(Version.module_id == module.id, Version.version == version))
+        version_obj = v_result.scalars().first()
+        if not version_obj:
+            raise HTTPException(status_code=404, detail="Version not found")
+        deployments = await db.execute(select(Deployment).where(Deployment.module_id == module.id, Deployment.version_id == version_obj.id))
+        for d in deployments.scalars().all():
+            d.status = "inactive"
+        await db.commit()
+        history = ModuleHistory(module_id=module.id, version_id=version_obj.id, action="deactivate", operator=current_user.username)
+        db.add(history)
+        await db.commit()
+        return {"detail": f"비활성화 완료: {name} v{version}"}
+
+    @app.get("/api/modules/{name}/history", response_model=List[ModuleHistoryRead])
+    async def get_module_history(name: str, db: AsyncSession = Depends(get_db)):
+        result = await db.execute(select(Module).where(Module.name == name))
+        module = result.scalars().first()
+        if not module:
+            raise HTTPException(status_code=404, detail="Module not found")
+        history_result = await db.execute(select(ModuleHistory).where(ModuleHistory.module_id == module.id).order_by(ModuleHistory.timestamp.desc()))
+        return history_result.scalars().all()
 
     return app
 
