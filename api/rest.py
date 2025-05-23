@@ -472,6 +472,66 @@ def create_app() -> FastAPI:
             await db.commit()
             return {"detail": f"구조/필수 파일 및 handler 함수 검증 통과, {env_type} 환경 생성 및 의존성 설치, 모듈 정보 갱신 완료"}
 
+    @app.post("/modules/{id}/activate")
+    async def activate_module(id: int, db: AsyncSession = Depends(get_db), current_user: UserRead = Depends(get_current_user)):
+        result = await db.execute(select(Module).where(Module.id == id))
+        module = result.scalars().first()
+        if not module:
+            raise HTTPException(status_code=404, detail="Module not found")
+        if getattr(module, 'status', None) == 'active':
+            raise HTTPException(status_code=400, detail="이미 활성화된 모듈입니다.")
+        # handler 정상 동작 확인 (간단히 import 및 함수 존재만 체크)
+        try:
+            env_type = module.env.lower() if module.env else "venv"
+            if env_type == "venv":
+                handler_path = os.path.join(module.env, "../..", "handler.py")
+            elif env_type == "conda":
+                handler_path = os.path.join("modules", str(id), "handler.py")
+            elif env_type == "docker":
+                handler_path = None  # docker는 별도 실행 필요
+            else:
+                handler_path = None
+            if handler_path and os.path.exists(handler_path):
+                with open(handler_path, "r", encoding="utf-8") as f:
+                    code = f.read()
+                if "def handler(" not in code:
+                    raise Exception("handler 함수가 없습니다.")
+            # docker는 실제 컨테이너 실행 등 추가 구현 필요
+        except Exception as e:
+            await log_audit_event(db, action="module_activate_fail", detail=f"Module {module.name} activate fail: {str(e)}", user_id=current_user.id)
+            raise HTTPException(status_code=400, detail=f"핸들러 동작 확인 실패: {str(e)}")
+        module.status = 'active'
+        await db.commit()
+        await log_audit_event(db, action="module_activate", detail=f"Module {module.name} activated", user_id=current_user.id)
+        return {"detail": "모듈이 활성화되었습니다."}
+
+    @app.post("/modules/{id}/deactivate")
+    async def deactivate_module(id: int, db: AsyncSession = Depends(get_db), current_user: UserRead = Depends(get_current_user)):
+        result = await db.execute(select(Module).where(Module.id == id))
+        module = result.scalars().first()
+        if not module:
+            raise HTTPException(status_code=404, detail="Module not found")
+        if getattr(module, 'status', None) == 'inactive':
+            raise HTTPException(status_code=400, detail="이미 비활성화된 모듈입니다.")
+        module.status = 'inactive'
+        await db.commit()
+        await log_audit_event(db, action="module_deactivate", detail=f"Module {module.name} deactivated", user_id=current_user.id)
+        return {"detail": "모듈이 비활성화되었습니다."}
+
+    @app.delete("/modules/{id}/delete")
+    async def delete_module_api(id: int, db: AsyncSession = Depends(get_db), current_user: UserRead = Depends(get_current_user)):
+        result = await db.execute(select(Module).where(Module.id == id))
+        module = result.scalars().first()
+        if not module:
+            raise HTTPException(status_code=404, detail="Module not found")
+        if getattr(module, 'status', None) == 'deleted':
+            raise HTTPException(status_code=400, detail="이미 삭제된 모듈입니다.")
+        module.status = 'deleted'
+        await db.commit()
+        await log_audit_event(db, action="module_delete", detail=f"Module {module.name} deleted", user_id=current_user.id)
+        # 환경/파일 정리(필요시)
+        return {"detail": "모듈이 삭제되었습니다."}
+
     return app
 
 app = create_app() 
