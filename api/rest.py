@@ -532,6 +532,63 @@ def create_app() -> FastAPI:
         # 환경/파일 정리(필요시)
         return {"detail": "모듈이 삭제되었습니다."}
 
+    @app.post("/modules/{id}/run")
+    async def run_module_api(id: int, input: dict = Body(...), db: AsyncSession = Depends(get_db), current_user: UserRead = Depends(get_current_user)):
+        result = await db.execute(select(Module).where(Module.id == id))
+        module = result.scalars().first()
+        if not module:
+            raise HTTPException(status_code=404, detail="Module not found")
+        if getattr(module, 'status', None) != 'active':
+            raise HTTPException(status_code=400, detail="비활성화된 모듈입니다.")
+        env_type = module.env.lower() if module.env else "venv"
+        try:
+            # venv/conda: handler.py 직접 실행, docker: docker run 등 분기
+            if env_type == "venv":
+                import importlib.util
+                import sys
+                handler_path = os.path.abspath(os.path.join(module.env, "../..", "handler.py"))
+                spec = importlib.util.spec_from_file_location("handler", handler_path)
+                handler_mod = importlib.util.module_from_spec(spec)
+                sys.modules["handler"] = handler_mod
+                spec.loader.exec_module(handler_mod)
+                result_data = handler_mod.handler(input)
+            elif env_type == "conda":
+                # 실제로는 conda 환경에서 별도 프로세스 실행 필요(여기선 단순화)
+                handler_path = os.path.join("modules", str(id), "handler.py")
+                import importlib.util
+                import sys
+                spec = importlib.util.spec_from_file_location("handler", handler_path)
+                handler_mod = importlib.util.module_from_spec(spec)
+                sys.modules["handler"] = handler_mod
+                spec.loader.exec_module(handler_mod)
+                result_data = handler_mod.handler(input)
+            elif env_type == "docker":
+                # 실제로는 docker run 명령으로 실행해야 함(여기선 생략/로깅)
+                result_data = {"detail": "docker 환경 실행은 별도 구현 필요"}
+            else:
+                raise Exception(f"알 수 없는 env 타입: {env_type}")
+            await log_audit_event(db, action="module_run", detail=f"Module {module.name} run 성공", user_id=current_user.id)
+            return {"result": result_data}
+        except Exception as e:
+            await log_audit_event(db, action="module_run_fail", detail=f"Module {module.name} run 실패: {str(e)}", user_id=current_user.id)
+            raise HTTPException(status_code=500, detail=f"모듈 실행 실패: {str(e)}")
+
+    @app.get("/modules/{id}/status")
+    async def get_module_status(id: int, db: AsyncSession = Depends(get_db)):
+        result = await db.execute(select(Module).where(Module.id == id))
+        module = result.scalars().first()
+        if not module:
+            raise HTTPException(status_code=404, detail="Module not found")
+        return {"id": id, "name": module.name, "status": getattr(module, 'status', None)}
+
+    @app.get("/modules/{id}/history")
+    async def get_module_history(id: int, db: AsyncSession = Depends(get_db), current_user: UserRead = Depends(get_current_user)):
+        # AuditLog에서 해당 모듈 관련 이력 반환(간단히 action/detail에 모듈명 포함된 것)
+        from models.audit_log import AuditLog
+        result = await db.execute(AuditLog.__table__.select().where(AuditLog.detail.contains(str(id))).order_by(AuditLog.created_at.desc()))
+        logs = result.fetchall()
+        return [dict(row) if not isinstance(row, tuple) else dict(row[0]) for row in logs]
+
     return app
 
 app = create_app() 
