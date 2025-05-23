@@ -36,6 +36,7 @@ from schemas.error_log import ErrorLogRead
 import csv
 from fastapi.responses import StreamingResponse
 from io import StringIO
+import shutil
 logger = logging.getLogger("uvicorn.error")
 
 def create_app() -> FastAPI:
@@ -133,17 +134,61 @@ def create_app() -> FastAPI:
                 input_dict = json.loads(input)
             except Exception:
                 raise HTTPException(status_code=400, detail="input 필드는 올바른 JSON이어야 합니다.")
-        if not code and not file:
-            raise HTTPException(status_code=400, detail="Either code or file must be provided")
         # 태그 파싱
         tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
         if file:
-            # 파일 업로드 처리 (임시 디렉토리 저장/압축 해제/검증 등 기존 로직 활용)
-            # (기존 upload_module_for_id 참고, 또는 별도 함수로 분리 가능)
-            # 여기에 파일 업로드 처리 로직을 추가하세요.
-            # 예시: 임시 파일 저장, 압축 해제, handler.py/requirements.txt 검증 등
-            # 실제 구현은 기존 upload_module_for_id 또는 upload_module 참고
-            raise HTTPException(status_code=501, detail="파일 업로드 등록은 별도 구현 필요")
+            import tempfile, zipfile, os, shutil
+            from models.validation_log import ModuleValidationLog
+            # 1. 임시 디렉토리 생성 및 파일 저장
+            with tempfile.TemporaryDirectory() as tmpdir:
+                zip_path = os.path.join(tmpdir, file.filename)
+                with open(zip_path, "wb") as f:
+                    content = await file.read()
+                    f.write(content)
+                # 압축 해제 후 루트 폴더가 하나만 있으면, 그 내부 파일/폴더를 venv_dir로 복사(루트 폴더 제거)
+                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                    zip_ref.extractall(tmpdir)
+                items = [item for item in os.listdir(tmpdir) if not item.startswith('.')]
+                if len(items) == 1 and os.path.isdir(os.path.join(tmpdir, items[0])):
+                    # 루트 폴더가 하나만 있을 때: 그 내부 파일/폴더를 venv_dir로 복사
+                    root_dir = os.path.join(tmpdir, items[0])
+                    for item in os.listdir(root_dir):
+                        s = os.path.join(root_dir, item)
+                        d = os.path.join("module_envs", name, "venv", item)
+                        if os.path.isdir(s):
+                            shutil.copytree(s, d, dirs_exist_ok=True)
+                        elif os.path.isfile(s):
+                            shutil.copy2(s, d)
+                else:
+                    # 그 외에는 기존대로 복사
+                    for item in items:
+                        s = os.path.join(tmpdir, item)
+                        d = os.path.join("module_envs", name, "venv", item)
+                        if os.path.isdir(s):
+                            shutil.copytree(s, d, dirs_exist_ok=True)
+                        elif os.path.isfile(s):
+                            shutil.copy2(s, d)
+                # 6. DB에 모듈 정보 등록 (path=permanent_dir)
+                module = Module(
+                    name=name,
+                    env=env,
+                    code=None,
+                    path=None,
+                    version=version,
+                    tags=','.join(tag_list),
+                    description=description,
+                    owner_id=current_user.id
+                )
+                db.add(module)
+                await db.commit()
+                await db.refresh(module)
+                return ModuleResponse(
+                    name=module.name,
+                    env=module.env,
+                    version=module.version,
+                    created_at=module.created_at.isoformat() if module.created_at else None,
+                    tags=module.tags.split(",") if module.tags else []
+                )
         elif code:
             # 인라인 코드 등록 처리
             module = Module(
@@ -156,7 +201,6 @@ def create_app() -> FastAPI:
                 description=description,
                 owner_id=current_user.id
             )
-            # input_dict를 모듈에 저장하거나 필요시 활용 (예: code 실행 시 전달)
             module.input_example = input_dict if hasattr(module, 'input_example') else None
             await module_registry.register_module(module)
             await log_audit_event(db, action="module_deploy", detail=f"Module {module.name} deployed", user_id=current_user.id)
@@ -356,7 +400,6 @@ def create_app() -> FastAPI:
             # 성공 기록
             log = ModuleValidationLog(filename=file.filename, status="success", message="검증 통과")
             db.add(log)
-            await db.commit()
             return {"detail": "구조/필수 파일 및 handler 함수 검증 통과"}
 
     @app.post("/api/modules/{module_id}/upload")
@@ -427,7 +470,7 @@ def create_app() -> FastAPI:
             import subprocess
             env_type = module.env.lower() if module.env else "venv"
             if env_type == "venv":
-                venv_dir = os.path.abspath(f"module_envs/{module_id}/venv")
+                venv_dir = os.path.abspath(os.path.join("module_envs", module.name, "venv"))
                 os.makedirs(venv_dir, exist_ok=True)
                 try:
                     subprocess.run(["python3", "-m", "venv", venv_dir], check=True)
@@ -537,7 +580,7 @@ def create_app() -> FastAPI:
         try:
             env_type = module.env.lower() if module.env else "venv"
             if env_type == "venv":
-                handler_path = os.path.join(module.env, "../..", "handler.py")
+                handler_path = os.path.abspath(os.path.join("module_envs", module.name, "venv", "handler.py"))
             elif env_type == "conda":
                 handler_path = os.path.join("modules", str(id), "handler.py")
             elif env_type == "docker":
@@ -599,7 +642,7 @@ def create_app() -> FastAPI:
             if env_type == "venv":
                 import importlib.util
                 import sys
-                handler_path = os.path.abspath(os.path.join(module.env, "../..", "handler.py"))
+                handler_path = os.path.abspath(os.path.join("module_envs", module.name, "venv", "handler.py"))
                 spec = importlib.util.spec_from_file_location("handler", handler_path)
                 handler_mod = importlib.util.module_from_spec(spec)
                 sys.modules["handler"] = handler_mod
@@ -847,6 +890,77 @@ def create_app() -> FastAPI:
             media_type="application/zip",
             filename="module_template.zip"
         )
+
+    @app.post("/api/modules/{name}/deploy")
+    async def deploy_module(name: str, db: AsyncSession = Depends(get_db)):
+        # 1. 모듈 정보 조회
+        result = await db.execute(select(Module).where(Module.name == name))
+        module = result.scalars().first()
+        if not module:
+            raise HTTPException(status_code=404, detail="Module not found")
+        if module.env != "venv":
+            raise HTTPException(status_code=400, detail="현재는 venv 환경만 지원합니다.")
+        # 2. 영구 저장소 경로
+        src_dir = module.path  # modules/{name}/{version}/
+        if not src_dir or not os.path.exists(src_dir):
+            raise HTTPException(status_code=400, detail="영구 저장소에 모듈 파일이 존재하지 않습니다.")
+        # 3. 실행 환경 경로
+        venv_dir = os.path.abspath(os.path.join("module_envs", module.name, "venv"))
+        os.makedirs(venv_dir, exist_ok=True)
+        # 4. 모듈 파일 복사 (handler.py 등)
+        def find_handler_dir(base_dir):
+            for root, dirs, files in os.walk(base_dir):
+                if "handler.py" in files:
+                    return root
+            return None
+        handler_dir = find_handler_dir(src_dir)
+        if handler_dir:
+            for item in os.listdir(handler_dir):
+                s = os.path.join(handler_dir, item)
+                d = os.path.join(venv_dir, item)
+                if os.path.isdir(s):
+                    shutil.copytree(s, d, dirs_exist_ok=True)
+                elif os.path.isfile(s):
+                    shutil.copy2(s, d)
+        else:
+            # fallback: 기존대로 복사
+            for item in os.listdir(src_dir):
+                s = os.path.join(src_dir, item)
+                d = os.path.join(venv_dir, item)
+                if os.path.isdir(s):
+                    shutil.copytree(s, d, dirs_exist_ok=True)
+                elif os.path.isfile(s):
+                    shutil.copy2(s, d)
+        # 5. venv 생성
+        import subprocess
+        if not os.path.exists(os.path.join(venv_dir, "bin", "activate")):
+            try:
+                subprocess.run(["python3", "-m", "venv", venv_dir], check=True)
+            except Exception as e:
+                return {"success": False, "log": f"venv 생성 실패: {str(e)}"}
+        # 6. requirements.txt 설치
+        req_path = os.path.join(venv_dir, "requirements.txt")
+        pip_path = os.path.join(venv_dir, "bin", "pip")
+        pip_log = ""
+        if os.path.exists(req_path):
+            try:
+                proc = subprocess.run([pip_path, "install", "-r", req_path], capture_output=True, text=True, check=False)
+                pip_log = proc.stdout + proc.stderr
+            except Exception as e:
+                pip_log = f"pip install 실패: {str(e)}"
+        return {"success": True, "log": f"전개 완료!\n{pip_log}"}
+
+    @app.delete("/api/modules/{name}/deploy")
+    async def undeploy_module(name: str):
+        venv_dir = os.path.abspath(os.path.join("module_envs", name, "venv"))
+        if not os.path.exists(venv_dir):
+            return {"success": False, "log": "전개 환경이 존재하지 않습니다."}
+        import shutil
+        try:
+            shutil.rmtree(venv_dir)
+            return {"success": True, "log": "전개 환경이 삭제되었습니다."}
+        except Exception as e:
+            return {"success": False, "log": f"삭제 실패: {str(e)}"}
 
     @app.exception_handler(CustomException)
     async def custom_exception_handler(request: Request, exc: CustomException):

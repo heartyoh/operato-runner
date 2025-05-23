@@ -7,13 +7,13 @@ from executors.base import Executor
 from models import ExecRequest, ExecResult
 
 class VenvExecutor(Executor):
-    def __init__(self, venv_path="./venvs", module_registry=None):
+    def __init__(self, venv_path="module_envs", module_registry=None):
         self.venv_path = venv_path
         self.module_registry = module_registry
         os.makedirs(venv_path, exist_ok=True)
 
     async def validate(self, module_name: str) -> bool:
-        venv_dir = os.path.join(self.venv_path, module_name)
+        venv_dir = os.path.join(self.venv_path, module_name, "venv")
         return os.path.exists(venv_dir)
 
     async def execute(self, request: ExecRequest) -> ExecResult:
@@ -30,7 +30,7 @@ class VenvExecutor(Executor):
             )
             
         # 가상환경과 모듈 경로 설정
-        venv_dir = os.path.join(self.venv_path, module_name)
+        venv_dir = os.path.join(self.venv_path, module_name, "venv")
         module_dir = venv_dir  # 모듈이 있는 디렉토리는 가상환경 디렉토리와 동일
         
         # Python 실행 파일 경로

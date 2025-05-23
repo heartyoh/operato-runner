@@ -52,12 +52,15 @@ const ModuleUpload: React.FC<Props> = ({ onUploadSuccess }) => {
     }
     setLoading(true);
     try {
-      // 1. 모듈 메타데이터 등록
-      const res = await createModule({ name, env, version });
-      const moduleId =
-        res.data.id || res.data.module_id || res.data.name || name;
-      // 2. 파일 업로드
-      await uploadModuleFile(moduleId, file);
+      const formData = new FormData();
+      formData.append("name", name);
+      formData.append("env", env);
+      formData.append("version", version);
+      formData.append("file", file); // 반드시 "file"!
+      // 필요시 description, tags 등 추가
+      await axios.post("/api/modules", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
       setSuccess(true);
       setName("");
       setEnv("venv");

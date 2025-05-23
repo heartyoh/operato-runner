@@ -81,4 +81,14 @@ export async function login(username: string, password: string) {
   return res.data;
 }
 
+export async function deployModule(name: string) {
+  const res = await axios.post(`/api/modules/${name}/deploy`);
+  return res.data;
+}
+
+export async function undeployModule(name: string) {
+  const res = await axios.delete(`/api/modules/${name}/deploy`);
+  return res.data;
+}
+
 export {};

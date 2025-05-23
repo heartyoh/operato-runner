@@ -17,7 +17,7 @@ async def main():
     parser.add_argument("--config", default="./modules.yaml", help="Path to modules configuration file")
     parser.add_argument("--rest-port", type=int, default=8000, help="REST API port")
     parser.add_argument("--grpc-port", type=int, default=50051, help="gRPC server port")
-    parser.add_argument("--venv-path", default="./venvs", help="Path to virtual environments")
+    parser.add_argument("--venv-path", default="./module_envs", help="Path to virtual environments")
     parser.add_argument("--no-rest", action="store_true", help="Disable REST API")
     parser.add_argument("--no-grpc", action="store_true", help="Disable gRPC server")
     args = parser.parse_args()

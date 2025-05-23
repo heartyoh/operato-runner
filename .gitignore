@@ -61,3 +61,7 @@ venvs/
 
 # DB
 *.sqlite3
+
+# module and module_envs
+modules/
+module_envs/
