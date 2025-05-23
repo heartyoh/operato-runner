@@ -332,6 +332,7 @@ def create_app() -> FastAPI:
             required_files = ["handler.py", "requirements.txt", "README", "README.md"]
             found = {f: False for f in required_files}
             handler_path = None
+            requirements_path = None
             for root, dirs, files in os.walk(tmpdir):
                 for fname in files:
                     for req in required_files:
@@ -339,6 +340,8 @@ def create_app() -> FastAPI:
                             found[req] = True
                     if fname.lower() == "handler.py":
                         handler_path = os.path.join(root, fname)
+                    if fname.lower() == "requirements.txt":
+                        requirements_path = os.path.join(root, fname)
             missing = [f for f, ok in found.items() if not ok and not (f.startswith("README") and (found["README"] or found["README.md"]))]
             if missing:
                 log = ModuleValidationLog(filename=file.filename, status="fail", message=f"필수 파일 누락: {', '.join(missing)}")
@@ -359,15 +362,32 @@ def create_app() -> FastAPI:
                 db.add(log)
                 await db.commit()
                 return JSONResponse(status_code=400, content={"detail": "handler.py 파일을 찾을 수 없습니다."})
-            # 6. 성공 기록 및 모듈 정보 갱신
+            # 6. requirements.txt 의존성 설치 자동화
+            import subprocess
+            if requirements_path:
+                try:
+                    proc = subprocess.run([
+                        "pip", "install", "-r", requirements_path
+                    ], capture_output=True, text=True, check=False)
+                    if proc.returncode == 0:
+                        log = ModuleValidationLog(filename=file.filename, status="success", message=f"requirements.txt 의존성 설치 성공\n{proc.stdout}")
+                        db.add(log)
+                    else:
+                        log = ModuleValidationLog(filename=file.filename, status="fail", message=f"requirements.txt 의존성 설치 실패\n{proc.stderr}")
+                        db.add(log)
+                        await db.commit()
+                        return JSONResponse(status_code=400, content={"detail": f"requirements.txt 의존성 설치 실패", "error": proc.stderr})
+                except Exception as e:
+                    log = ModuleValidationLog(filename=file.filename, status="fail", message=f"requirements.txt 설치 중 예외: {str(e)}")
+                    db.add(log)
+                    await db.commit()
+                    return JSONResponse(status_code=500, content={"detail": f"requirements.txt 설치 중 예외: {str(e)}"})
+            # 7. 성공 기록 및 모듈 정보 갱신
             log = ModuleValidationLog(filename=file.filename, status="success", message="검증 통과 및 모듈 정보 갱신")
             db.add(log)
-            # 모듈 path/status/version 등 갱신 (예시: path만 갱신, 필요시 확장)
             module.path = zip_path  # 실제 운영시에는 영구 저장소로 이동 필요
-            # module.status = 'uploaded'  # status 필드가 있다면
-            # module.version = ...        # 필요시 버전 추출/갱신
             await db.commit()
-            return {"detail": "구조/필수 파일 및 handler 함수 검증 통과, 모듈 정보 갱신 완료"}
+            return {"detail": "구조/필수 파일 및 handler 함수 검증 통과, requirements.txt 설치 및 모듈 정보 갱신 완료"}
 
     return app
 
