@@ -1,5 +1,15 @@
 import axios from "axios";
 
+// axios 인스턴스에 Authorization 헤더 자동 추가
+axios.interceptors.request.use((config) => {
+  const token = localStorage.getItem("access_token");
+  if (token) {
+    config.headers = config.headers || {};
+    config.headers["Authorization"] = `Bearer ${token}`;
+  }
+  return config;
+});
+
 export async function fetchModules() {
   const res = await axios.get("/api/modules");
   return res.data;
@@ -61,6 +71,14 @@ export async function downloadErrorLogs(params: any) {
     params,
     responseType: "blob",
   });
+}
+
+export async function login(username: string, password: string) {
+  const res = await axios.post("/auth/login", {
+    username,
+    password,
+  });
+  return res.data;
 }
 
 export {};

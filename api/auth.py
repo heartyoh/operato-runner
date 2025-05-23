@@ -6,9 +6,9 @@ import os
 from datetime import timedelta
 from sqlalchemy.future import select
 from models.user import User
-import hashlib
 from utils.jwt import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, create_access_token, decode_token
 from utils.security import hash_password, verify_password, validate_password_policy
+from core.db import SessionLocal as AsyncSessionLocal, get_db
 
 # Models
 class Token(BaseModel):
@@ -20,6 +20,7 @@ class TokenData(BaseModel):
     scopes: List[str] = []
 
 class UserOut(BaseModel):
+    id: int
     username: str
     disabled: Optional[bool] = None
     scopes: List[str] = []
@@ -28,15 +29,11 @@ class UserOut(BaseModel):
 security = HTTPBearer()
 
 # DB 기반 사용자 조회
-async def get_user_by_username(username: str):
-    async with AsyncSessionLocal() as session:
-        result = await session.execute(select(User).where(User.username == username))
-        return result.scalars().first()
+async def get_user_by_username(username: str, db):
+    result = await db.execute(select(User).where(User.username == username))
+    return result.scalars().first()
 
-def verify_password(plain_password, hashed_password):
-    return hashlib.sha256(plain_password.encode('utf-8')).hexdigest() == hashed_password
-
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Security(security)):
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Security(security), db=Depends(get_db)):
     credentials_exception = HTTPException(
         status_code=401,
         detail="Could not validate credentials",
@@ -52,11 +49,11 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Security(
         token_data = TokenData(username=username, scopes=token_scopes)
     except Exception:
         raise credentials_exception
-    user = await get_user_by_username(token_data.username)
+    user = await get_user_by_username(token_data.username, db)
     if user is None:
         raise credentials_exception
     # scopes/disabled 필드는 User 모델에 맞게 확장 필요
-    return UserOut(username=user.username, disabled=False, scopes=token_data.scopes)
+    return UserOut(id=user.id, username=user.username, disabled=False, scopes=token_data.scopes)
 
 async def get_current_active_user(current_user: UserOut = Depends(get_current_user)):
     if current_user.disabled:

@@ -4,6 +4,7 @@ from io import StringIO
 import time
 from executors.base import Executor
 from models import ExecRequest, ExecResult
+import json
 
 class InlineExecutor(Executor):
     def __init__(self, module_registry=None):
@@ -35,15 +36,36 @@ class InlineExecutor(Executor):
         try:
             # 샌드박싱: 문법 및 위험 코드 체크 (RestrictedPython 등은 추후)
             ast.parse(code)
-            namespace = {"input": request.input_json}
+            input_obj = request.input_json
+            if isinstance(input_obj, str):
+                try:
+                    input_obj = json.loads(input_obj)
+                except Exception:
+                    input_obj = {}
+            namespace = {"input": input_obj}
             exec(code, namespace)
-            if "handler" in namespace and callable(namespace["handler"]):
-                handler_result = namespace["handler"](request.input_json)
+            entry = None
+            for fname in ["handler", "run", "main"]:
+                if fname in namespace and callable(namespace[fname]):
+                    entry = namespace[fname]
+                    break
+            if not entry:
+                funcs = [v for v in namespace.values() if callable(v)]
+                if funcs:
+                    entry = funcs[0]
+            if entry:
+                handler_result = entry(request.input_json)
                 if not isinstance(handler_result, dict):
                     handler_result = {"result": handler_result}
                 result_json = handler_result
             else:
-                raise ValueError("Module must define a handler function")
+                # 함수가 없을 때: result 변수 반환, 아니면 stdout 반환
+                if "result" in namespace:
+                    result_json = {"result": namespace["result"]}
+                elif stdout_capture.getvalue():
+                    result_json = {"stdout": stdout_capture.getvalue()}
+                else:
+                    result_json = {}
         except Exception as e:
             exit_code = 1
             print(f"Error executing module: {str(e)}", file=sys.stderr)

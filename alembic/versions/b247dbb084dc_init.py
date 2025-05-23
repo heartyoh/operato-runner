@@ -9,6 +9,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+import bcrypt
 
 
 # revision identifiers, used by Alembic.
@@ -16,6 +17,10 @@ revision: str = 'b247dbb084dc'
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
+
+
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 
 def upgrade() -> None:
@@ -64,6 +69,7 @@ def upgrade() -> None:
     sa.Column('tags', sa.String(length=255), nullable=True),
     sa.Column('owner_id', sa.Integer(), nullable=True),
     sa.Column('env', sa.String(length=20), nullable=False),
+    sa.Column('is_active', sa.Boolean(), nullable=False, server_default=sa.true()),
     sa.ForeignKeyConstraint(['owner_id'], ['users.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
@@ -101,7 +107,54 @@ def upgrade() -> None:
     op.create_index(op.f('ix_deployments_module_id'), 'deployments', ['module_id'], unique=False)
     op.create_index(op.f('ix_deployments_status'), 'deployments', ['status'], unique=False)
     op.create_index(op.f('ix_deployments_version_id'), 'deployments', ['version_id'], unique=False)
+    op.create_table('module_history',
+        sa.Column('id', sa.Integer(), primary_key=True, index=True, nullable=False),
+        sa.Column('module_id', sa.Integer(), sa.ForeignKey('modules.id'), nullable=False, index=True),
+        sa.Column('version_id', sa.Integer(), sa.ForeignKey('versions.id'), nullable=False, index=True),
+        sa.Column('action', sa.String(length=32), nullable=False),
+        sa.Column('operator', sa.String(length=64), nullable=True),
+        sa.Column('timestamp', sa.DateTime(), server_default=sa.func.now(), nullable=False)
+    )
+    op.create_table('error_log',
+        sa.Column('id', sa.Integer(), primary_key=True, index=True, nullable=False),
+        sa.Column('code', sa.String(length=64), nullable=True),
+        sa.Column('message', sa.Text(), nullable=True),
+        sa.Column('dev_message', sa.Text(), nullable=True),
+        sa.Column('url', sa.String(length=255), nullable=True),
+        sa.Column('stack', sa.Text(), nullable=True),
+        sa.Column('user', sa.String(length=64), nullable=True),
+        sa.Column('created_at', sa.DateTime(), server_default=sa.func.now(), nullable=False)
+    )
     # ### end Alembic commands ###
+
+    # 기본 role 데이터 삽입
+    role_table = sa.table('roles',
+        sa.column('id', sa.Integer),
+        sa.column('name', sa.String),
+        sa.column('description', sa.Text),
+    )
+    op.bulk_insert(role_table, [
+        {'id': 1, 'name': 'admin', 'description': '관리자'},
+        {'id': 2, 'name': 'user', 'description': '일반 사용자'},
+    ])
+    # 기본 admin user 데이터 삽입 (비밀번호는 해시)
+    user_table = sa.table('users',
+        sa.column('id', sa.Integer),
+        sa.column('username', sa.String),
+        sa.column('email', sa.String),
+        sa.column('hashed_password', sa.String),
+    )
+    op.bulk_insert(user_table, [
+        {'id': 1, 'username': 'admin', 'email': 'admin@example.com', 'hashed_password': hash_password('admin1234')},
+    ])
+    # user_role 테이블에 admin-user 매핑 추가
+    user_role_table = sa.table('user_role',
+        sa.column('user_id', sa.Integer),
+        sa.column('role_id', sa.Integer),
+    )
+    op.bulk_insert(user_role_table, [
+        {'user_id': 1, 'role_id': 1},
+    ])
 
 
 def downgrade() -> None:
@@ -130,4 +183,6 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_roles_name'), table_name='roles')
     op.drop_index(op.f('ix_roles_id'), table_name='roles')
     op.drop_table('roles')
+    op.drop_table('module_history')
+    op.drop_table('error_log')
     # ### end Alembic commands ###

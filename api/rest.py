@@ -1,11 +1,11 @@
-from fastapi import FastAPI, HTTPException, Depends, Body, Request, UploadFile, File
+from fastapi import FastAPI, HTTPException, Depends, Body, Request, UploadFile, File, Form
 from typing import Dict, List, Any, Optional
 from pydantic import BaseModel
 from models.module import Module
 from module_registry import ModuleRegistry
 from executor_manager import ExecutorManager
 from sqlalchemy.ext.asyncio import AsyncSession
-from core.db import get_db, Base, get_engine
+from core.db import get_db, Base, get_engine, init_engine
 from models.user import User
 from schemas.user import UserCreate, UserRead, UserLogin
 from utils.jwt import create_access_token
@@ -40,6 +40,10 @@ logger = logging.getLogger("uvicorn.error")
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Operato Runner", description="Python module execution platform")
+
+    @app.on_event("startup")
+    async def on_startup():
+        init_engine()
 
     # API 모델
     class ModuleCreate(BaseModel):
@@ -108,31 +112,61 @@ def create_app() -> FastAPI:
 
     @app.post("/api/modules", response_model=ModuleResponse, status_code=201)
     async def create_module(
-        module_data: ModuleCreate,
+        name: str = Form(...),
+        env: str = Form(...),
+        version: str = Form("0.1.0"),
+        code: str = Form(None),
+        description: str = Form(""),
+        tags: str = Form(""),
+        file: UploadFile = File(None),
+        input: str = Form(""),
         module_registry: ModuleRegistry = Depends(get_module_registry),
         db: AsyncSession = Depends(get_db),
         current_user: UserRead = Depends(get_current_user)
     ):
-        if not module_data.code and not module_data.path:
-            raise HTTPException(status_code=400, detail="Either code or path must be provided")
-        module = Module(
-            name=module_data.name,
-            env=module_data.env,
-            code=module_data.code,
-            path=module_data.path,
-            version=module_data.version,
-            tags=module_data.tags,
-            owner_id=current_user.id
-        )
-        await module_registry.register_module(module)
-        await log_audit_event(db, action="module_deploy", detail=f"Module {module.name} deployed", user_id=current_user.id)
-        return ModuleResponse(
-            name=module.name,
-            env=module.env,
-            version=module.version,
-            created_at=module.created_at.isoformat() if module.created_at else None,
-            tags=module.tags if module.tags else []
-        )
+        name = name.strip()
+        # input 파싱
+        input_dict = {}
+        if input:
+            import json
+            try:
+                input_dict = json.loads(input)
+            except Exception:
+                raise HTTPException(status_code=400, detail="input 필드는 올바른 JSON이어야 합니다.")
+        if not code and not file:
+            raise HTTPException(status_code=400, detail="Either code or file must be provided")
+        # 태그 파싱
+        tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
+        if file:
+            # 파일 업로드 처리 (임시 디렉토리 저장/압축 해제/검증 등 기존 로직 활용)
+            # (기존 upload_module_for_id 참고, 또는 별도 함수로 분리 가능)
+            # 여기에 파일 업로드 처리 로직을 추가하세요.
+            # 예시: 임시 파일 저장, 압축 해제, handler.py/requirements.txt 검증 등
+            # 실제 구현은 기존 upload_module_for_id 또는 upload_module 참고
+            raise HTTPException(status_code=501, detail="파일 업로드 등록은 별도 구현 필요")
+        elif code:
+            # 인라인 코드 등록 처리
+            module = Module(
+                name=name,
+                env=env,
+                code=code,
+                path=None,
+                version=version,
+                tags=','.join(tag_list),
+                description=description,
+                owner_id=current_user.id
+            )
+            # input_dict를 모듈에 저장하거나 필요시 활용 (예: code 실행 시 전달)
+            module.input_example = input_dict if hasattr(module, 'input_example') else None
+            await module_registry.register_module(module)
+            await log_audit_event(db, action="module_deploy", detail=f"Module {module.name} deployed", user_id=current_user.id)
+            return ModuleResponse(
+                name=module.name,
+                env=module.env,
+                version=module.version,
+                created_at=module.created_at.isoformat() if module.created_at else None,
+                tags=module.tags if module.tags else []
+            )
 
     @app.delete("/api/modules/{name}", status_code=204)
     async def delete_module(
