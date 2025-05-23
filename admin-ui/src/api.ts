@@ -51,4 +51,16 @@ export async function uploadModuleFile(moduleId: string, file: File) {
   });
 }
 
+export async function fetchErrorLogs(params: any) {
+  const res = await axios.get("/api/logs/errors", { params });
+  return res.data;
+}
+
+export async function downloadErrorLogs(params: any) {
+  return axios.get("/api/logs/errors/download", {
+    params,
+    responseType: "blob",
+  });
+}
+
 export {};

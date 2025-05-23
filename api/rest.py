@@ -28,6 +28,15 @@ from models.version import Version
 from models.deployment import Deployment
 from schemas.module_history import ModuleHistoryRead
 from sqlalchemy import update
+from utils.exceptions import CustomException
+import logging
+from models.error_log import ErrorLog
+from sqlalchemy import and_, or_
+from schemas.error_log import ErrorLogRead
+import csv
+from fastapi.responses import StreamingResponse
+from io import StringIO
+logger = logging.getLogger("uvicorn.error")
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Operato Runner", description="Python module execution platform")
@@ -83,7 +92,12 @@ def create_app() -> FastAPI:
     async def get_module(name: str, module_registry: ModuleRegistry = Depends(get_module_registry)):
         module = await module_registry.get_module(name)
         if not module:
-            raise HTTPException(status_code=404, detail=f"Module '{name}' not found")
+            raise CustomException(
+                code="MODULE_NOT_FOUND",
+                message="모듈을 찾을 수 없습니다.",
+                dev_message=f"Module(name={name}) not found in modules table",
+                status_code=404
+            )
         return ModuleResponse(
             name=module.name,
             env=module.env,
@@ -600,7 +614,12 @@ def create_app() -> FastAPI:
         result = await db.execute(select(Module).where(Module.name == name))
         module = result.scalars().first()
         if not module:
-            raise HTTPException(status_code=404, detail="Module not found")
+            raise CustomException(
+                code="MODULE_NOT_FOUND",
+                message="모듈을 찾을 수 없습니다.",
+                dev_message=f"Module(name={name}) not found in modules table",
+                status_code=404
+            )
         versions = await db.execute(select(Version).where(Version.module_id == module.id))
         version_list = versions.scalars().all()
         deployments = await db.execute(select(Deployment).where(Deployment.module_id == module.id))
@@ -622,11 +641,21 @@ def create_app() -> FastAPI:
         result = await db.execute(select(Module).where(Module.name == name))
         module = result.scalars().first()
         if not module:
-            raise HTTPException(status_code=404, detail="Module not found")
+            raise CustomException(
+                code="MODULE_NOT_FOUND",
+                message="모듈을 찾을 수 없습니다.",
+                dev_message=f"Module(name={name}) not found in modules table",
+                status_code=404
+            )
         v_result = await db.execute(select(Version).where(Version.module_id == module.id, Version.version == version))
         version_obj = v_result.scalars().first()
         if not version_obj:
-            raise HTTPException(status_code=404, detail="Version not found")
+            raise CustomException(
+                code="VERSION_NOT_FOUND",
+                message="지정한 버전을 찾을 수 없습니다.",
+                dev_message=f"Version({version}) not found for module_id={module.id}",
+                status_code=404
+            )
         # deployments: 해당 버전만 active, 나머지 inactive
         deployments = await db.execute(select(Deployment).where(Deployment.module_id == module.id))
         for d in deployments.scalars().all():
@@ -646,11 +675,21 @@ def create_app() -> FastAPI:
         result = await db.execute(select(Module).where(Module.name == name))
         module = result.scalars().first()
         if not module:
-            raise HTTPException(status_code=404, detail="Module not found")
+            raise CustomException(
+                code="MODULE_NOT_FOUND",
+                message="모듈을 찾을 수 없습니다.",
+                dev_message=f"Module(name={name}) not found in modules table",
+                status_code=404
+            )
         v_result = await db.execute(select(Version).where(Version.module_id == module.id, Version.version == version))
         version_obj = v_result.scalars().first()
         if not version_obj:
-            raise HTTPException(status_code=404, detail="Version not found")
+            raise CustomException(
+                code="VERSION_NOT_FOUND",
+                message="지정한 버전을 찾을 수 없습니다.",
+                dev_message=f"Version({version}) not found for module_id={module.id}",
+                status_code=404
+            )
         deployments = await db.execute(select(Deployment).where(Deployment.module_id == module.id))
         for d in deployments.scalars().all():
             d.status = "active" if d.version_id == version_obj.id else "inactive"
@@ -667,11 +706,21 @@ def create_app() -> FastAPI:
         result = await db.execute(select(Module).where(Module.name == name))
         module = result.scalars().first()
         if not module:
-            raise HTTPException(status_code=404, detail="Module not found")
+            raise CustomException(
+                code="MODULE_NOT_FOUND",
+                message="모듈을 찾을 수 없습니다.",
+                dev_message=f"Module(name={name}) not found in modules table",
+                status_code=404
+            )
         v_result = await db.execute(select(Version).where(Version.module_id == module.id, Version.version == version))
         version_obj = v_result.scalars().first()
         if not version_obj:
-            raise HTTPException(status_code=404, detail="Version not found")
+            raise CustomException(
+                code="VERSION_NOT_FOUND",
+                message="지정한 버전을 찾을 수 없습니다.",
+                dev_message=f"Version({version}) not found for module_id={module.id}",
+                status_code=404
+            )
         deployments = await db.execute(select(Deployment).where(Deployment.module_id == module.id, Deployment.version_id == version_obj.id))
         for d in deployments.scalars().all():
             d.status = "inactive"
@@ -689,6 +738,105 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail="Module not found")
         history_result = await db.execute(select(ModuleHistory).where(ModuleHistory.module_id == module.id).order_by(ModuleHistory.timestamp.desc()))
         return history_result.scalars().all()
+
+    @app.get("/api/logs/errors", response_model=list[ErrorLogRead])
+    async def get_error_logs(
+        code: str = None,
+        user: str = None,
+        from_: str = None,
+        to: str = None,
+        keyword: str = None,
+        limit: int = 100,
+        offset: int = 0,
+        db: AsyncSession = Depends(get_db)
+    ):
+        from models.error_log import ErrorLog
+        filters = []
+        if code:
+            filters.append(ErrorLog.code == code)
+        if user:
+            filters.append(ErrorLog.user == user)
+        if from_:
+            filters.append(ErrorLog.created_at >= from_)
+        if to:
+            filters.append(ErrorLog.created_at <= to)
+        if keyword:
+            kw = f"%{keyword}%"
+            filters.append(or_(ErrorLog.message.like(kw), ErrorLog.dev_message.like(kw), ErrorLog.stack.like(kw)))
+        q = select(ErrorLog).where(and_(*filters)) if filters else select(ErrorLog)
+        q = q.order_by(ErrorLog.created_at.desc()).offset(offset).limit(limit)
+        result = await db.execute(q)
+        logs = result.scalars().all()
+        return logs
+
+    @app.get("/api/logs/errors/download")
+    async def download_error_logs(
+        code: str = None,
+        user: str = None,
+        from_: str = None,
+        to: str = None,
+        keyword: str = None,
+        db: AsyncSession = Depends(get_db)
+    ):
+        from models.error_log import ErrorLog
+        filters = []
+        if code:
+            filters.append(ErrorLog.code == code)
+        if user:
+            filters.append(ErrorLog.user == user)
+        if from_:
+            filters.append(ErrorLog.created_at >= from_)
+        if to:
+            filters.append(ErrorLog.created_at <= to)
+        if keyword:
+            kw = f"%{keyword}%"
+            filters.append(or_(ErrorLog.message.like(kw), ErrorLog.dev_message.like(kw), ErrorLog.stack.like(kw)))
+        q = select(ErrorLog).where(and_(*filters)) if filters else select(ErrorLog)
+        q = q.order_by(ErrorLog.created_at.desc())
+        result = await db.execute(q)
+        logs = result.scalars().all()
+        # CSV 변환
+        output = StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["id", "code", "message", "dev_message", "url", "stack", "user", "created_at"])
+        for l in logs:
+            writer.writerow([
+                l.id, l.code, l.message, l.dev_message, l.url, l.stack, l.user, l.created_at
+            ])
+        output.seek(0)
+        return StreamingResponse(output, media_type="text/csv", headers={"Content-Disposition": "attachment; filename=error_logs.csv"})
+
+    @app.exception_handler(CustomException)
+    async def custom_exception_handler(request: Request, exc: CustomException):
+        logger.error(f"[{exc.code}] {exc.dev_message} | {request.url}")
+        # 에러 로그 DB 기록
+        db: AsyncSession = request.state.db if hasattr(request.state, 'db') else None
+        user = None
+        try:
+            # FastAPI Depends로 current_user를 바로 얻기 어렵기 때문에, 토큰에서 추출하거나 None 처리
+            if hasattr(request, 'user') and getattr(request, 'user', None):
+                user = getattr(request, 'user').username
+        except Exception:
+            user = None
+        # stack trace는 exc.__traceback__에서 추출 가능
+        import traceback
+        stack = ''.join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        # DB 기록 (비동기)
+        if db:
+            log = ErrorLog(
+                code=exc.code,
+                message=exc.message,
+                dev_message=exc.dev_message,
+                url=str(request.url),
+                stack=stack,
+                user=user
+            )
+            db.add(log)
+            await db.commit()
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=exc.to_dict()
+        )
 
     return app
 

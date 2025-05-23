@@ -13,6 +13,7 @@ const navItems = [
   { label: "대시보드", path: "/" },
   { label: "모듈 목록", path: "/modules" },
   { label: "모듈 업로드", path: "/modules/upload" },
+  { label: "에러 로그", path: "/admin/error-logs" },
 ];
 
 const Layout: React.FC = () => {
