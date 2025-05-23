@@ -21,7 +21,7 @@ from models import ExecRequest
 import tempfile
 import zipfile
 import os
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from models.validation_log import ModuleValidationLog
 from models.module_history import ModuleHistory
 from models.version import Version
@@ -839,6 +839,14 @@ def create_app() -> FastAPI:
             ])
         output.seek(0)
         return StreamingResponse(output, media_type="text/csv", headers={"Content-Disposition": "attachment; filename=error_logs.csv"})
+
+    @app.get("/api/templates/module")
+    async def download_module_template():
+        return FileResponse(
+            "templates/module_template.zip",
+            media_type="application/zip",
+            filename="module_template.zip"
+        )
 
     @app.exception_handler(CustomException)
     async def custom_exception_handler(request: Request, exc: CustomException):

@@ -13,6 +13,7 @@ import {
   Tabs,
   Tab,
 } from "@mui/material";
+import FileDownloadIcon from "@mui/icons-material/FileDownload";
 
 interface Props {
   onUploadSuccess?: () => void;
@@ -30,7 +31,6 @@ const ModuleUpload: React.FC<Props> = ({ onUploadSuccess }) => {
   const [success, setSuccess] = useState(false);
   // 인라인 등록 상태
   const [inlineName, setInlineName] = useState("");
-  const [inlineEnv, setInlineEnv] = useState("venv");
   const [inlineVersion, setInlineVersion] = useState("0.1.0");
   const [inlineCode, setInlineCode] = useState("");
   const [inlineDesc, setInlineDesc] = useState("");
@@ -108,34 +108,46 @@ const ModuleUpload: React.FC<Props> = ({ onUploadSuccess }) => {
     }
   };
 
-  const handleFileSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    setSuccess(false);
-    if (!name || !file) {
-      setError("모듈 이름과 파일을 모두 입력하세요.");
-      return;
-    }
-    setLoading(true);
+  // 템플릿 다운로드 핸들러
+  const handleDownloadTemplate = async () => {
     try {
-      const formData = new FormData();
-      formData.append("name", name.trim());
-      formData.append("env", env);
-      formData.append("version", version);
-      formData.append("file", file);
-      // ... existing code ...
+      const res = await axios.get("/api/templates/module", {
+        responseType: "blob",
+        // 인증이 필요한 경우 아래 주석 해제 후 토큰 변수 사용
+        // headers: { Authorization: `Bearer ${token}` }
+      });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", "module_template.zip");
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
     } catch (err: any) {
-      // ... existing code ...
-    } finally {
-      setLoading(false);
+      alert("다운로드 실패: " + (err?.message || "알 수 없는 오류"));
     }
   };
 
   return (
     <Paper sx={{ p: 3, mb: 3 }}>
-      <Typography variant="h6" gutterBottom>
-        모듈 업로드 / 인라인 등록
-      </Typography>
+      <Box
+        display="flex"
+        alignItems="center"
+        justifyContent="space-between"
+        mb={2}
+      >
+        <Typography variant="h6" gutterBottom>
+          모듈 업로드 / 인라인 등록
+        </Typography>
+        <Button
+          variant="outlined"
+          startIcon={<FileDownloadIcon />}
+          onClick={handleDownloadTemplate}
+        >
+          템플릿 다운로드
+        </Button>
+      </Box>
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
         <Tab label="파일 업로드" />
         <Tab label="인라인 코드 등록" />
