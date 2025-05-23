@@ -61,7 +61,7 @@ def create_app() -> FastAPI:
         return request.app.state.executor_manager
 
     # 라우트
-    @app.get("/modules", response_model=List[ModuleResponse])
+    @app.get("/api/modules", response_model=List[ModuleResponse])
     async def list_modules(module_registry: ModuleRegistry = Depends(get_module_registry)):
         modules = await module_registry.list_modules()
         return [
@@ -70,11 +70,11 @@ def create_app() -> FastAPI:
                 env=m.env,
                 version=m.version,
                 created_at=m.created_at.isoformat() if m.created_at else None,
-                tags=m.tags if m.tags else []
+                tags=m.tags.split(",") if isinstance(m.tags, str) else (m.tags if m.tags else [])
             ) for m in modules
         ]
 
-    @app.get("/modules/{name}", response_model=ModuleResponse)
+    @app.get("/api/modules/{name}", response_model=ModuleResponse)
     async def get_module(name: str, module_registry: ModuleRegistry = Depends(get_module_registry)):
         module = await module_registry.get_module(name)
         if not module:
@@ -84,10 +84,10 @@ def create_app() -> FastAPI:
             env=module.env,
             version=module.version,
             created_at=module.created_at.isoformat() if module.created_at else None,
-            tags=module.tags if module.tags else []
+            tags=module.tags.split(",") if isinstance(module.tags, str) else (module.tags if module.tags else [])
         )
 
-    @app.post("/modules", response_model=ModuleResponse, status_code=201)
+    @app.post("/api/modules", response_model=ModuleResponse, status_code=201)
     async def create_module(
         module_data: ModuleCreate,
         module_registry: ModuleRegistry = Depends(get_module_registry),
@@ -115,7 +115,7 @@ def create_app() -> FastAPI:
             tags=module.tags if module.tags else []
         )
 
-    @app.delete("/modules/{name}", status_code=204)
+    @app.delete("/api/modules/{name}", status_code=204)
     async def delete_module(
         name: str,
         module_registry: ModuleRegistry = Depends(get_module_registry)
@@ -252,7 +252,7 @@ def create_app() -> FastAPI:
             await conn.run_sync(Base.metadata.create_all)
         return {"status": "ok"}
 
-    @app.post("/modules/upload")
+    @app.post("/api/modules/upload")
     async def upload_module(file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
         # 1. 임시 디렉토리 생성 및 파일 저장
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -306,7 +306,7 @@ def create_app() -> FastAPI:
             await db.commit()
             return {"detail": "구조/필수 파일 및 handler 함수 검증 통과"}
 
-    @app.post("/modules/{module_id}/upload")
+    @app.post("/api/modules/{module_id}/upload")
     async def upload_module_for_id(module_id: int, file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
         # 1. 모듈 존재 확인
         result = await db.execute(select(Module).where(Module.id == module_id))
@@ -472,7 +472,7 @@ def create_app() -> FastAPI:
             await db.commit()
             return {"detail": f"구조/필수 파일 및 handler 함수 검증 통과, {env_type} 환경 생성 및 의존성 설치, 모듈 정보 갱신 완료"}
 
-    @app.post("/modules/{id}/activate")
+    @app.post("/modules/{module_id}/activate")
     async def activate_module(id: int, db: AsyncSession = Depends(get_db), current_user: UserRead = Depends(get_current_user)):
         result = await db.execute(select(Module).where(Module.id == id))
         module = result.scalars().first()
@@ -505,7 +505,7 @@ def create_app() -> FastAPI:
         await log_audit_event(db, action="module_activate", detail=f"Module {module.name} activated", user_id=current_user.id)
         return {"detail": "모듈이 활성화되었습니다."}
 
-    @app.post("/modules/{id}/deactivate")
+    @app.post("/modules/{module_id}/deactivate")
     async def deactivate_module(id: int, db: AsyncSession = Depends(get_db), current_user: UserRead = Depends(get_current_user)):
         result = await db.execute(select(Module).where(Module.id == id))
         module = result.scalars().first()
