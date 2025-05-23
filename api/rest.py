@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, Body, Request
+from fastapi import FastAPI, HTTPException, Depends, Body, Request, UploadFile, File
 from typing import Dict, List, Any, Optional
 from pydantic import BaseModel
 from models.module import Module
@@ -18,6 +18,11 @@ from schemas.audit_log import AuditLogRead
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 from models import ExecRequest
+import tempfile
+import zipfile
+import os
+from fastapi.responses import JSONResponse
+from models.validation_log import ModuleValidationLog
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Operato Runner", description="Python module execution platform")
@@ -246,6 +251,123 @@ def create_app() -> FastAPI:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         return {"status": "ok"}
+
+    @app.post("/modules/upload")
+    async def upload_module(file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
+        # 1. 임시 디렉토리 생성 및 파일 저장
+        with tempfile.TemporaryDirectory() as tmpdir:
+            zip_path = os.path.join(tmpdir, file.filename)
+            with open(zip_path, "wb") as f:
+                content = await file.read()
+                f.write(content)
+            # 2. 압축 해제
+            try:
+                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                    zip_ref.extractall(tmpdir)
+            except zipfile.BadZipFile:
+                log = ModuleValidationLog(filename=file.filename, status="fail", message="압축 해제 실패: 올바른 zip 파일이 아님")
+                db.add(log)
+                await db.commit()
+                return JSONResponse(status_code=400, content={"detail": "업로드 파일이 올바른 zip 압축파일이 아닙니다."})
+            # 3. 필수 파일 검사
+            required_files = ["handler.py", "requirements.txt", "README", "README.md"]
+            found = {f: False for f in required_files}
+            handler_path = None
+            for root, dirs, files in os.walk(tmpdir):
+                for fname in files:
+                    for req in required_files:
+                        if fname.lower() == req.lower():
+                            found[req] = True
+                    if fname.lower() == "handler.py":
+                        handler_path = os.path.join(root, fname)
+            missing = [f for f, ok in found.items() if not ok and not (f.startswith("README") and (found["README"] or found["README.md"]))]
+            if missing:
+                log = ModuleValidationLog(filename=file.filename, status="fail", message=f"필수 파일 누락: {', '.join(missing)}")
+                db.add(log)
+                await db.commit()
+                return JSONResponse(status_code=400, content={"detail": f"필수 파일 누락: {', '.join(missing)}"})
+            # 4. handler.py 내부에 handler 함수 존재 여부 검사
+            if handler_path:
+                with open(handler_path, "r", encoding="utf-8") as f:
+                    handler_code = f.read()
+                if "def handler(" not in handler_code:
+                    log = ModuleValidationLog(filename=file.filename, status="fail", message="handler.py에 'def handler' 함수가 없음")
+                    db.add(log)
+                    await db.commit()
+                    return JSONResponse(status_code=400, content={"detail": "handler.py에 'def handler' 함수가 정의되어 있지 않습니다."})
+            else:
+                log = ModuleValidationLog(filename=file.filename, status="fail", message="handler.py 파일 없음")
+                db.add(log)
+                await db.commit()
+                return JSONResponse(status_code=400, content={"detail": "handler.py 파일을 찾을 수 없습니다."})
+            # 성공 기록
+            log = ModuleValidationLog(filename=file.filename, status="success", message="검증 통과")
+            db.add(log)
+            await db.commit()
+            return {"detail": "구조/필수 파일 및 handler 함수 검증 통과"}
+
+    @app.post("/modules/{module_id}/upload")
+    async def upload_module_for_id(module_id: int, file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
+        # 1. 모듈 존재 확인
+        result = await db.execute(select(Module).where(Module.id == module_id))
+        module = result.scalars().first()
+        if not module:
+            return JSONResponse(status_code=404, content={"detail": f"Module id {module_id} not found"})
+        # 2. 임시 디렉토리 생성 및 파일 저장
+        with tempfile.TemporaryDirectory() as tmpdir:
+            zip_path = os.path.join(tmpdir, file.filename)
+            with open(zip_path, "wb") as f:
+                content = await file.read()
+                f.write(content)
+            # 3. 압축 해제
+            try:
+                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                    zip_ref.extractall(tmpdir)
+            except zipfile.BadZipFile:
+                log = ModuleValidationLog(filename=file.filename, status="fail", message="압축 해제 실패: 올바른 zip 파일이 아님")
+                db.add(log)
+                await db.commit()
+                return JSONResponse(status_code=400, content={"detail": "업로드 파일이 올바른 zip 압축파일이 아닙니다."})
+            # 4. 필수 파일 검사
+            required_files = ["handler.py", "requirements.txt", "README", "README.md"]
+            found = {f: False for f in required_files}
+            handler_path = None
+            for root, dirs, files in os.walk(tmpdir):
+                for fname in files:
+                    for req in required_files:
+                        if fname.lower() == req.lower():
+                            found[req] = True
+                    if fname.lower() == "handler.py":
+                        handler_path = os.path.join(root, fname)
+            missing = [f for f, ok in found.items() if not ok and not (f.startswith("README") and (found["README"] or found["README.md"]))]
+            if missing:
+                log = ModuleValidationLog(filename=file.filename, status="fail", message=f"필수 파일 누락: {', '.join(missing)}")
+                db.add(log)
+                await db.commit()
+                return JSONResponse(status_code=400, content={"detail": f"필수 파일 누락: {', '.join(missing)}"})
+            # 5. handler.py 내부에 handler 함수 존재 여부 검사
+            if handler_path:
+                with open(handler_path, "r", encoding="utf-8") as f:
+                    handler_code = f.read()
+                if "def handler(" not in handler_code:
+                    log = ModuleValidationLog(filename=file.filename, status="fail", message="handler.py에 'def handler' 함수가 없음")
+                    db.add(log)
+                    await db.commit()
+                    return JSONResponse(status_code=400, content={"detail": "handler.py에 'def handler' 함수가 정의되어 있지 않습니다."})
+            else:
+                log = ModuleValidationLog(filename=file.filename, status="fail", message="handler.py 파일 없음")
+                db.add(log)
+                await db.commit()
+                return JSONResponse(status_code=400, content={"detail": "handler.py 파일을 찾을 수 없습니다."})
+            # 6. 성공 기록 및 모듈 정보 갱신
+            log = ModuleValidationLog(filename=file.filename, status="success", message="검증 통과 및 모듈 정보 갱신")
+            db.add(log)
+            # 모듈 path/status/version 등 갱신 (예시: path만 갱신, 필요시 확장)
+            module.path = zip_path  # 실제 운영시에는 영구 저장소로 이동 필요
+            # module.status = 'uploaded'  # status 필드가 있다면
+            # module.version = ...        # 필요시 버전 추출/갱신
+            await db.commit()
+            return {"detail": "구조/필수 파일 및 handler 함수 검증 통과, 모듈 정보 갱신 완료"}
 
     return app
 

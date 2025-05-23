@@ -26,3 +26,4 @@ email-validator
 dnspython
 passlib[bcrypt]
 httpx
+python-multipart

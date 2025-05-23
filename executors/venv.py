@@ -55,8 +55,8 @@ import os
 # 모듈 디렉토리를 Python 경로에 추가
 sys.path.insert(0, '{module_dir}')
 
-# 모듈 임포트 및 실행
-from {module_name.replace('-', '_')} import handler
+# handler.py에서 handler 함수 import
+from handler import handler
 
 with open('{input_path}', 'r') as f:
     input_data = json.load(f)

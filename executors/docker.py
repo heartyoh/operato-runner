@@ -33,7 +33,7 @@ class DockerExecutor(Executor):
         with open(input_path, "w") as f:
             json.dump(request.input_json, f)
         output_path = os.path.join(temp_dir, "output.json")
-        # 모듈 코드 획득
+        # 모듈 코득
         code = ""
         if self.module_registry:
             module = await self.module_registry.get_module(module_name)
@@ -44,15 +44,15 @@ class DockerExecutor(Executor):
                     code = f.read()
         script_path = os.path.join(temp_dir, "script.py")
         with open(script_path, "w") as f:
-            f.write(code)
-            f.write("\n\n")
-            f.write("if __name__ == '__main__':\n")
-            f.write("    import json\n")
-            f.write("    with open('/data/input.json', 'r') as f:\n")
-            f.write("        input_data = json.load(f)\n")
-            f.write("    result = handler(input_data)\n")
-            f.write("    with open('/data/output.json', 'w') as f:\n")
-            f.write("        json.dump(result, f)\n")
+            f.write("import json\n")
+            f.write("import sys\n")
+            f.write(f"sys.path.insert(0, '{temp_dir}')\n")
+            f.write("from handler import handler\n")
+            f.write("with open('/data/input.json', 'r') as f:\n")
+            f.write("    input_data = json.load(f)\n")
+            f.write("result = handler(input_data)\n")
+            f.write("with open('/data/output.json', 'w') as f:\n")
+            f.write("    json.dump(result, f)\n")
         container = None
         try:
             container = self.client.containers.run(
