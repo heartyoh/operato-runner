@@ -313,6 +313,14 @@ def create_app() -> FastAPI:
         module = result.scalars().first()
         if not module:
             return JSONResponse(status_code=404, content={"detail": f"Module id {module_id} not found"})
+        # 1-1. 중복 버전 업로드 방지 (name+version)
+        dup_result = await db.execute(select(Module).where(Module.name == module.name, Module.version == module.version, Module.id != module_id))
+        dup = dup_result.scalars().first()
+        if dup:
+            log = ModuleValidationLog(filename=file.filename, status="fail", message=f"중복 버전 업로드: {module.name} v{module.version}")
+            db.add(log)
+            await db.commit()
+            return JSONResponse(status_code=400, content={"detail": f"이미 등록된 모듈 버전입니다: {module.name} v{module.version}"})
         # 2. 임시 디렉토리 생성 및 파일 저장
         with tempfile.TemporaryDirectory() as tmpdir:
             zip_path = os.path.join(tmpdir, file.filename)
