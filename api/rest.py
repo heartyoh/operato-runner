@@ -362,45 +362,107 @@ def create_app() -> FastAPI:
                 db.add(log)
                 await db.commit()
                 return JSONResponse(status_code=400, content={"detail": "handler.py 파일을 찾을 수 없습니다."})
-            # 6. requirements.txt 의존성 설치 자동화 (기존 pip install은 venv 생성 후로 이동)
+            # 6. 환경별 독립 실행 환경 자동 생성
             import subprocess
-            venv_dir = os.path.abspath(f"module_envs/{module_id}/venv")
-            os.makedirs(venv_dir, exist_ok=True)
-            # 7. venv 생성
-            try:
-                subprocess.run(["python3", "-m", "venv", venv_dir], check=True)
-            except Exception as e:
-                log = ModuleValidationLog(filename=file.filename, status="fail", message=f"venv 생성 실패: {str(e)}")
-                db.add(log)
-                await db.commit()
-                return JSONResponse(status_code=500, content={"detail": f"venv 생성 실패: {str(e)}"})
-            # 8. venv 내 pip로 requirements.txt 설치
-            if requirements_path:
-                pip_path = os.path.join(venv_dir, "bin", "pip")
+            env_type = module.env.lower() if module.env else "venv"
+            if env_type == "venv":
+                venv_dir = os.path.abspath(f"module_envs/{module_id}/venv")
+                os.makedirs(venv_dir, exist_ok=True)
                 try:
-                    proc = subprocess.run([
-                        pip_path, "install", "-r", requirements_path
-                    ], capture_output=True, text=True, check=False)
-                    if proc.returncode == 0:
-                        log = ModuleValidationLog(filename=file.filename, status="success", message=f"venv 내 requirements.txt 의존성 설치 성공\n{proc.stdout}")
-                        db.add(log)
-                    else:
-                        log = ModuleValidationLog(filename=file.filename, status="fail", message=f"venv 내 requirements.txt 의존성 설치 실패\n{proc.stderr}")
-                        db.add(log)
-                        await db.commit()
-                        return JSONResponse(status_code=400, content={"detail": f"venv 내 requirements.txt 의존성 설치 실패", "error": proc.stderr})
+                    subprocess.run(["python3", "-m", "venv", venv_dir], check=True)
                 except Exception as e:
-                    log = ModuleValidationLog(filename=file.filename, status="fail", message=f"venv 내 requirements.txt 설치 중 예외: {str(e)}")
+                    log = ModuleValidationLog(filename=file.filename, status="fail", message=f"venv 생성 실패: {str(e)}")
                     db.add(log)
                     await db.commit()
-                    return JSONResponse(status_code=500, content={"detail": f"venv 내 requirements.txt 설치 중 예외: {str(e)}"})
-            # 9. 성공 기록 및 모듈 정보 갱신
-            log = ModuleValidationLog(filename=file.filename, status="success", message="검증 통과 및 venv 생성/설치/모듈 정보 갱신")
+                    return JSONResponse(status_code=500, content={"detail": f"venv 생성 실패: {str(e)}"})
+                if requirements_path:
+                    pip_path = os.path.join(venv_dir, "bin", "pip")
+                    try:
+                        proc = subprocess.run([
+                            pip_path, "install", "-r", requirements_path
+                        ], capture_output=True, text=True, check=False)
+                        if proc.returncode == 0:
+                            log = ModuleValidationLog(filename=file.filename, status="success", message=f"venv 내 requirements.txt 의존성 설치 성공\n{proc.stdout}")
+                            db.add(log)
+                        else:
+                            log = ModuleValidationLog(filename=file.filename, status="fail", message=f"venv 내 requirements.txt 의존성 설치 실패\n{proc.stderr}")
+                            db.add(log)
+                            await db.commit()
+                            return JSONResponse(status_code=400, content={"detail": f"venv 내 requirements.txt 의존성 설치 실패", "error": proc.stderr})
+                    except Exception as e:
+                        log = ModuleValidationLog(filename=file.filename, status="fail", message=f"venv 내 requirements.txt 설치 중 예외: {str(e)}")
+                        db.add(log)
+                        await db.commit()
+                        return JSONResponse(status_code=500, content={"detail": f"venv 내 requirements.txt 설치 중 예외: {str(e)}"})
+                module.env = venv_dir
+            elif env_type == "conda":
+                conda_env_name = f"mod_{module_id}"
+                try:
+                    subprocess.run(["conda", "create", "-y", "-n", conda_env_name, "python=3.10"], check=True)
+                except Exception as e:
+                    log = ModuleValidationLog(filename=file.filename, status="fail", message=f"conda 환경 생성 실패: {str(e)}")
+                    db.add(log)
+                    await db.commit()
+                    return JSONResponse(status_code=500, content={"detail": f"conda 환경 생성 실패: {str(e)}"})
+                if requirements_path:
+                    try:
+                        proc = subprocess.run([
+                            "conda", "run", "-n", conda_env_name, "pip", "install", "-r", requirements_path
+                        ], capture_output=True, text=True, check=False)
+                        if proc.returncode == 0:
+                            log = ModuleValidationLog(filename=file.filename, status="success", message=f"conda 환경 requirements.txt 설치 성공\n{proc.stdout}")
+                            db.add(log)
+                        else:
+                            log = ModuleValidationLog(filename=file.filename, status="fail", message=f"conda 환경 requirements.txt 설치 실패\n{proc.stderr}")
+                            db.add(log)
+                            await db.commit()
+                            return JSONResponse(status_code=400, content={"detail": f"conda 환경 requirements.txt 설치 실패", "error": proc.stderr})
+                    except Exception as e:
+                        log = ModuleValidationLog(filename=file.filename, status="fail", message=f"conda 환경 requirements.txt 설치 중 예외: {str(e)}")
+                        db.add(log)
+                        await db.commit()
+                        return JSONResponse(status_code=500, content={"detail": f"conda 환경 requirements.txt 설치 중 예외: {str(e)}"})
+                module.env = conda_env_name
+            elif env_type == "docker":
+                docker_tag = f"mod_{module_id}:latest"
+                dockerfile_path = os.path.join(tmpdir, "Dockerfile")
+                # Dockerfile 생성
+                with open(dockerfile_path, "w") as df:
+                    df.write("FROM python:3.10-slim\n")
+                    df.write("WORKDIR /app\n")
+                    df.write("COPY . /app\n")
+                    if requirements_path:
+                        df.write("RUN pip install --no-cache-dir -r requirements.txt\n")
+                    df.write("CMD [\"python\", \"handler.py\"]\n")
+                try:
+                    proc = subprocess.run([
+                        "docker", "build", "-t", docker_tag, tmpdir
+                    ], capture_output=True, text=True, check=False)
+                    if proc.returncode == 0:
+                        log = ModuleValidationLog(filename=file.filename, status="success", message=f"docker 이미지 빌드 성공\n{proc.stdout}")
+                        db.add(log)
+                    else:
+                        log = ModuleValidationLog(filename=file.filename, status="fail", message=f"docker 이미지 빌드 실패\n{proc.stderr}")
+                        db.add(log)
+                        await db.commit()
+                        return JSONResponse(status_code=400, content={"detail": f"docker 이미지 빌드 실패", "error": proc.stderr})
+                except Exception as e:
+                    log = ModuleValidationLog(filename=file.filename, status="fail", message=f"docker 이미지 빌드 중 예외: {str(e)}")
+                    db.add(log)
+                    await db.commit()
+                    return JSONResponse(status_code=500, content={"detail": f"docker 이미지 빌드 중 예외: {str(e)}"})
+                module.env = docker_tag
+            else:
+                log = ModuleValidationLog(filename=file.filename, status="fail", message=f"알 수 없는 env 타입: {env_type}")
+                db.add(log)
+                await db.commit()
+                return JSONResponse(status_code=400, content={"detail": f"알 수 없는 env 타입: {env_type}"})
+            # 7. 성공 기록 및 모듈 정보 갱신
+            log = ModuleValidationLog(filename=file.filename, status="success", message="검증 통과 및 환경 생성/설치/모듈 정보 갱신")
             db.add(log)
             module.path = zip_path  # 실제 운영시에는 영구 저장소로 이동 필요
-            module.env = venv_dir   # venv 경로를 env 필드에 저장(또는 별도 필드 활용)
             await db.commit()
-            return {"detail": "구조/필수 파일 및 handler 함수 검증 통과, venv 생성 및 의존성 설치, 모듈 정보 갱신 완료"}
+            return {"detail": f"구조/필수 파일 및 handler 함수 검증 통과, {env_type} 환경 생성 및 의존성 설치, 모듈 정보 갱신 완료"}
 
     return app
 
