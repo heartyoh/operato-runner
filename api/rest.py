@@ -362,32 +362,45 @@ def create_app() -> FastAPI:
                 db.add(log)
                 await db.commit()
                 return JSONResponse(status_code=400, content={"detail": "handler.py 파일을 찾을 수 없습니다."})
-            # 6. requirements.txt 의존성 설치 자동화
+            # 6. requirements.txt 의존성 설치 자동화 (기존 pip install은 venv 생성 후로 이동)
             import subprocess
+            venv_dir = os.path.abspath(f"module_envs/{module_id}/venv")
+            os.makedirs(venv_dir, exist_ok=True)
+            # 7. venv 생성
+            try:
+                subprocess.run(["python3", "-m", "venv", venv_dir], check=True)
+            except Exception as e:
+                log = ModuleValidationLog(filename=file.filename, status="fail", message=f"venv 생성 실패: {str(e)}")
+                db.add(log)
+                await db.commit()
+                return JSONResponse(status_code=500, content={"detail": f"venv 생성 실패: {str(e)}"})
+            # 8. venv 내 pip로 requirements.txt 설치
             if requirements_path:
+                pip_path = os.path.join(venv_dir, "bin", "pip")
                 try:
                     proc = subprocess.run([
-                        "pip", "install", "-r", requirements_path
+                        pip_path, "install", "-r", requirements_path
                     ], capture_output=True, text=True, check=False)
                     if proc.returncode == 0:
-                        log = ModuleValidationLog(filename=file.filename, status="success", message=f"requirements.txt 의존성 설치 성공\n{proc.stdout}")
+                        log = ModuleValidationLog(filename=file.filename, status="success", message=f"venv 내 requirements.txt 의존성 설치 성공\n{proc.stdout}")
                         db.add(log)
                     else:
-                        log = ModuleValidationLog(filename=file.filename, status="fail", message=f"requirements.txt 의존성 설치 실패\n{proc.stderr}")
+                        log = ModuleValidationLog(filename=file.filename, status="fail", message=f"venv 내 requirements.txt 의존성 설치 실패\n{proc.stderr}")
                         db.add(log)
                         await db.commit()
-                        return JSONResponse(status_code=400, content={"detail": f"requirements.txt 의존성 설치 실패", "error": proc.stderr})
+                        return JSONResponse(status_code=400, content={"detail": f"venv 내 requirements.txt 의존성 설치 실패", "error": proc.stderr})
                 except Exception as e:
-                    log = ModuleValidationLog(filename=file.filename, status="fail", message=f"requirements.txt 설치 중 예외: {str(e)}")
+                    log = ModuleValidationLog(filename=file.filename, status="fail", message=f"venv 내 requirements.txt 설치 중 예외: {str(e)}")
                     db.add(log)
                     await db.commit()
-                    return JSONResponse(status_code=500, content={"detail": f"requirements.txt 설치 중 예외: {str(e)}"})
-            # 7. 성공 기록 및 모듈 정보 갱신
-            log = ModuleValidationLog(filename=file.filename, status="success", message="검증 통과 및 모듈 정보 갱신")
+                    return JSONResponse(status_code=500, content={"detail": f"venv 내 requirements.txt 설치 중 예외: {str(e)}"})
+            # 9. 성공 기록 및 모듈 정보 갱신
+            log = ModuleValidationLog(filename=file.filename, status="success", message="검증 통과 및 venv 생성/설치/모듈 정보 갱신")
             db.add(log)
             module.path = zip_path  # 실제 운영시에는 영구 저장소로 이동 필요
+            module.env = venv_dir   # venv 경로를 env 필드에 저장(또는 별도 필드 활용)
             await db.commit()
-            return {"detail": "구조/필수 파일 및 handler 함수 검증 통과, requirements.txt 설치 및 모듈 정보 갱신 완료"}
+            return {"detail": "구조/필수 파일 및 handler 함수 검증 통과, venv 생성 및 의존성 설치, 모듈 정보 갱신 완료"}
 
     return app
 
