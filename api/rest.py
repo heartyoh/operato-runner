@@ -702,30 +702,34 @@ def create_app() -> FastAPI:
                 # venv와 동일하게 소스만 modules/{name}/{version}/에 관리
                 pass
             elif env_type == "docker":
-                docker_tag = f"mod_{module_id}:latest"
-                dockerfile_path = os.path.join(tmpdir, "Dockerfile")
-                # Dockerfile 생성
-                with open(dockerfile_path, "w") as df:
-                    df.write("FROM python:3.10-slim\n")
-                    df.write("WORKDIR /app\n")
-                    df.write("COPY . /app\n")
-                    if requirements_path:
-                        df.write("RUN pip install --no-cache-dir -r requirements.txt\n")
-                    df.write("CMD [\"python\", \"handler.py\"]\n")
+                # docker 환경 처리
+                src_dir = os.path.join("modules", module.name, module.version)
+                if not os.path.exists(src_dir):
+                    raise HTTPException(status_code=400, detail="영구 저장소에 모듈 파일이 존재하지 않습니다.")
+                docker_tag = f"mod_{module.name}:{module.version}"
+                dockerfile_path = os.path.join(src_dir, "Dockerfile")
+                if not os.path.exists(dockerfile_path):
+                    return JSONResponse(status_code=400, content={"detail": "Dockerfile이 존재하지 않습니다."})
+                import subprocess
                 try:
                     proc = subprocess.run([
-                        "docker", "build", "-t", docker_tag, tmpdir
+                        "docker", "build", "-t", docker_tag, src_dir
                     ], capture_output=True, text=True, check=False)
                     if proc.returncode == 0:
-                        log = ModuleValidationLog(filename=file.filename, status="success", message=f"docker 이미지 빌드 성공\n{proc.stdout}")
+                        log_module_action(module.name, getattr(module, 'version', 'unknown'), "docker", f"docker 이미지 빌드 성공\n{proc.stdout}")
+                        log = ModuleValidationLog(filename="Dockerfile", status="success", message=f"docker 이미지 빌드 성공\n{proc.stdout}")
                         db.add(log)
+                        await db.commit()
+                        return {"detail": f"docker 이미지 빌드 성공: {docker_tag}"}
                     else:
-                        log = ModuleValidationLog(filename=file.filename, status="fail", message=f"docker 이미지 빌드 실패\n{proc.stderr}")
+                        log_module_action(module.name, getattr(module, 'version', 'unknown'), "docker", f"docker 이미지 빌드 실패\n{proc.stderr}")
+                        log = ModuleValidationLog(filename="Dockerfile", status="fail", message=f"docker 이미지 빌드 실패\n{proc.stderr}")
                         db.add(log)
                         await db.commit()
                         return JSONResponse(status_code=400, content={"detail": f"docker 이미지 빌드 실패", "error": proc.stderr})
                 except Exception as e:
-                    log = ModuleValidationLog(filename=file.filename, status="fail", message=f"docker 이미지 빌드 중 예외: {str(e)}")
+                    log_module_action(module.name, getattr(module, 'version', 'unknown'), "docker", f"docker 이미지 빌드 중 예외: {str(e)}")
+                    log = ModuleValidationLog(filename="Dockerfile", status="fail", message=f"docker 이미지 빌드 중 예외: {str(e)}")
                     db.add(log)
                     await db.commit()
                     return JSONResponse(status_code=500, content={"detail": f"docker 이미지 빌드 중 예외: {str(e)}"})
@@ -821,6 +825,13 @@ def create_app() -> FastAPI:
                     shutil.rmtree(conda_env_dir)
             except Exception:
                 pass
+        # docker 환경 삭제
+        if module.env == "docker":
+            try:
+                docker_tag = f"mod_{module.name}:{module.version}"
+                subprocess.run(["docker", "rmi", "-f", docker_tag], check=False)
+            except Exception:
+                pass
         # 실행환경 폴더 전체 삭제
         if os.path.exists(module_env_dir):
             try:
@@ -834,7 +845,7 @@ def create_app() -> FastAPI:
                 shutil.rmtree(modules_dir)
             except Exception:
                 pass
-        return {"detail": "모듈이 삭제되었습니다."}
+        return {"success": True, "log": "전개 환경이 제거되었습니다."}
 
     @app.get("/modules/{id}/status")
     async def get_module_status(id: int, db: AsyncSession = Depends(get_db)):
@@ -1059,8 +1070,6 @@ def create_app() -> FastAPI:
         if not deployment_obj:
             deployment_obj = Deployment(module_id=module.id, version_id=version_obj.id, status="active")
             db.add(deployment_obj)
-        else:
-            deployment_obj.status = "active"
         # 나머지 버전은 inactive로
         other_deployments = await db.execute(
             select(Deployment).where(Deployment.module_id == module.id, Deployment.version_id != version_obj.id)
@@ -1276,25 +1285,27 @@ def create_app() -> FastAPI:
         if os.path.exists(venv_dir):
             try:
                 shutil.rmtree(venv_dir)
-                return {"success": True, "log": "venv 전개 환경이 제거되었습니다."}
-            except Exception as e:
-                return {"success": False, "log": f"venv 삭제 실패: {str(e)}"}
+            except Exception:
+                pass
         # conda 환경 삭제
-        elif os.path.exists(conda_env_dir):
+        if os.path.exists(conda_env_dir):
             import subprocess
             try:
-                subprocess.run(["conda", "remove", "-y", "-p", conda_env_dir, "--all"], check=True)
-            except Exception as e:
-                return {"success": False, "log": f"conda 환경 삭제 명령 실패: {str(e)}"}
-            # 폴더가 남아있으면 추가로 삭제
+                subprocess.run(["conda", "remove", "-y", "-p", conda_env_dir, "--all"], check=False)
+            except Exception:
+                pass
             try:
                 if os.path.exists(conda_env_dir):
                     shutil.rmtree(conda_env_dir)
-                return {"success": True, "log": "conda 전개 환경이 제거되었습니다."}
-            except Exception as e:
-                return {"success": False, "log": f"conda 환경 폴더 삭제 실패: {str(e)}"}
-        else:
-            return {"success": False, "log": "전개 환경이 존재하지 않습니다."}
+            except Exception:
+                pass
+        # docker 환경 삭제
+        if os.path.exists(module_env_dir):
+            try:
+                shutil.rmtree(module_env_dir)
+            except Exception:
+                pass
+        return {"success": True, "log": "전개 환경이 제거되었습니다."}
 
     @app.exception_handler(CustomException)
     async def custom_exception_handler(request: Request, exc: CustomException):
