@@ -123,22 +123,21 @@ def create_app() -> FastAPI:
         module = result.scalars().first()
         if not module:
             raise HTTPException(status_code=404, detail="Module not found")
-        # 활성화된 버전 정보 가져오기 (인라인 타입)
         code = None
         description = module.description
         current_version = module.version
-        if module.env == "inline":
-            v_result = await db.execute(
-                select(Version).join(Deployment, Deployment.version_id == Version.id)
-                .where(Version.module_id == module.id, Deployment.status == "active")
-            )
-            active_version = v_result.scalars().first()
-            if active_version:
-                code = active_version.code
-                description = active_version.description
-                current_version = active_version.version
+        # inline, venv 모두 active deployment 기준으로 current_version 결정
+        v_result = await db.execute(
+            select(Version).join(Deployment, Deployment.version_id == Version.id)
+            .where(Version.module_id == module.id, Deployment.status == "active")
+        )
+        active_version = v_result.scalars().first()
+        if active_version:
+            code = active_version.code
+            description = active_version.description
+            current_version = active_version.version
         else:
-            # 파일 기반은 최신 업로드 버전 기준
+            # fallback: 최신 업로드 버전
             v_result = await db.execute(
                 select(Version).where(Version.module_id == module.id).order_by(Version.created_at.desc())
             )
@@ -246,6 +245,9 @@ def create_app() -> FastAPI:
                 deployment_obj = Deployment(module_id=module.id, version_id=version_obj.id, status="active")
                 db.add(deployment_obj)
                 await db.commit()
+                # Module.version 필드도 갱신
+                module.version = version
+                await db.commit()
                 return ModuleResponse(
                     name=module.name,
                     env=module.env,
@@ -273,6 +275,16 @@ def create_app() -> FastAPI:
             await db.commit()
             await db.refresh(module)
             # 업그레이드처럼 versions 테이블에도 버전 추가
+            result = await db.execute(select(Module).where(Module.name == name))
+            module = result.scalars().first()
+            if not module:
+                raise HTTPException(status_code=404, detail=f"Module not found: {name}")
+            v_result = await db.execute(
+                select(Version).where(Version.module_id == module.id, Version.version == version)
+            )
+            dup = v_result.scalars().first()
+            if dup:
+                raise HTTPException(status_code=400, detail=f"이미 등록된 모듈 버전입니다: {name} v{version}")
             version_obj = Version(
                 module_id=module.id,
                 version=version,
@@ -283,9 +295,15 @@ def create_app() -> FastAPI:
             db.add(version_obj)
             await db.commit()
             await db.refresh(version_obj)
-            # 활성화 배포 정보도 추가
+            # 기존 Deployment 모두 inactive로
+            deployments = await db.execute(select(Deployment).where(Deployment.module_id == module.id))
+            for d in deployments.scalars().all():
+                d.status = "inactive"
+            # 새 버전만 active
             deployment_obj = Deployment(module_id=module.id, version_id=version_obj.id, status="active")
             db.add(deployment_obj)
+            # Module.version 필드도 갱신
+            module.version = version
             await db.commit()
             await log_audit_event(db, action="module_deploy", detail=f"Module {module.name} deployed", user_id=current_user.id)
             return ModuleResponse(
@@ -895,15 +913,15 @@ def create_app() -> FastAPI:
                     f.write(content)
                 with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                     zip_ref.extractall(tmpdir)
-                items = [item for item in os.listdir(tmpdir) if not item.startswith('.')]
-                # modules/{name}/{version}/에 압축 해제
+                items = [item for item in os.listdir(tmpdir) if not item.startswith('.') and item != file.filename]
+                if len(items) == 1 and os.path.isdir(os.path.join(tmpdir, items[0])):
+                    root_dir = os.path.join(tmpdir, items[0])
+                else:
+                    root_dir = tmpdir
                 modules_dir = os.path.join("modules", name, version)
                 if os.path.exists(modules_dir):
                     shutil.rmtree(modules_dir)
                 os.makedirs(modules_dir, exist_ok=True)
-                # 압축 해제된 실제 소스 루트 찾기
-                root_dir = tmpdir
-                # 소스 전체를 modules/{name}/{version}/로 복사
                 for item in os.listdir(root_dir):
                     s = os.path.join(root_dir, item)
                     d = os.path.join(modules_dir, item)
@@ -911,20 +929,8 @@ def create_app() -> FastAPI:
                         shutil.copytree(s, d, dirs_exist_ok=True)
                     elif os.path.isfile(s):
                         shutil.copy2(s, d)
-                # module_envs/{name}/로 복사하는 로직은 제거
-                module = Module(
-                    name=name,
-                    env=env,
-                    code=None,
-                    path=None,
-                    version=version,
-                    tags=','.join(tag_list),
-                    description=description,
-                    owner_id=current_user.id
-                )
-                db.add(module)
-                await db.commit()
-                await db.refresh(module)
+                # requirements.txt가 있는 폴더만 module_envs/{name}/로 복사 (deploy에서만 필요, 여기선 생략 가능)
+                # 2. versions/deployments에만 추가
                 version_obj = Version(
                     module_id=module.id,
                     version=version,
@@ -935,12 +941,29 @@ def create_app() -> FastAPI:
                 db.add(version_obj)
                 await db.commit()
                 await db.refresh(version_obj)
+                # 기존 Deployment 모두 inactive로
+                deployments = await db.execute(select(Deployment).where(Deployment.module_id == module.id))
+                for d in deployments.scalars().all():
+                    d.status = "inactive"
+                # 새 버전만 active
                 deployment_obj = Deployment(module_id=module.id, version_id=version_obj.id, status="active")
                 db.add(deployment_obj)
+                # Module.version 필드도 갱신
+                module.version = version
                 await db.commit()
                 return {"detail": f"새 버전 업로드 완료: {name} v{version}"}
         elif code:
             # 인라인 코드 업로드 (code, description 등 저장)
+            result = await db.execute(select(Module).where(Module.name == name))
+            module = result.scalars().first()
+            if not module:
+                raise HTTPException(status_code=404, detail=f"Module not found: {name}")
+            v_result = await db.execute(
+                select(Version).where(Version.module_id == module.id, Version.version == version)
+            )
+            dup = v_result.scalars().first()
+            if dup:
+                raise HTTPException(status_code=400, detail=f"이미 등록된 모듈 버전입니다: {name} v{version}")
             version_obj = Version(
                 module_id=module.id,
                 version=version,
@@ -951,6 +974,16 @@ def create_app() -> FastAPI:
             db.add(version_obj)
             await db.commit()
             await db.refresh(version_obj)
+            # 기존 Deployment 모두 inactive로
+            deployments = await db.execute(select(Deployment).where(Deployment.module_id == module.id))
+            for d in deployments.scalars().all():
+                d.status = "inactive"
+            # 새 버전만 active
+            deployment_obj = Deployment(module_id=module.id, version_id=version_obj.id, status="active")
+            db.add(deployment_obj)
+            # Module.version 필드도 갱신
+            module.version = version
+            await db.commit()
             return {"detail": f"인라인 코드 새 버전 업로드 완료: {name} v{version}"}
         else:
             raise HTTPException(status_code=400, detail="파일 또는 코드가 필요합니다.")
@@ -1030,6 +1063,7 @@ def create_app() -> FastAPI:
         )
         for d in other_deployments.scalars().all():
             d.status = "inactive"
+        # Module.version 필드도 갱신
         module.version = version
         module.is_active = 1
         await db.commit()
