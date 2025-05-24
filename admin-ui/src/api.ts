@@ -109,4 +109,23 @@ export async function deleteModule(name: string) {
   return res.data;
 }
 
+export async function uploadModuleVersion(name: string, formData: FormData) {
+  const res = await axios.post(`/api/modules/${name}/versions`, formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return res.data;
+}
+
+export async function updateModuleInfo(
+  name: string,
+  data: { description?: string; tags?: string }
+) {
+  const formData = new FormData();
+  if (data.description !== undefined)
+    formData.append("description", data.description);
+  if (data.tags !== undefined) formData.append("tags", data.tags);
+  const res = await axios.patch(`/api/modules/${name}`, formData);
+  return res.data;
+}
+
 export {};

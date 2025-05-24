@@ -102,7 +102,7 @@ const ModuleList: React.FC = () => {
                   <TableCell>
                     <Button
                       size="small"
-                      onClick={() => navigate(`/modules/${m.name}`)}
+                      onClick={() => navigate(`/dashboard/modules/${m.name}`)}
                     >
                       상세
                     </Button>

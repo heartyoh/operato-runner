@@ -24,6 +24,8 @@ import {
   activateModuleVersion,
   deactivateModuleVersion,
   fetchModuleHistory,
+  uploadModuleVersion,
+  updateModuleInfo,
 } from "../api";
 
 const formatDate = (iso: string) =>
@@ -39,12 +41,31 @@ const ModuleDetail: React.FC = () => {
   const [actionMsg, setActionMsg] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const [upgradeLoading, setUpgradeLoading] = useState(false);
+  const [upgradeMsg, setUpgradeMsg] = useState<string | null>(null);
+  const [upgradeError, setUpgradeError] = useState<string | null>(null);
+  const [upgradeVersion, setUpgradeVersion] = useState("");
+  const [upgradeDesc, setUpgradeDesc] = useState("");
+  const [upgradeTags, setUpgradeTags] = useState("");
+  const [upgradeFile, setUpgradeFile] = useState<File | null>(null);
+  const [editMode, setEditMode] = useState(false);
+  const [editDesc, setEditDesc] = useState("");
+  const [editTags, setEditTags] = useState("");
+  const [editLoading, setEditLoading] = useState(false);
+  const [editMsg, setEditMsg] = useState<string | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [upgradeCode, setUpgradeCode] = useState("");
 
   useEffect(() => {
     if (!name) return;
     setLoading(true);
     fetchModuleDetail(name)
-      .then(setModule)
+      .then((mod) => {
+        setModule(mod);
+        if (mod.env === "inline") {
+          setUpgradeCode(mod.code || "");
+        }
+      })
       .catch((err) => setError(err?.response?.data?.detail || err.message))
       .finally(() => setLoading(false));
     fetchModuleVersions(name).then(setVersions);
@@ -100,16 +121,103 @@ const ModuleDetail: React.FC = () => {
             <Typography>{module.env}</Typography>
           </Box>
           <Box sx={{ mb: 1 }}>
-            <Typography variant="subtitle2">버전</Typography>
-            <Typography>{module.version}</Typography>
+            <Typography variant="subtitle2">현재 적용 버전</Typography>
+            <Typography>{module.current_version || module.version}</Typography>
+          </Box>
+          <Box sx={{ mb: 1 }}>
+            <Typography variant="subtitle2">최신 업로드 버전</Typography>
+            <Typography>{module.latest_version || module.version}</Typography>
           </Box>
           <Box sx={{ mb: 1 }}>
             <Typography variant="subtitle2">태그</Typography>
-            <Stack direction="row" spacing={1}>
-              {module.tags?.map((tag: string) => (
-                <Chip key={tag} label={tag} size="small" />
-              ))}
-            </Stack>
+            {editMode ? (
+              <input
+                type="text"
+                value={editTags}
+                onChange={(e) => setEditTags(e.target.value)}
+                style={{ width: 200, marginRight: 8 }}
+              />
+            ) : (
+              <Stack direction="row" spacing={1}>
+                {module.tags?.map((tag: string) => (
+                  <Chip key={tag} label={tag} size="small" />
+                ))}
+              </Stack>
+            )}
+          </Box>
+          <Box sx={{ mb: 1 }}>
+            <Typography variant="subtitle2">설명</Typography>
+            {editMode ? (
+              <input
+                type="text"
+                value={editDesc}
+                onChange={(e) => setEditDesc(e.target.value)}
+                style={{ width: 400, marginRight: 8 }}
+              />
+            ) : (
+              <Typography>{module.description}</Typography>
+            )}
+          </Box>
+          {editMsg && <Alert severity="success">{editMsg}</Alert>}
+          {editError && <Alert severity="error">{editError}</Alert>}
+          <Box sx={{ mb: 2 }}>
+            {editMode ? (
+              <>
+                <Button
+                  size="small"
+                  variant="contained"
+                  color="primary"
+                  disabled={editLoading}
+                  onClick={async () => {
+                    if (!name) return;
+                    setEditLoading(true);
+                    setEditMsg(null);
+                    setEditError(null);
+                    try {
+                      await updateModuleInfo(name, {
+                        description: editDesc,
+                        tags: editTags,
+                      });
+                      setEditMsg("수정 완료");
+                      setEditMode(false);
+                      fetchModuleDetail(name).then(setModule);
+                    } catch (e: any) {
+                      setEditError(e?.response?.data?.detail || e.message);
+                    } finally {
+                      setEditLoading(false);
+                    }
+                  }}
+                >
+                  저장
+                </Button>
+                <Button
+                  size="small"
+                  sx={{ ml: 1 }}
+                  onClick={() => setEditMode(false)}
+                  disabled={editLoading}
+                >
+                  취소
+                </Button>
+              </>
+            ) : (
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={() => {
+                  setEditMode(true);
+                  setEditDesc(module.description || "");
+                  setEditTags(
+                    Array.isArray(module.tags)
+                      ? module.tags.join(",")
+                      : module.tags || ""
+                  );
+                  setEditMsg(null);
+                  setEditError(null);
+                }}
+              >
+                수정
+              </Button>
+            )}
           </Box>
           <Box sx={{ mb: 1 }}>
             <Typography variant="subtitle2">생성일</Typography>
@@ -203,6 +311,90 @@ const ModuleDetail: React.FC = () => {
           </TableBody>
         </Table>
       </TableContainer>
+      <Divider sx={{ my: 3 }} />
+      <Typography variant="h6" gutterBottom>
+        새 버전 업로드
+      </Typography>
+      {upgradeMsg && <Alert severity="success">{upgradeMsg}</Alert>}
+      {upgradeError && <Alert severity="error">{upgradeError}</Alert>}
+      <Box
+        component="form"
+        sx={{ mb: 3 }}
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (!name) return;
+          setUpgradeLoading(true);
+          setUpgradeMsg(null);
+          setUpgradeError(null);
+          try {
+            const formData = new FormData();
+            formData.append("env", module?.env || "venv");
+            formData.append("version", upgradeVersion);
+            formData.append("description", upgradeDesc);
+            formData.append("tags", upgradeTags);
+            if (module?.env === "inline") {
+              formData.append("code", upgradeCode);
+            } else {
+              if (upgradeFile) formData.append("file", upgradeFile);
+            }
+            await uploadModuleVersion(name, formData);
+            setUpgradeMsg("새 버전 업로드 성공");
+            setUpgradeVersion("");
+            fetchModuleDetail(name).then((mod) => {
+              setModule(mod);
+              if (mod.env === "inline") {
+                setUpgradeCode(mod.code || "");
+                setUpgradeDesc(mod.description || "");
+              }
+            });
+            setUpgradeTags("");
+            setUpgradeFile(null);
+            fetchModuleVersions(name).then(setVersions);
+          } catch (e: any) {
+            setUpgradeError(e?.response?.data?.detail || e.message);
+          } finally {
+            setUpgradeLoading(false);
+          }
+        }}
+      >
+        <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 2 }}>
+          {module?.env === "inline" ? (
+            <textarea
+              placeholder="코드 입력"
+              value={upgradeCode}
+              onChange={(e) => setUpgradeCode(e.target.value)}
+              rows={6}
+              style={{ width: 400, fontFamily: "monospace" }}
+              required
+            />
+          ) : (
+            <input
+              type="file"
+              accept=".zip"
+              onChange={(e) => setUpgradeFile(e.target.files?.[0] || null)}
+              style={{ display: "inline-block" }}
+            />
+          )}
+          <input
+            type="text"
+            placeholder="버전 (예: 0.2.0)"
+            value={upgradeVersion}
+            onChange={(e) => setUpgradeVersion(e.target.value)}
+            style={{ width: 120 }}
+            required
+          />
+          <input
+            type="text"
+            placeholder="태그(쉼표구분)"
+            value={upgradeTags}
+            onChange={(e) => setUpgradeTags(e.target.value)}
+            style={{ width: 160 }}
+          />
+          <Button type="submit" variant="contained" disabled={upgradeLoading}>
+            {upgradeLoading ? "업로드중..." : "업그레이드"}
+          </Button>
+        </Stack>
+      </Box>
     </Paper>
   );
 };

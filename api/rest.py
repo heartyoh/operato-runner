@@ -67,7 +67,7 @@ def create_app() -> FastAPI:
         input: Dict[str, Any]
 
     class RunResponse(BaseModel):
-        result: Dict[str, Any]
+        result: Any
         exit_code: int
         stderr: str
         stdout: str
@@ -101,29 +101,51 @@ def create_app() -> FastAPI:
             for m in modules
         ]
 
-    @app.get("/api/modules/{name}", response_model=ModuleResponse)
-    async def get_module(name: str, module_registry: ModuleRegistry = Depends(get_module_registry)):
-        module = await module_registry.get_module(name)
-        if not module:
-            raise CustomException(
-                code="MODULE_NOT_FOUND",
-                message="모듈을 찾을 수 없습니다.",
-                dev_message=f"Module(name={name}) not found in modules table",
-                status_code=404
-            )
+    @app.get("/api/modules/{name}")
+    async def get_module_detail(name: str, db: AsyncSession = Depends(get_db), current_user: UserRead = Depends(get_current_user)):
         def is_deployed(m):
             if m.env == "inline":
                 return True
             venv_dir = os.path.join("module_envs", m.name, "venv")
             return os.path.exists(venv_dir)
-        return ModuleResponse(
-            name=module.name,
-            env=module.env,
-            version=module.version,
-            created_at=module.created_at.isoformat() if module.created_at else None,
-            tags=module.tags.split(",") if isinstance(module.tags, str) else (module.tags if module.tags else []),
-            isDeployed=is_deployed(module),
-        )
+        result = await db.execute(select(Module).where(Module.name == name))
+        module = result.scalars().first()
+        if not module:
+            raise HTTPException(status_code=404, detail="Module not found")
+        # 활성화된 버전 정보 가져오기 (인라인 타입)
+        code = None
+        description = module.description
+        current_version = module.version
+        if module.env == "inline":
+            v_result = await db.execute(
+                select(Version).join(Deployment, Deployment.version_id == Version.id)
+                .where(Version.module_id == module.id, Deployment.status == "active")
+            )
+            active_version = v_result.scalars().first()
+            if active_version:
+                code = active_version.code
+                description = active_version.description
+                current_version = active_version.version
+        else:
+            # 파일 기반은 최신 업로드 버전 기준
+            v_result = await db.execute(
+                select(Version).where(Version.module_id == module.id).order_by(Version.created_at.desc())
+            )
+            latest_version = v_result.scalars().first()
+            if latest_version:
+                current_version = latest_version.version
+        return {
+            "name": module.name,
+            "env": module.env,
+            "version": current_version,
+            "created_at": module.created_at.isoformat() if module.created_at else None,
+            "tags": module.tags.split(",") if isinstance(module.tags, str) else (module.tags if module.tags else []),
+            "isDeployed": is_deployed(module),
+            "current_version": current_version,
+            "latest_version": current_version,
+            "code": code,  # 활성화된 버전 코드(인라인)
+            "description": description,  # 활성화된 버전 설명(인라인)
+        }
 
     @app.post("/api/modules", response_model=ModuleResponse, status_code=201)
     async def create_module(
@@ -242,8 +264,62 @@ def create_app() -> FastAPI:
     async def run_module(
         module: str,
         request: RunRequest = Body(...),
-        executor_manager: ExecutorManager = Depends(get_executor_manager)
+        executor_manager: ExecutorManager = Depends(get_executor_manager),
+        db: AsyncSession = Depends(get_db)
     ):
+        # 활성화된 버전의 code를 versions에서 읽어옴
+        result = await db.execute(select(Module).where(Module.name == module))
+        module_obj = result.scalars().first()
+        if not module_obj:
+            raise HTTPException(status_code=404, detail="Module not found")
+        active_version_result = await db.execute(
+            select(Version).join(Deployment, Deployment.version_id == Version.id)
+            .where(Version.module_id == module_obj.id, Deployment.status == "active")
+        )
+        version_obj = active_version_result.scalars().first()
+        code = version_obj.code if version_obj else None
+        if not version_obj or not code:
+            raise HTTPException(
+                status_code=400,
+                detail="활성화된 버전이 없거나, 해당 버전의 코드가 비어 있습니다. 배포/버전 상태를 확인하세요."
+            )
+        # 인라인 실행 시 code를 직접 eval/exec로 실행
+        if module_obj.env == "inline":
+            input_data = request.input
+            if not isinstance(input_data, dict):
+                try:
+                    input_data = dict(input_data)
+                except Exception:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"input 파라미터가 dict 타입이 아닙니다. 실제 타입: {type(request.input)}"
+                    )
+            from io import StringIO
+            import sys
+            user_code = code
+            wrapped_code = "def handler(input):\n"
+            for line in user_code.splitlines():
+                wrapped_code += "    " + line + "\n"
+            local_vars = {}
+            old_stdout = sys.stdout
+            sys.stdout = mystdout = StringIO()
+            try:
+                exec(wrapped_code, {}, local_vars)
+                result_data = local_vars["handler"](input_data)
+                stdout_value = mystdout.getvalue()
+            except Exception as e:
+                sys.stdout = old_stdout
+                raise HTTPException(status_code=500, detail=f"인라인 코드 실행 실패: {str(e)}")
+            finally:
+                sys.stdout = old_stdout
+            return RunResponse(
+                result=result_data,
+                exit_code=0,
+                stderr="",
+                stdout=stdout_value,
+                duration=0.0
+            )
+        # 기존 venv/conda/docker 등은 기존 executor_manager 로직 사용
         exec_request = ExecRequest(
             module=module,
             input_json=request.input
@@ -646,47 +722,6 @@ def create_app() -> FastAPI:
         # 환경/파일 정리(필요시)
         return {"detail": "모듈이 삭제되었습니다."}
 
-    @app.post("/modules/{id}/run")
-    async def run_module_api(id: int, input: dict = Body(...), db: AsyncSession = Depends(get_db), current_user: UserRead = Depends(get_current_user)):
-        result = await db.execute(select(Module).where(Module.id == id))
-        module = result.scalars().first()
-        if not module:
-            raise HTTPException(status_code=404, detail="Module not found")
-        if getattr(module, 'status', None) != 'active':
-            raise HTTPException(status_code=400, detail="비활성화된 모듈입니다.")
-        env_type = module.env.lower() if module.env else "venv"
-        try:
-            # venv/conda: handler.py 직접 실행, docker: docker run 등 분기
-            if env_type == "venv":
-                import importlib.util
-                import sys
-                handler_path = os.path.abspath(os.path.join("module_envs", module.name, "venv", "handler.py"))
-                spec = importlib.util.spec_from_file_location("handler", handler_path)
-                handler_mod = importlib.util.module_from_spec(spec)
-                sys.modules["handler"] = handler_mod
-                spec.loader.exec_module(handler_mod)
-                result_data = handler_mod.handler(input)
-            elif env_type == "conda":
-                # 실제로는 conda 환경에서 별도 프로세스 실행 필요(여기선 단순화)
-                handler_path = os.path.join("modules", str(id), "handler.py")
-                import importlib.util
-                import sys
-                spec = importlib.util.spec_from_file_location("handler", handler_path)
-                handler_mod = importlib.util.module_from_spec(spec)
-                sys.modules["handler"] = handler_mod
-                spec.loader.exec_module(handler_mod)
-                result_data = handler_mod.handler(input)
-            elif env_type == "docker":
-                # 실제로는 docker run 명령으로 실행해야 함(여기선 생략/로깅)
-                result_data = {"detail": "docker 환경 실행은 별도 구현 필요"}
-            else:
-                raise Exception(f"알 수 없는 env 타입: {env_type}")
-            await log_audit_event(db, action="module_run", detail=f"Module {module.name} run 성공", user_id=current_user.id)
-            return {"result": result_data}
-        except Exception as e:
-            await log_audit_event(db, action="module_run_fail", detail=f"Module {module.name} run 실패: {str(e)}", user_id=current_user.id)
-            raise HTTPException(status_code=500, detail=f"모듈 실행 실패: {str(e)}")
-
     @app.get("/modules/{id}/status")
     async def get_module_status(id: int, db: AsyncSession = Depends(get_db)):
         result = await db.execute(select(Module).where(Module.id == id))
@@ -730,6 +765,92 @@ def create_app() -> FastAPI:
             } for v in version_list
         ]
 
+    @app.post("/api/modules/{name}/versions", status_code=201)
+    async def upload_module_version(
+        name: str,
+        env: str = Form(...),
+        version: str = Form("0.1.0"),
+        code: str = Form(None),
+        description: str = Form(""),
+        tags: str = Form(""),
+        file: UploadFile = File(None),
+        input: str = Form(""),
+        db: AsyncSession = Depends(get_db),
+        current_user: UserRead = Depends(get_current_user)
+    ):
+        # name+version 중복 체크 (versions 테이블 기준)
+        result = await db.execute(
+            select(Module).where(Module.name == name)
+        )
+        module = result.scalars().first()
+        if not module:
+            raise HTTPException(status_code=404, detail=f"Module not found: {name}")
+        v_result = await db.execute(
+            select(Version).where(Version.module_id == module.id, Version.version == version)
+        )
+        dup = v_result.scalars().first()
+        if dup:
+            raise HTTPException(status_code=400, detail=f"이미 등록된 모듈 버전입니다: {name} v{version}")
+        # 태그 파싱
+        tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
+        # input 파싱 (사용하지 않으면 생략)
+        if file:
+            import tempfile, zipfile, os, shutil
+            with tempfile.TemporaryDirectory() as tmpdir:
+                zip_path = os.path.join(tmpdir, file.filename)
+                with open(zip_path, "wb") as f:
+                    content = await file.read()
+                    f.write(content)
+                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                    zip_ref.extractall(tmpdir)
+                items = [item for item in os.listdir(tmpdir) if not item.startswith('.')]
+                module_dir = os.path.join("modules", name, version)
+                os.makedirs(module_dir, exist_ok=True)
+                if len(items) == 1 and os.path.isdir(os.path.join(tmpdir, items[0])):
+                    root_dir = os.path.join(tmpdir, items[0])
+                    for item in os.listdir(root_dir):
+                        s = os.path.join(root_dir, item)
+                        d = os.path.join(module_dir, item)
+                        if os.path.isdir(s):
+                            shutil.copytree(s, d, dirs_exist_ok=True)
+                        elif os.path.isfile(s):
+                            shutil.copy2(s, d)
+                else:
+                    for item in items:
+                        s = os.path.join(tmpdir, item)
+                        d = os.path.join(module_dir, item)
+                        if os.path.isdir(s):
+                            shutil.copytree(s, d, dirs_exist_ok=True)
+                        elif os.path.isfile(s):
+                            shutil.copy2(s, d)
+                # 버전 정보 저장 (code=None, path=module_dir)
+                version_obj = Version(
+                    module_id=module.id,
+                    version=version,
+                    code=None,
+                    description=description,
+                    changelog=None,
+                )
+                db.add(version_obj)
+                await db.commit()
+                await db.refresh(version_obj)
+                return {"detail": f"새 버전 업로드 완료: {name} v{version}"}
+        elif code:
+            # 인라인 코드 업로드 (code, description 등 저장)
+            version_obj = Version(
+                module_id=module.id,
+                version=version,
+                code=code,
+                description=description,
+                changelog=None,
+            )
+            db.add(version_obj)
+            await db.commit()
+            await db.refresh(version_obj)
+            return {"detail": f"인라인 코드 새 버전 업로드 완료: {name} v{version}"}
+        else:
+            raise HTTPException(status_code=400, detail="파일 또는 코드가 필요합니다.")
+
     @app.post("/api/modules/{name}/rollback")
     async def rollback_module(name: str, version: str = Body(..., embed=True), db: AsyncSession = Depends(get_db), current_user: UserRead = Depends(get_current_user)):
         # 롤백: 해당 모듈의 지정 버전을 활성화, 나머지는 비활성화
@@ -751,15 +872,24 @@ def create_app() -> FastAPI:
                 dev_message=f"Version({version}) not found for module_id={module.id}",
                 status_code=404
             )
-        # deployments: 해당 버전만 active, 나머지 inactive
-        deployments = await db.execute(select(Deployment).where(Deployment.module_id == module.id))
-        for d in deployments.scalars().all():
-            d.status = "active" if d.version_id == version_obj.id else "inactive"
-        # modules 테이블도 is_active=1로 갱신
+        # deployments: 해당 버전만 active, 나머지는 inactive
+        deployment = await db.execute(
+            select(Deployment).where(Deployment.module_id == module.id, Deployment.version_id == version_obj.id)
+        )
+        deployment_obj = deployment.scalars().first()
+        if not deployment_obj:
+            deployment_obj = Deployment(module_id=module.id, version_id=version_obj.id, status="active")
+            db.add(deployment_obj)
+        else:
+            deployment_obj.status = "active"
+        other_deployments = await db.execute(
+            select(Deployment).where(Deployment.module_id == module.id, Deployment.version_id != version_obj.id)
+        )
+        for d in other_deployments.scalars().all():
+            d.status = "inactive"
         module.version = version
         module.is_active = 1
         await db.commit()
-        # 이력 기록
         history = ModuleHistory(module_id=module.id, version_id=version_obj.id, action="rollback", operator=current_user.username)
         db.add(history)
         await db.commit()
@@ -785,9 +915,22 @@ def create_app() -> FastAPI:
                 dev_message=f"Version({version}) not found for module_id={module.id}",
                 status_code=404
             )
-        deployments = await db.execute(select(Deployment).where(Deployment.module_id == module.id))
-        for d in deployments.scalars().all():
-            d.status = "active" if d.version_id == version_obj.id else "inactive"
+        # deployments: 해당 버전만 active, 나머지는 inactive
+        deployment = await db.execute(
+            select(Deployment).where(Deployment.module_id == module.id, Deployment.version_id == version_obj.id)
+        )
+        deployment_obj = deployment.scalars().first()
+        if not deployment_obj:
+            deployment_obj = Deployment(module_id=module.id, version_id=version_obj.id, status="active")
+            db.add(deployment_obj)
+        else:
+            deployment_obj.status = "active"
+        # 나머지 버전은 inactive로
+        other_deployments = await db.execute(
+            select(Deployment).where(Deployment.module_id == module.id, Deployment.version_id != version_obj.id)
+        )
+        for d in other_deployments.scalars().all():
+            d.status = "inactive"
         module.version = version
         module.is_active = 1
         await db.commit()
@@ -1024,7 +1167,7 @@ def create_app() -> FastAPI:
         import shutil
         try:
             shutil.rmtree(venv_dir)
-            return {"success": True, "log": "전개 환경이 삭제되었습니다."}
+            return {"success": True, "log": "전개 환경이 제거되었습니다."}
         except Exception as e:
             return {"success": False, "log": f"삭제 실패: {str(e)}"}
 
@@ -1059,6 +1202,26 @@ def create_app() -> FastAPI:
             status_code=exc.status_code,
             content=exc.to_dict()
         )
+
+    @app.patch("/api/modules/{name}")
+    async def update_module_info(
+        name: str,
+        description: str = Form(None),
+        tags: str = Form(None),
+        db: AsyncSession = Depends(get_db),
+        current_user: UserRead = Depends(get_current_user)
+    ):
+        result = await db.execute(select(Module).where(Module.name == name))
+        module = result.scalars().first()
+        if not module:
+            raise HTTPException(status_code=404, detail="Module not found")
+        if description is not None:
+            module.description = description
+        if tags is not None:
+            module.tags = tags
+        await db.commit()
+        await db.refresh(module)
+        return {"detail": "모듈 정보가 수정되었습니다."}
 
     return app
 

@@ -7,6 +7,8 @@ class Version(Base):
     id = Column(Integer, primary_key=True, index=True)
     module_id = Column(Integer, ForeignKey('modules.id'), nullable=False, index=True)
     version = Column(String(20), nullable=False)
+    code = Column(Text, nullable=True)
+    description = Column(Text, nullable=True)
     changelog = Column(Text, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     module = relationship('Module', back_populates='versions')
