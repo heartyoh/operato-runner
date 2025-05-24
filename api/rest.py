@@ -244,7 +244,6 @@ def create_app() -> FastAPI:
                 # 활성화 배포 정보도 추가
                 deployment_obj = Deployment(module_id=module.id, version_id=version_obj.id, status="active")
                 db.add(deployment_obj)
-                await db.commit()
                 # Module.version 필드도 갱신
                 module.version = version
                 await db.commit()
@@ -699,38 +698,9 @@ def create_app() -> FastAPI:
                         await db.commit()
                         return JSONResponse(status_code=500, content={"detail": f"venv 내 requirements.txt 설치 중 예외: {str(e)}"})
             elif env_type == "conda":
-                conda_env_name = f"mod_{module_id}"
-                try:
-                    subprocess.run(["conda", "create", "-y", "-n", conda_env_name, "python=3.10"], check=True)
-                except Exception as e:
-                    log = ModuleValidationLog(filename=file.filename, status="fail", message=f"conda 환경 생성 실패: {str(e)}")
-                    db.add(log)
-                    await db.commit()
-                    return JSONResponse(status_code=500, content={"detail": f"conda 환경 생성 실패: {str(e)}"})
-                if requirements_path:
-                    try:
-                        proc = subprocess.run([
-                            "conda", "run", "-n", conda_env_name, "pip", "install", "-r", requirements_path
-                        ], capture_output=True, text=True, check=False)
-                        if proc.returncode == 0:
-                            log = ModuleValidationLog(filename=file.filename, status="success", message=f"conda 환경 requirements.txt 설치 성공\n{proc.stdout}")
-                            db.add(log)
-                        else:
-                            log = ModuleValidationLog(filename=file.filename, status="fail", message=f"conda 환경 requirements.txt 설치 실패\n{proc.stderr}")
-                            db.add(log)
-                            await db.commit()
-                            return JSONResponse(status_code=400, content={"detail": f"conda 환경 requirements.txt 설치 실패", "error": proc.stderr})
-                    except Exception as e:
-                        log = ModuleValidationLog(filename=file.filename, status="fail", message=f"conda 환경 requirements.txt 설치 중 예외: {str(e)}")
-                        db.add(log)
-                        await db.commit()
-                        return JSONResponse(status_code=500, content={"detail": f"conda 환경 requirements.txt 설치 중 예외: {str(e)}"})
-                    module.env = conda_env_name
-                else:
-                    log = ModuleValidationLog(filename=file.filename, status="fail", message=f"알 수 없는 env 타입: {env_type}")
-                    db.add(log)
-                    await db.commit()
-                    return JSONResponse(status_code=400, content={"detail": f"알 수 없는 env 타입: {env_type}"})
+                # conda 환경은 업로드/업그레이드 시 환경 생성/설치하지 않음
+                # venv와 동일하게 소스만 modules/{name}/{version}/에 관리
+                pass
             elif env_type == "docker":
                 docker_tag = f"mod_{module_id}:latest"
                 dockerfile_path = os.path.join(tmpdir, "Dockerfile")
@@ -829,7 +799,41 @@ def create_app() -> FastAPI:
         module.status = 'deleted'
         await db.commit()
         await log_audit_event(db, action="module_delete", detail=f"Module {module.name} deleted", user_id=current_user.id)
-        # 환경/파일 정리(필요시)
+        # 환경/파일 정리
+        import shutil, subprocess, os
+        module_env_dir = os.path.abspath(os.path.join("module_envs", module.name))
+        venv_dir = os.path.join(module_env_dir, "venv")
+        conda_env_dir = os.path.join(module_env_dir, "conda_env")
+        # venv 환경 삭제
+        if os.path.exists(venv_dir):
+            try:
+                shutil.rmtree(venv_dir)
+            except Exception:
+                pass
+        # conda 환경 삭제
+        if os.path.exists(conda_env_dir):
+            try:
+                subprocess.run(["conda", "remove", "-y", "-p", conda_env_dir, "--all"], check=False)
+            except Exception:
+                pass
+            try:
+                if os.path.exists(conda_env_dir):
+                    shutil.rmtree(conda_env_dir)
+            except Exception:
+                pass
+        # 실행환경 폴더 전체 삭제
+        if os.path.exists(module_env_dir):
+            try:
+                shutil.rmtree(module_env_dir)
+            except Exception:
+                pass
+        # 소스 폴더 삭제
+        modules_dir = os.path.abspath(os.path.join("modules", module.name))
+        if os.path.exists(modules_dir):
+            try:
+                shutil.rmtree(modules_dir)
+            except Exception:
+                pass
         return {"detail": "모듈이 삭제되었습니다."}
 
     @app.get("/modules/{id}/status")
@@ -1261,19 +1265,36 @@ def create_app() -> FastAPI:
                 db.add(log)
                 await db.commit()
                 return JSONResponse(status_code=500, content={"detail": f"venv 내 requirements.txt 설치 중 예외: {str(e)}"})
-        return {"detail": f"소스 복사 및 venv 환경 생성/의존성 설치 완료"}
+            return {"detail": f"소스 복사 및 venv 환경 생성/의존성 설치 완료"}
 
     @app.delete("/api/modules/{name}/deploy")
     async def undeploy_module(name: str):
-        venv_dir = os.path.abspath(os.path.join("module_envs", name, "venv"))
-        if not os.path.exists(venv_dir):
+        module_env_dir = os.path.abspath(os.path.join("module_envs", name))
+        venv_dir = os.path.join(module_env_dir, "venv")
+        conda_env_dir = os.path.join(module_env_dir, "conda_env")
+        # venv 환경 삭제
+        if os.path.exists(venv_dir):
+            try:
+                shutil.rmtree(venv_dir)
+                return {"success": True, "log": "venv 전개 환경이 제거되었습니다."}
+            except Exception as e:
+                return {"success": False, "log": f"venv 삭제 실패: {str(e)}"}
+        # conda 환경 삭제
+        elif os.path.exists(conda_env_dir):
+            import subprocess
+            try:
+                subprocess.run(["conda", "remove", "-y", "-p", conda_env_dir, "--all"], check=True)
+            except Exception as e:
+                return {"success": False, "log": f"conda 환경 삭제 명령 실패: {str(e)}"}
+            # 폴더가 남아있으면 추가로 삭제
+            try:
+                if os.path.exists(conda_env_dir):
+                    shutil.rmtree(conda_env_dir)
+                return {"success": True, "log": "conda 전개 환경이 제거되었습니다."}
+            except Exception as e:
+                return {"success": False, "log": f"conda 환경 폴더 삭제 실패: {str(e)}"}
+        else:
             return {"success": False, "log": "전개 환경이 존재하지 않습니다."}
-        import shutil
-        try:
-            shutil.rmtree(venv_dir)
-            return {"success": True, "log": "전개 환경이 제거되었습니다."}
-        except Exception as e:
-            return {"success": False, "log": f"삭제 실패: {str(e)}"}
 
     @app.exception_handler(CustomException)
     async def custom_exception_handler(request: Request, exc: CustomException):
