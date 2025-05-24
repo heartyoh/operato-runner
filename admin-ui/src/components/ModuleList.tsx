@@ -31,6 +31,7 @@ interface Module {
   env: string;
   version: string;
   status?: string;
+  isDeployed: boolean;
 }
 
 const ModuleList: React.FC = () => {
@@ -89,7 +90,15 @@ const ModuleList: React.FC = () => {
                   <TableCell>{m.name}</TableCell>
                   <TableCell>{m.env}</TableCell>
                   <TableCell>{m.version}</TableCell>
-                  <TableCell>{m.status || "-"}</TableCell>
+                  <TableCell>
+                    {m.isDeployed ? (
+                      <span style={{ color: "green", fontWeight: 600 }}>
+                        전개됨
+                      </span>
+                    ) : (
+                      <span style={{ color: "gray" }}>미전개</span>
+                    )}
+                  </TableCell>
                   <TableCell>
                     <Button
                       size="small"
@@ -97,64 +106,90 @@ const ModuleList: React.FC = () => {
                     >
                       상세
                     </Button>
-                    <Button
-                      size="small"
-                      variant="contained"
-                      color="secondary"
-                      sx={{ ml: 1 }}
-                      disabled={deploying === m.name}
-                      onClick={async () => {
-                        setDeploying(m.name);
-                        setDeployError((prev) => ({ ...prev, [m.name]: "" }));
-                        setDeployLog((prev) => ({ ...prev, [m.name]: "" }));
-                        try {
-                          const res = await deployModule(m.name);
-                          setDeployLog((prev) => ({
-                            ...prev,
-                            [m.name]: res?.log || "전개 완료",
-                          }));
-                        } catch (err: any) {
-                          setDeployError((prev) => ({
-                            ...prev,
-                            [m.name]:
-                              err?.response?.data?.detail || err.message,
-                          }));
-                        } finally {
-                          setDeploying(null);
-                        }
-                      }}
-                    >
-                      {deploying === m.name ? "전개중..." : "전개"}
-                    </Button>
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      color="error"
-                      sx={{ ml: 1 }}
-                      disabled={undeploying === m.name}
-                      onClick={async () => {
-                        setUndeploying(m.name);
-                        setUndeployError((prev) => ({ ...prev, [m.name]: "" }));
-                        setUndeployLog((prev) => ({ ...prev, [m.name]: "" }));
-                        try {
-                          const res = await undeployModule(m.name);
-                          setUndeployLog((prev) => ({
-                            ...prev,
-                            [m.name]: res?.log || "전개 해제 완료",
-                          }));
-                        } catch (err: any) {
-                          setUndeployError((prev) => ({
-                            ...prev,
-                            [m.name]:
-                              err?.response?.data?.detail || err.message,
-                          }));
-                        } finally {
-                          setUndeploying(null);
-                        }
-                      }}
-                    >
-                      {undeploying === m.name ? "전개 해제중..." : "전개 해제"}
-                    </Button>
+                    {/* 인라인 타입이 아니면 전개/전개 해제 버튼 노출 */}
+                    {m.env?.toLowerCase() !== "inline" && (
+                      <>
+                        {m.isDeployed ? (
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            color="error"
+                            sx={{ ml: 1 }}
+                            disabled={undeploying === m.name}
+                            onClick={async () => {
+                              setUndeploying(m.name);
+                              setUndeployError((prev) => ({
+                                ...prev,
+                                [m.name]: "",
+                              }));
+                              setUndeployLog((prev) => ({
+                                ...prev,
+                                [m.name]: "",
+                              }));
+                              try {
+                                const res = await undeployModule(m.name);
+                                setUndeployLog((prev) => ({
+                                  ...prev,
+                                  [m.name]: res?.log || "전개 해제 완료",
+                                }));
+                                const data = await fetchModules();
+                                setModules(data);
+                              } catch (err: any) {
+                                setUndeployError((prev) => ({
+                                  ...prev,
+                                  [m.name]:
+                                    err?.response?.data?.detail || err.message,
+                                }));
+                              } finally {
+                                setUndeploying(null);
+                              }
+                            }}
+                          >
+                            {undeploying === m.name
+                              ? "전개 해제중..."
+                              : "전개 해제"}
+                          </Button>
+                        ) : (
+                          <Button
+                            size="small"
+                            variant="contained"
+                            color="secondary"
+                            sx={{ ml: 1 }}
+                            disabled={deploying === m.name}
+                            onClick={async () => {
+                              setDeploying(m.name);
+                              setDeployError((prev) => ({
+                                ...prev,
+                                [m.name]: "",
+                              }));
+                              setDeployLog((prev) => ({
+                                ...prev,
+                                [m.name]: "",
+                              }));
+                              try {
+                                const res = await deployModule(m.name);
+                                setDeployLog((prev) => ({
+                                  ...prev,
+                                  [m.name]: res?.log || "전개 완료",
+                                }));
+                                const data = await fetchModules();
+                                setModules(data);
+                              } catch (err: any) {
+                                setDeployError((prev) => ({
+                                  ...prev,
+                                  [m.name]:
+                                    err?.response?.data?.detail || err.message,
+                                }));
+                              } finally {
+                                setDeploying(null);
+                              }
+                            }}
+                          >
+                            {deploying === m.name ? "전개중..." : "전개"}
+                          </Button>
+                        )}
+                      </>
+                    )}
                     <Button
                       size="small"
                       variant="outlined"

@@ -61,6 +61,7 @@ def create_app() -> FastAPI:
         version: str
         created_at: Optional[str] = None
         tags: List[str] = []
+        isDeployed: bool
 
     class RunRequest(BaseModel):
         input: Dict[str, Any]
@@ -83,14 +84,21 @@ def create_app() -> FastAPI:
     @app.get("/api/modules", response_model=List[ModuleResponse])
     async def list_modules(module_registry: ModuleRegistry = Depends(get_module_registry)):
         modules = await module_registry.list_modules()
+        def is_deployed(m):
+            if m.env == "inline":
+                return True
+            venv_dir = os.path.join("module_envs", m.name, "venv")
+            return os.path.exists(venv_dir)
         return [
             ModuleResponse(
                 name=m.name,
                 env=m.env,
                 version=m.version,
                 created_at=m.created_at.isoformat() if m.created_at else None,
-                tags=m.tags.split(",") if isinstance(m.tags, str) else (m.tags if m.tags else [])
-            ) for m in modules
+                tags=m.tags.split(",") if isinstance(m.tags, str) else (m.tags if m.tags else []),
+                isDeployed=is_deployed(m),
+            )
+            for m in modules
         ]
 
     @app.get("/api/modules/{name}", response_model=ModuleResponse)
@@ -103,12 +111,18 @@ def create_app() -> FastAPI:
                 dev_message=f"Module(name={name}) not found in modules table",
                 status_code=404
             )
+        def is_deployed(m):
+            if m.env == "inline":
+                return True
+            venv_dir = os.path.join("module_envs", m.name, "venv")
+            return os.path.exists(venv_dir)
         return ModuleResponse(
             name=module.name,
             env=module.env,
             version=module.version,
             created_at=module.created_at.isoformat() if module.created_at else None,
-            tags=module.tags.split(",") if isinstance(module.tags, str) else (module.tags if module.tags else [])
+            tags=module.tags.split(",") if isinstance(module.tags, str) else (module.tags if module.tags else []),
+            isDeployed=is_deployed(module),
         )
 
     @app.post("/api/modules", response_model=ModuleResponse, status_code=201)
@@ -187,7 +201,8 @@ def create_app() -> FastAPI:
                     env=module.env,
                     version=module.version,
                     created_at=module.created_at.isoformat() if module.created_at else None,
-                    tags=module.tags.split(",") if module.tags else []
+                    tags=module.tags.split(",") if module.tags else [],
+                    isDeployed=is_deployed(module),
                 )
         elif code:
             # 인라인 코드 등록 처리
@@ -209,7 +224,8 @@ def create_app() -> FastAPI:
                 env=module.env,
                 version=module.version,
                 created_at=module.created_at.isoformat() if module.created_at else None,
-                tags=module.tags if module.tags else []
+                tags=module.tags if module.tags else [],
+                isDeployed=is_deployed(module),
             )
 
     @app.delete("/api/modules/{name}", status_code=204)
