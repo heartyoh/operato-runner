@@ -54,50 +54,67 @@ const LoginPage: React.FC = () => {
   if (checking) return null;
 
   return (
-    <Box p={3}>
-      <Typography variant="h4" gutterBottom>
-        관리자 대시보드
-      </Typography>
-      <Typography>모듈 관리 시스템에 오신 것을 환영합니다.</Typography>
-      {!loggedIn ? (
-        <Box
-          component="form"
-          onSubmit={handleLogin}
-          sx={{ mt: 3, maxWidth: 300 }}
-        >
-          <TextField
-            label="아이디"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            fullWidth
-            margin="normal"
-          />
-          <TextField
-            label="비밀번호"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            fullWidth
-            margin="normal"
-          />
-          <Button type="submit" variant="contained" fullWidth sx={{ mt: 2 }}>
-            로그인
-          </Button>
-          {error && (
-            <Alert severity="error" sx={{ mt: 2 }}>
-              {error}
-            </Alert>
-          )}
-        </Box>
-      ) : (
-        <Box sx={{ mt: 3 }}>
-          <Alert severity="success">로그인됨</Alert>
-          <Button variant="outlined" onClick={handleLogout} sx={{ mt: 2 }}>
-            로그아웃
-          </Button>
-        </Box>
-      )}
-    </Box>
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "center",
+        width: "100%",
+        marginTop: 40,
+      }}
+    >
+      <Box
+        p={3}
+        sx={{
+          minWidth: 400,
+          maxWidth: "90vw",
+          width: "100%",
+          boxSizing: "border-box",
+        }}
+      >
+        <Typography variant="h4" gutterBottom>
+          관리자 대시보드
+        </Typography>
+        <Typography>모듈 관리 시스템에 오신 것을 환영합니다.</Typography>
+        {!loggedIn ? (
+          <Box
+            component="form"
+            onSubmit={handleLogin}
+            sx={{ mt: 3, maxWidth: 300 }}
+          >
+            <TextField
+              label="아이디"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              fullWidth
+              margin="normal"
+            />
+            <TextField
+              label="비밀번호"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              fullWidth
+              margin="normal"
+            />
+            <Button type="submit" variant="contained" fullWidth sx={{ mt: 2 }}>
+              로그인
+            </Button>
+            {error && (
+              <Alert severity="error" sx={{ mt: 2 }}>
+                {error}
+              </Alert>
+            )}
+          </Box>
+        ) : (
+          <Box sx={{ mt: 3 }}>
+            <Alert severity="success">로그인됨</Alert>
+            <Button variant="outlined" onClick={handleLogout} sx={{ mt: 2 }}>
+              로그아웃
+            </Button>
+          </Box>
+        )}
+      </Box>
+    </div>
   );
 };
 

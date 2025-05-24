@@ -62,6 +62,7 @@ def create_app() -> FastAPI:
         created_at: Optional[str] = None
         tags: List[str] = []
         isDeployed: bool
+        description: Optional[str] = ""
 
     class RunRequest(BaseModel):
         input: Dict[str, Any]
@@ -82,24 +83,34 @@ def create_app() -> FastAPI:
 
     # 라우트
     @app.get("/api/modules", response_model=List[ModuleResponse])
-    async def list_modules(module_registry: ModuleRegistry = Depends(get_module_registry)):
+    async def list_modules(module_registry: ModuleRegistry = Depends(get_module_registry), db: AsyncSession = Depends(get_db)):
         modules = await module_registry.list_modules()
         def is_deployed(m):
             if m.env == "inline":
                 return True
             venv_dir = os.path.join("module_envs", m.name, "venv")
             return os.path.exists(venv_dir)
-        return [
-            ModuleResponse(
-                name=m.name,
-                env=m.env,
-                version=m.version,
-                created_at=m.created_at.isoformat() if m.created_at else None,
-                tags=m.tags.split(",") if isinstance(m.tags, str) else (m.tags if m.tags else []),
-                isDeployed=is_deployed(m),
-            )
-            for m in modules
-        ]
+        result = []
+        for m in modules:
+            description = m.description
+            if m.env == "inline":
+                v_result = await db.execute(
+                    select(Version).join(Deployment, Deployment.version_id == Version.id)
+                    .where(Version.module_id == m.id, Deployment.status == "active")
+                )
+                active_version = v_result.scalars().first()
+                if active_version:
+                    description = active_version.description
+            result.append({
+                "name": m.name,
+                "env": m.env,
+                "version": m.version,
+                "created_at": m.created_at.isoformat() if m.created_at else None,
+                "tags": m.tags.split(",") if isinstance(m.tags, str) else (m.tags if m.tags else []),
+                "isDeployed": is_deployed(m),
+                "description": description,
+            })
+        return result
 
     @app.get("/api/modules/{name}")
     async def get_module_detail(name: str, db: AsyncSession = Depends(get_db), current_user: UserRead = Depends(get_current_user)):

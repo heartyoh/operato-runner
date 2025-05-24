@@ -71,116 +71,133 @@ const ErrorLogViewer: React.FC = () => {
   };
 
   return (
-    <Paper sx={{ p: 3, maxWidth: 1200, mx: "auto" }}>
-      <Typography variant="h5" gutterBottom>
-        에러 로그 뷰어
-      </Typography>
-      <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
-        <TextField
-          label="코드"
-          name="code"
-          size="small"
-          onChange={handleFilterChange}
-        />
-        <TextField
-          label="User"
-          name="user"
-          size="small"
-          onChange={handleFilterChange}
-        />
-        <TextField
-          label="시작일"
-          name="from_"
-          size="small"
-          type="date"
-          InputLabelProps={{ shrink: true }}
-          onChange={handleFilterChange}
-        />
-        <TextField
-          label="종료일"
-          name="to"
-          size="small"
-          type="date"
-          InputLabelProps={{ shrink: true }}
-          onChange={handleFilterChange}
-        />
-        <TextField
-          label="키워드"
-          name="keyword"
-          size="small"
-          onChange={handleFilterChange}
-        />
-        <Button variant="contained" onClick={handleSearch}>
-          검색
-        </Button>
-        <Button variant="outlined" onClick={handleDownload}>
-          다운로드
-        </Button>
-      </Stack>
-      <TableContainer sx={{ maxHeight: 600 }}>
-        <Table size="small" stickyHeader>
-          <TableHead>
-            <TableRow>
-              {columns.map((col) => (
-                <TableCell key={col.id} style={{ minWidth: col.minWidth }}>
-                  {col.label}
-                </TableCell>
-              ))}
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {logs.map((row) => (
-              <TableRow
-                hover
-                key={row.id}
-                onClick={() => setSelected(row)}
-                style={{ cursor: "pointer" }}
-              >
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "center",
+        width: "100%",
+        marginTop: 40,
+      }}
+    >
+      <Paper
+        sx={{
+          p: 3,
+          maxWidth: 1200,
+          minWidth: 1200,
+          width: "100%",
+          boxSizing: "border-box",
+        }}
+      >
+        <Typography variant="h5" gutterBottom>
+          에러 로그 뷰어
+        </Typography>
+        <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
+          <TextField
+            label="코드"
+            name="code"
+            size="small"
+            onChange={handleFilterChange}
+          />
+          <TextField
+            label="User"
+            name="user"
+            size="small"
+            onChange={handleFilterChange}
+          />
+          <TextField
+            label="시작일"
+            name="from_"
+            size="small"
+            type="date"
+            InputLabelProps={{ shrink: true }}
+            onChange={handleFilterChange}
+          />
+          <TextField
+            label="종료일"
+            name="to"
+            size="small"
+            type="date"
+            InputLabelProps={{ shrink: true }}
+            onChange={handleFilterChange}
+          />
+          <TextField
+            label="키워드"
+            name="keyword"
+            size="small"
+            onChange={handleFilterChange}
+          />
+          <Button variant="contained" onClick={handleSearch}>
+            검색
+          </Button>
+          <Button variant="outlined" onClick={handleDownload}>
+            다운로드
+          </Button>
+        </Stack>
+        <TableContainer sx={{ maxHeight: 600 }}>
+          <Table size="small" stickyHeader>
+            <TableHead>
+              <TableRow>
                 {columns.map((col) => (
-                  <TableCell key={col.id}>{row[col.id]}</TableCell>
+                  <TableCell key={col.id} style={{ minWidth: col.minWidth }}>
+                    {col.label}
+                  </TableCell>
                 ))}
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </TableContainer>
-      <TablePagination
-        component="div"
-        count={-1} // total count 미지원 시 -1
-        page={page}
-        onPageChange={(_, newPage) => setPage(newPage)}
-        rowsPerPage={rowsPerPage}
-        onRowsPerPageChange={(e) => {
-          setRowsPerPage(+e.target.value);
-          setPage(0);
-        }}
-        labelDisplayedRows={({ from, to }) => `${from}-${to}`}
-        rowsPerPageOptions={[10, 20, 50, 100]}
-      />
-      <Dialog
-        open={!!selected}
-        onClose={() => setSelected(null)}
-        maxWidth="md"
-        fullWidth
-      >
-        <DialogTitle>
-          에러 상세
-          <IconButton
-            onClick={() => setSelected(null)}
-            sx={{ position: "absolute", right: 8, top: 8 }}
-          >
-            <CloseIcon />
-          </IconButton>
-        </DialogTitle>
-        <DialogContent dividers>
-          {selected && (
-            <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
-              {JSON.stringify(selected, null, 2)}
-            </pre>
-          )}
-        </DialogContent>
-      </Dialog>
-    </Paper>
+            </TableHead>
+            <TableBody>
+              {logs.map((row) => (
+                <TableRow
+                  hover
+                  key={row.id}
+                  onClick={() => setSelected(row)}
+                  style={{ cursor: "pointer" }}
+                >
+                  {columns.map((col) => (
+                    <TableCell key={col.id}>{row[col.id]}</TableCell>
+                  ))}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+        <TablePagination
+          component="div"
+          count={-1} // total count 미지원 시 -1
+          page={page}
+          onPageChange={(_, newPage) => setPage(newPage)}
+          rowsPerPage={rowsPerPage}
+          onRowsPerPageChange={(e) => {
+            setRowsPerPage(+e.target.value);
+            setPage(0);
+          }}
+          labelDisplayedRows={({ from, to }) => `${from}-${to}`}
+          rowsPerPageOptions={[10, 20, 50, 100]}
+        />
+        <Dialog
+          open={!!selected}
+          onClose={() => setSelected(null)}
+          maxWidth="md"
+          fullWidth
+        >
+          <DialogTitle>
+            에러 상세
+            <IconButton
+              onClick={() => setSelected(null)}
+              sx={{ position: "absolute", right: 8, top: 8 }}
+            >
+              <CloseIcon />
+            </IconButton>
+          </DialogTitle>
+          <DialogContent dividers>
+            {selected && (
+              <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
+                {JSON.stringify(selected, null, 2)}
+              </pre>
+            )}
+          </DialogContent>
+        </Dialog>
+      </Paper>
+    </div>
   );
 };
 
