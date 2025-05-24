@@ -24,19 +24,19 @@ class VenvExecutor(Executor):
         start_time = time.time()
         module_name = request.module
         module = await self.module_registry.get_module(module_name)
-        if not module or not module.path:
-            log_module_action(module_name, getattr(module, 'version', 'unknown'), "execute", "Module path not found")
-            return ExecResult(
-                result_json={},
-                exit_code=1,
-                stderr=f"Module path not found for {module_name}",
-                stdout="",
-                duration=0
-            )
+        # if not module or not module.path:
+        #     log_module_action(module_name, getattr(module, 'version', 'unknown'), "execute", "Module path not found")
+        #     return ExecResult(
+        #         result_json={},
+        #         exit_code=1,
+        #         stderr=f"Module path not found for {module_name}",
+        #         stdout="",
+        #         duration=0
+        #     )
             
         # 가상환경과 모듈 경로 설정
         venv_dir = os.path.join(self.venv_path, module_name, "venv")
-        module_dir = venv_dir  # 모듈이 있는 디렉토리는 가상환경 디렉토리와 동일
+        module_dir = os.path.join(self.venv_path, module_name)  # 소스는 module_envs/{module_name}/
         
         # Python 실행 파일 경로
         if os.name == 'nt':

@@ -186,6 +186,7 @@ const ModuleUpload: React.FC<Props> = ({ onUploadSuccess }) => {
               파일 선택
               <input
                 type="file"
+                accept=".zip"
                 hidden
                 onChange={(e) => setFile(e.target.files?.[0] || null)}
               />

@@ -41,8 +41,8 @@ class Module(Base):
     tags = Column(String(255), nullable=True)  # JSON 문자열 등으로 저장 가능
     owner_id = Column(Integer, ForeignKey('users.id'), nullable=True)
     owner = relationship('User', back_populates='modules')
-    versions = relationship('Version', back_populates='module')
-    deployments = relationship('Deployment', back_populates='module')
+    versions = relationship('Version', back_populates='module', cascade='all, delete-orphan')
+    deployments = relationship('Deployment', back_populates='module', cascade='all, delete-orphan')
     env = Column(String(20), default="inline", nullable=False)  # 실행 환경 필드 추가
     is_active = Column(Integer, default=1)  # 1: 활성, 0: 비활성
 

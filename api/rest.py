@@ -183,39 +183,40 @@ def create_app() -> FastAPI:
                 raise HTTPException(status_code=400, detail="input 필드는 올바른 JSON이어야 합니다.")
         # 태그 파싱
         tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
+        # 파일 업로드(venv 등)와 인라인 코드 등록 분기
         if file:
             import tempfile, zipfile, os, shutil
-            from models.validation_log import ModuleValidationLog
-            # 1. 임시 디렉토리 생성 및 파일 저장
+            # 1. 모듈명 중복 체크
+            result = await db.execute(select(Module).where(Module.name == name))
+            if result.scalars().first():
+                raise HTTPException(status_code=400, detail=f"이미 등록된 모듈명입니다: {name}")
             with tempfile.TemporaryDirectory() as tmpdir:
                 zip_path = os.path.join(tmpdir, file.filename)
                 with open(zip_path, "wb") as f:
                     content = await file.read()
                     f.write(content)
-                # 압축 해제 후 루트 폴더가 하나만 있으면, 그 내부 파일/폴더를 venv_dir로 복사(루트 폴더 제거)
                 with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                     zip_ref.extractall(tmpdir)
-                items = [item for item in os.listdir(tmpdir) if not item.startswith('.')]
+                # modules/{name}/{version}/에 압축 해제
+                modules_dir = os.path.join("modules", name, version)
+                if os.path.exists(modules_dir):
+                    shutil.rmtree(modules_dir)
+                os.makedirs(modules_dir, exist_ok=True)
+                # 압축 해제된 실제 소스 루트 찾기
+                items = [item for item in os.listdir(tmpdir) if not item.startswith('.') and item != file.filename]
                 if len(items) == 1 and os.path.isdir(os.path.join(tmpdir, items[0])):
-                    # 루트 폴더가 하나만 있을 때: 그 내부 파일/폴더를 venv_dir로 복사
                     root_dir = os.path.join(tmpdir, items[0])
-                    for item in os.listdir(root_dir):
-                        s = os.path.join(root_dir, item)
-                        d = os.path.join("module_envs", name, "venv", item)
-                        if os.path.isdir(s):
-                            shutil.copytree(s, d, dirs_exist_ok=True)
-                        elif os.path.isfile(s):
-                            shutil.copy2(s, d)
                 else:
-                    # 그 외에는 기존대로 복사
-                    for item in items:
-                        s = os.path.join(tmpdir, item)
-                        d = os.path.join("module_envs", name, "venv", item)
-                        if os.path.isdir(s):
-                            shutil.copytree(s, d, dirs_exist_ok=True)
-                        elif os.path.isfile(s):
-                            shutil.copy2(s, d)
-                # 6. DB에 모듈 정보 등록 (path=permanent_dir)
+                    root_dir = tmpdir
+                # 소스 전체를 modules/{name}/{version}/로 복사
+                for item in os.listdir(root_dir):
+                    s = os.path.join(root_dir, item)
+                    d = os.path.join(modules_dir, item)
+                    if os.path.isdir(s):
+                        shutil.copytree(s, d, dirs_exist_ok=True)
+                    elif os.path.isfile(s):
+                        shutil.copy2(s, d)
+                # module_envs/{name}/로 복사하는 로직은 제거
                 module = Module(
                     name=name,
                     env=env,
@@ -224,21 +225,38 @@ def create_app() -> FastAPI:
                     version=version,
                     tags=','.join(tag_list),
                     description=description,
-                    owner_id=current_user.id
+                    owner_id=current_user.id,
+                    is_active=1  # 등록과 동시에 활성화
                 )
                 db.add(module)
                 await db.commit()
                 await db.refresh(module)
+                # 업그레이드처럼 versions 테이블에도 버전 추가
+                version_obj = Version(
+                    module_id=module.id,
+                    version=version,
+                    code=None,
+                    description=description,
+                    changelog=None,
+                )
+                db.add(version_obj)
+                await db.commit()
+                await db.refresh(version_obj)
+                # 활성화 배포 정보도 추가
+                deployment_obj = Deployment(module_id=module.id, version_id=version_obj.id, status="active")
+                db.add(deployment_obj)
+                await db.commit()
                 return ModuleResponse(
                     name=module.name,
                     env=module.env,
                     version=module.version,
                     created_at=module.created_at.isoformat() if module.created_at else None,
                     tags=module.tags.split(",") if module.tags else [],
-                    isDeployed=is_deployed(module),
+                    isDeployed=True,
+                    description=module.description,
                 )
         elif code:
-            # 인라인 코드 등록 처리
+            # 인라인 코드 등록 처리 (기존과 동일)
             module = Module(
                 name=name,
                 env=env,
@@ -247,10 +265,28 @@ def create_app() -> FastAPI:
                 version=version,
                 tags=','.join(tag_list),
                 description=description,
-                owner_id=current_user.id
+                owner_id=current_user.id,
+                is_active=1  # 등록과 동시에 활성화
             )
             module.input_example = input_dict if hasattr(module, 'input_example') else None
-            await module_registry.register_module(module)
+            db.add(module)
+            await db.commit()
+            await db.refresh(module)
+            # 업그레이드처럼 versions 테이블에도 버전 추가
+            version_obj = Version(
+                module_id=module.id,
+                version=version,
+                code=code,
+                description=description,
+                changelog=None,
+            )
+            db.add(version_obj)
+            await db.commit()
+            await db.refresh(version_obj)
+            # 활성화 배포 정보도 추가
+            deployment_obj = Deployment(module_id=module.id, version_id=version_obj.id, status="active")
+            db.add(deployment_obj)
+            await db.commit()
             await log_audit_event(db, action="module_deploy", detail=f"Module {module.name} deployed", user_id=current_user.id)
             return ModuleResponse(
                 name=module.name,
@@ -258,7 +294,8 @@ def create_app() -> FastAPI:
                 version=module.version,
                 created_at=module.created_at.isoformat() if module.created_at else None,
                 tags=module.tags if module.tags else [],
-                isDeployed=is_deployed(module),
+                isDeployed=True,
+                description=module.description,
             )
 
     @app.delete("/api/modules/{name}", status_code=204)
@@ -584,21 +621,54 @@ def create_app() -> FastAPI:
             # 6. 환경별 독립 실행 환경 자동 생성
             env_type = module.env.lower() if module.env else "venv"
             if env_type == "venv":
-                venv_dir = os.path.abspath(os.path.join("module_envs", module.name, "venv"))
-                os.makedirs(venv_dir, exist_ok=True)
-                try:
-                    subprocess.run(["python3", "-m", "venv", venv_dir], check=True)
-                    venv_python = os.path.join(venv_dir, "bin", "python")
-                    upgrade_pip(venv_python)
-                    log_module_action(module.name, getattr(module, 'version', 'unknown'), "venv", "venv 및 pip 업그레이드 성공")
-                except Exception as e:
-                    log_module_action(module.name, getattr(module, 'version', 'unknown'), "venv", f"venv 생성 실패: {str(e)}")
-                    log = ModuleValidationLog(filename=name, status="fail", message=f"venv 생성 실패: {str(e)}")
-                    db.add(log)
-                    await db.commit()
-                    return JSONResponse(status_code=500, content={"detail": f"venv 생성 실패: {str(e)}"})
-                requirements_path = os.path.join(venv_dir, "requirements.txt")
+                # 4. 활성화된 버전 소스 복사 (requirements.txt가 있는 폴더만 복사, venv 폴더에는 복사하지 않음)
+                src_dir = os.path.join("modules", module.name, module.version)
+                dst_dir = os.path.join("module_envs", module.name)
+                if not os.path.exists(src_dir):
+                    raise HTTPException(status_code=400, detail="영구 저장소에 모듈 파일이 존재하지 않습니다.")
+                os.makedirs(dst_dir, exist_ok=True)
+                # requirements.txt가 있는 폴더 찾기
+                def find_requirements_dir(base_dir):
+                    for root, dirs, files in os.walk(base_dir):
+                        if "requirements.txt" in files:
+                            return root
+                    return base_dir
+                req_dir = find_requirements_dir(src_dir)
+                # dst_dir 비우기(venv 폴더만 남기고)
+                for item in os.listdir(dst_dir):
+                    if item == "venv":
+                        continue
+                    item_path = os.path.join(dst_dir, item)
+                    if os.path.isdir(item_path):
+                        shutil.rmtree(item_path)
+                    else:
+                        os.remove(item_path)
+                # req_dir의 파일/폴더만 dst_dir로 복사 (venv 폴더에는 복사하지 않음)
+                for item in os.listdir(req_dir):
+                    s = os.path.join(req_dir, item)
+                    d = os.path.join(dst_dir, item)
+                    if os.path.isdir(s):
+                        shutil.copytree(s, d, dirs_exist_ok=True)
+                    elif os.path.isfile(s):
+                        shutil.copy2(s, d)
+                # 5. venv 생성 (venv 폴더에는 아무것도 복사하지 않음)
+                if not os.path.exists(os.path.join(dst_dir, "venv", "bin", "activate")):
+                    venv_dir = os.path.join(dst_dir, "venv")
+                    try:
+                        subprocess.run(["python3", "-m", "venv", venv_dir], check=True)
+                        venv_python = os.path.join(venv_dir, "bin", "python")
+                        upgrade_pip(venv_python)
+                        log_module_action(module.name, getattr(module, 'version', 'unknown'), "venv", "venv 및 pip 업그레이드 성공")
+                    except Exception as e:
+                        log_module_action(module.name, getattr(module, 'version', 'unknown'), "venv", f"venv 생성 실패: {str(e)}")
+                        log = ModuleValidationLog(filename=module.name, status="fail", message=f"venv 생성 실패: {str(e)}")
+                        db.add(log)
+                        await db.commit()
+                        return JSONResponse(status_code=500, content={"detail": f"venv 생성 실패: {str(e)}"})
+                # 6. requirements.txt 의존성 설치 (venv 폴더에 복사하지 않고, 경로만 지정)
+                requirements_path = os.path.join(dst_dir, "requirements.txt")
                 if os.path.exists(requirements_path):
+                    venv_python = os.path.join(dst_dir, "venv", "bin", "python")
                     try:
                         install_requirements(venv_python, requirements_path)
                         log_module_action(module.name, getattr(module, 'version', 'unknown'), "requirements", "requirements.txt 의존성 설치 성공")
@@ -610,80 +680,79 @@ def create_app() -> FastAPI:
                         db.add(log)
                         await db.commit()
                         return JSONResponse(status_code=500, content={"detail": f"venv 내 requirements.txt 설치 중 예외: {str(e)}"})
-                    module.env = venv_dir
-                elif env_type == "conda":
-                    conda_env_name = f"mod_{module_id}"
-                    try:
-                        subprocess.run(["conda", "create", "-y", "-n", conda_env_name, "python=3.10"], check=True)
-                    except Exception as e:
-                        log = ModuleValidationLog(filename=file.filename, status="fail", message=f"conda 환경 생성 실패: {str(e)}")
-                        db.add(log)
-                        await db.commit()
-                        return JSONResponse(status_code=500, content={"detail": f"conda 환경 생성 실패: {str(e)}"})
-                    if requirements_path:
-                        try:
-                            proc = subprocess.run([
-                                "conda", "run", "-n", conda_env_name, "pip", "install", "-r", requirements_path
-                            ], capture_output=True, text=True, check=False)
-                            if proc.returncode == 0:
-                                log = ModuleValidationLog(filename=file.filename, status="success", message=f"conda 환경 requirements.txt 설치 성공\n{proc.stdout}")
-                                db.add(log)
-                            else:
-                                log = ModuleValidationLog(filename=file.filename, status="fail", message=f"conda 환경 requirements.txt 설치 실패\n{proc.stderr}")
-                                db.add(log)
-                                await db.commit()
-                                return JSONResponse(status_code=400, content={"detail": f"conda 환경 requirements.txt 설치 실패", "error": proc.stderr})
-                        except Exception as e:
-                            log = ModuleValidationLog(filename=file.filename, status="fail", message=f"conda 환경 requirements.txt 설치 중 예외: {str(e)}")
-                            db.add(log)
-                            await db.commit()
-                            return JSONResponse(status_code=500, content={"detail": f"conda 환경 requirements.txt 설치 중 예외: {str(e)}"})
-                        module.env = conda_env_name
-                    else:
-                        log = ModuleValidationLog(filename=file.filename, status="fail", message=f"알 수 없는 env 타입: {env_type}")
-                        db.add(log)
-                        await db.commit()
-                        return JSONResponse(status_code=400, content={"detail": f"알 수 없는 env 타입: {env_type}"})
-                elif env_type == "docker":
-                    docker_tag = f"mod_{module_id}:latest"
-                    dockerfile_path = os.path.join(tmpdir, "Dockerfile")
-                    # Dockerfile 생성
-                    with open(dockerfile_path, "w") as df:
-                        df.write("FROM python:3.10-slim\n")
-                        df.write("WORKDIR /app\n")
-                        df.write("COPY . /app\n")
-                        if requirements_path:
-                            df.write("RUN pip install --no-cache-dir -r requirements.txt\n")
-                        df.write("CMD [\"python\", \"handler.py\"]\n")
+            elif env_type == "conda":
+                conda_env_name = f"mod_{module_id}"
+                try:
+                    subprocess.run(["conda", "create", "-y", "-n", conda_env_name, "python=3.10"], check=True)
+                except Exception as e:
+                    log = ModuleValidationLog(filename=file.filename, status="fail", message=f"conda 환경 생성 실패: {str(e)}")
+                    db.add(log)
+                    await db.commit()
+                    return JSONResponse(status_code=500, content={"detail": f"conda 환경 생성 실패: {str(e)}"})
+                if requirements_path:
                     try:
                         proc = subprocess.run([
-                            "docker", "build", "-t", docker_tag, tmpdir
+                            "conda", "run", "-n", conda_env_name, "pip", "install", "-r", requirements_path
                         ], capture_output=True, text=True, check=False)
                         if proc.returncode == 0:
-                            log = ModuleValidationLog(filename=file.filename, status="success", message=f"docker 이미지 빌드 성공\n{proc.stdout}")
+                            log = ModuleValidationLog(filename=file.filename, status="success", message=f"conda 환경 requirements.txt 설치 성공\n{proc.stdout}")
                             db.add(log)
                         else:
-                            log = ModuleValidationLog(filename=file.filename, status="fail", message=f"docker 이미지 빌드 실패\n{proc.stderr}")
+                            log = ModuleValidationLog(filename=file.filename, status="fail", message=f"conda 환경 requirements.txt 설치 실패\n{proc.stderr}")
                             db.add(log)
                             await db.commit()
-                            return JSONResponse(status_code=400, content={"detail": f"docker 이미지 빌드 실패", "error": proc.stderr})
+                            return JSONResponse(status_code=400, content={"detail": f"conda 환경 requirements.txt 설치 실패", "error": proc.stderr})
                     except Exception as e:
-                        log = ModuleValidationLog(filename=file.filename, status="fail", message=f"docker 이미지 빌드 중 예외: {str(e)}")
+                        log = ModuleValidationLog(filename=file.filename, status="fail", message=f"conda 환경 requirements.txt 설치 중 예외: {str(e)}")
                         db.add(log)
                         await db.commit()
-                        return JSONResponse(status_code=500, content={"detail": f"docker 이미지 빌드 중 예외: {str(e)}"})
-                    module.env = docker_tag
+                        return JSONResponse(status_code=500, content={"detail": f"conda 환경 requirements.txt 설치 중 예외: {str(e)}"})
+                    module.env = conda_env_name
                 else:
                     log = ModuleValidationLog(filename=file.filename, status="fail", message=f"알 수 없는 env 타입: {env_type}")
                     db.add(log)
                     await db.commit()
                     return JSONResponse(status_code=400, content={"detail": f"알 수 없는 env 타입: {env_type}"})
-                # 7. 성공 기록 및 모듈 정보 갱신
-                log = ModuleValidationLog(filename="deploy", status="success", message="검증 통과 및 환경 생성/설치/모듈 정보 갱신")
+            elif env_type == "docker":
+                docker_tag = f"mod_{module_id}:latest"
+                dockerfile_path = os.path.join(tmpdir, "Dockerfile")
+                # Dockerfile 생성
+                with open(dockerfile_path, "w") as df:
+                    df.write("FROM python:3.10-slim\n")
+                    df.write("WORKDIR /app\n")
+                    df.write("COPY . /app\n")
+                    if requirements_path:
+                        df.write("RUN pip install --no-cache-dir -r requirements.txt\n")
+                    df.write("CMD [\"python\", \"handler.py\"]\n")
+                try:
+                    proc = subprocess.run([
+                        "docker", "build", "-t", docker_tag, tmpdir
+                    ], capture_output=True, text=True, check=False)
+                    if proc.returncode == 0:
+                        log = ModuleValidationLog(filename=file.filename, status="success", message=f"docker 이미지 빌드 성공\n{proc.stdout}")
+                        db.add(log)
+                    else:
+                        log = ModuleValidationLog(filename=file.filename, status="fail", message=f"docker 이미지 빌드 실패\n{proc.stderr}")
+                        db.add(log)
+                        await db.commit()
+                        return JSONResponse(status_code=400, content={"detail": f"docker 이미지 빌드 실패", "error": proc.stderr})
+                except Exception as e:
+                    log = ModuleValidationLog(filename=file.filename, status="fail", message=f"docker 이미지 빌드 중 예외: {str(e)}")
+                    db.add(log)
+                    await db.commit()
+                    return JSONResponse(status_code=500, content={"detail": f"docker 이미지 빌드 중 예외: {str(e)}"})
+                module.env = docker_tag
+            else:
+                log = ModuleValidationLog(filename=file.filename, status="fail", message=f"알 수 없는 env 타입: {env_type}")
                 db.add(log)
-                module.path = zip_path  # 실제 운영시에는 영구 저장소로 이동 필요
                 await db.commit()
-                return {"detail": f"구조/필수 파일 및 handler 함수 검증 통과, {env_type} 환경 생성 및 의존성 설치, 모듈 정보 갱신 완료"}
+                return JSONResponse(status_code=400, content={"detail": f"알 수 없는 env 타입: {env_type}"})
+            # 7. 성공 기록 및 모듈 정보 갱신
+            log = ModuleValidationLog(filename="deploy", status="success", message="검증 통과 및 환경 생성/설치/모듈 정보 갱신")
+            db.add(log)
+            module.path = zip_path  # 실제 운영시에는 영구 저장소로 이동 필요
+            await db.commit()
+            return {"detail": f"구조/필수 파일 및 handler 함수 검증 통과, {env_type} 환경 생성 및 의존성 설치, 모듈 정보 갱신 완료"}
 
     @app.post("/modules/{module_id}/activate")
     async def activate_module(id: int, db: AsyncSession = Depends(get_db), current_user: UserRead = Depends(get_current_user)):
@@ -827,26 +896,35 @@ def create_app() -> FastAPI:
                 with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                     zip_ref.extractall(tmpdir)
                 items = [item for item in os.listdir(tmpdir) if not item.startswith('.')]
-                module_dir = os.path.join("modules", name, version)
-                os.makedirs(module_dir, exist_ok=True)
-                if len(items) == 1 and os.path.isdir(os.path.join(tmpdir, items[0])):
-                    root_dir = os.path.join(tmpdir, items[0])
-                    for item in os.listdir(root_dir):
-                        s = os.path.join(root_dir, item)
-                        d = os.path.join(module_dir, item)
-                        if os.path.isdir(s):
-                            shutil.copytree(s, d, dirs_exist_ok=True)
-                        elif os.path.isfile(s):
-                            shutil.copy2(s, d)
-                else:
-                    for item in items:
-                        s = os.path.join(tmpdir, item)
-                        d = os.path.join(module_dir, item)
-                        if os.path.isdir(s):
-                            shutil.copytree(s, d, dirs_exist_ok=True)
-                        elif os.path.isfile(s):
-                            shutil.copy2(s, d)
-                # 버전 정보 저장 (code=None, path=module_dir)
+                # modules/{name}/{version}/에 압축 해제
+                modules_dir = os.path.join("modules", name, version)
+                if os.path.exists(modules_dir):
+                    shutil.rmtree(modules_dir)
+                os.makedirs(modules_dir, exist_ok=True)
+                # 압축 해제된 실제 소스 루트 찾기
+                root_dir = tmpdir
+                # 소스 전체를 modules/{name}/{version}/로 복사
+                for item in os.listdir(root_dir):
+                    s = os.path.join(root_dir, item)
+                    d = os.path.join(modules_dir, item)
+                    if os.path.isdir(s):
+                        shutil.copytree(s, d, dirs_exist_ok=True)
+                    elif os.path.isfile(s):
+                        shutil.copy2(s, d)
+                # module_envs/{name}/로 복사하는 로직은 제거
+                module = Module(
+                    name=name,
+                    env=env,
+                    code=None,
+                    path=None,
+                    version=version,
+                    tags=','.join(tag_list),
+                    description=description,
+                    owner_id=current_user.id
+                )
+                db.add(module)
+                await db.commit()
+                await db.refresh(module)
                 version_obj = Version(
                     module_id=module.id,
                     version=version,
@@ -857,6 +935,9 @@ def create_app() -> FastAPI:
                 db.add(version_obj)
                 await db.commit()
                 await db.refresh(version_obj)
+                deployment_obj = Deployment(module_id=module.id, version_id=version_obj.id, status="active")
+                db.add(deployment_obj)
+                await db.commit()
                 return {"detail": f"새 버전 업로드 완료: {name} v{version}"}
         elif code:
             # 인라인 코드 업로드 (code, description 등 저장)
@@ -905,11 +986,6 @@ def create_app() -> FastAPI:
             db.add(deployment_obj)
         else:
             deployment_obj.status = "active"
-        other_deployments = await db.execute(
-            select(Deployment).where(Deployment.module_id == module.id, Deployment.version_id != version_obj.id)
-        )
-        for d in other_deployments.scalars().all():
-            d.status = "inactive"
         module.version = version
         module.is_active = 1
         await db.commit()
@@ -1092,103 +1168,66 @@ def create_app() -> FastAPI:
         active_version = active_version_result.scalars().first()
         if not active_version:
             raise HTTPException(status_code=400, detail="활성화된 버전이 없습니다. 먼저 버전을 활성화하세요.")
-        # 2. 영구 저장소 경로 (활성화된 버전 기준)
+        # 2. 소스 복사 경로 (module_envs/{module_name}/)
         src_dir = os.path.join("modules", module.name, active_version.version)
+        dst_dir = os.path.join("module_envs", module.name)
         if not os.path.exists(src_dir):
             raise HTTPException(status_code=400, detail="영구 저장소에 모듈 파일이 존재하지 않습니다.")
-        # 3. 실행 환경 경로
-        venv_dir = os.path.abspath(os.path.join("module_envs", module.name, "venv"))
-        os.makedirs(venv_dir, exist_ok=True)
-        # 4. 모듈 파일 복사 (handler.py 등)
-        def find_handler_dir(base_dir):
+        os.makedirs(dst_dir, exist_ok=True)
+        # requirements.txt가 있는 폴더 찾기
+        def find_requirements_dir(base_dir):
             for root, dirs, files in os.walk(base_dir):
-                if "handler.py" in files:
+                if "requirements.txt" in files:
                     return root
-            return None
-        handler_dir = find_handler_dir(src_dir)
-        if handler_dir:
-            for item in os.listdir(handler_dir):
-                s = os.path.join(handler_dir, item)
-                d = os.path.join(venv_dir, item)
-                if os.path.isdir(s):
-                    shutil.copytree(s, d, dirs_exist_ok=True)
-                elif os.path.isfile(s):
-                    shutil.copy2(s, d)
-        else:
-            # fallback: 기존대로 복사
-            for item in os.listdir(src_dir):
-                s = os.path.join(src_dir, item)
-                d = os.path.join(venv_dir, item)
-                if os.path.isdir(s):
-                    shutil.copytree(s, d, dirs_exist_ok=True)
-                elif os.path.isfile(s):
-                    shutil.copy2(s, d)
-        # 5. venv 생성
-        if not os.path.exists(os.path.join(venv_dir, "bin", "activate")):
+            return base_dir
+        req_dir = find_requirements_dir(src_dir)
+        # dst_dir 비우기(venv 폴더만 남기고)
+        for item in os.listdir(dst_dir):
+            if item == "venv":
+                continue
+            item_path = os.path.join(dst_dir, item)
+            if os.path.isdir(item_path):
+                shutil.rmtree(item_path)
+            else:
+                os.remove(item_path)
+        # req_dir의 파일/폴더만 dst_dir로 복사 (venv 폴더에는 복사하지 않음)
+        for item in os.listdir(req_dir):
+            s = os.path.join(req_dir, item)
+            d = os.path.join(dst_dir, item)
+            if os.path.isdir(s):
+                shutil.copytree(s, d, dirs_exist_ok=True)
+            elif os.path.isfile(s):
+                shutil.copy2(s, d)
+        # 5. venv 생성 (venv 폴더에는 아무것도 복사하지 않음)
+        if not os.path.exists(os.path.join(dst_dir, "venv", "bin", "activate")):
+            venv_dir = os.path.join(dst_dir, "venv")
             try:
                 subprocess.run(["python3", "-m", "venv", venv_dir], check=True)
                 venv_python = os.path.join(venv_dir, "bin", "python")
                 upgrade_pip(venv_python)
-                log_module_action(name, getattr(module, 'version', 'unknown'), "venv", "venv 및 pip 업그레이드 성공")
+                log_module_action(module.name, getattr(module, 'version', 'unknown'), "venv", "venv 및 pip 업그레이드 성공")
             except Exception as e:
-                log_module_action(name, getattr(module, 'version', 'unknown'), "venv", f"venv 생성 실패: {str(e)}")
-                log = ModuleValidationLog(filename=name, status="fail", message=f"venv 생성 실패: {str(e)}")
+                log_module_action(module.name, getattr(module, 'version', 'unknown'), "venv", f"venv 생성 실패: {str(e)}")
+                log = ModuleValidationLog(filename=module.name, status="fail", message=f"venv 생성 실패: {str(e)}")
                 db.add(log)
                 await db.commit()
                 return JSONResponse(status_code=500, content={"detail": f"venv 생성 실패: {str(e)}"})
-            requirements_path = os.path.join(venv_dir, "requirements.txt")
-            if os.path.exists(requirements_path):
-                try:
-                    install_requirements(venv_python, requirements_path)
-                    log_module_action(name, getattr(module, 'version', 'unknown'), "requirements", "requirements.txt 의존성 설치 성공")
-                    log = ModuleValidationLog(filename="requirements.txt", status="success", message=f"venv 내 requirements.txt 의존성 설치 성공")
-                    db.add(log)
-                except Exception as e:
-                    log_module_action(name, getattr(module, 'version', 'unknown'), "requirements", f"requirements.txt 설치 중 예외: {str(e)}")
-                    log = ModuleValidationLog(filename="requirements.txt", status="fail", message=f"venv 내 requirements.txt 설치 중 예외: {str(e)}")
-                    db.add(log)
-                    await db.commit()
-                    return JSONResponse(status_code=500, content={"detail": f"venv 내 requirements.txt 설치 중 예외: {str(e)}"})
-                module.env = venv_dir
-            elif env_type == "conda":
-                conda_env_name = f"mod_{module_id}"
-                try:
-                    subprocess.run(["conda", "create", "-y", "-n", conda_env_name, "python=3.10"], check=True)
-                except Exception as e:
-                    log = ModuleValidationLog(filename=file.filename, status="fail", message=f"conda 환경 생성 실패: {str(e)}")
-                    db.add(log)
-                    await db.commit()
-                    return JSONResponse(status_code=500, content={"detail": f"conda 환경 생성 실패: {str(e)}"})
-                if requirements_path:
-                    try:
-                        proc = subprocess.run([
-                            "conda", "run", "-n", conda_env_name, "pip", "install", "-r", requirements_path
-                        ], capture_output=True, text=True, check=False)
-                        if proc.returncode == 0:
-                            log = ModuleValidationLog(filename=file.filename, status="success", message=f"conda 환경 requirements.txt 설치 성공\n{proc.stdout}")
-                            db.add(log)
-                        else:
-                            log = ModuleValidationLog(filename=file.filename, status="fail", message=f"conda 환경 requirements.txt 설치 실패\n{proc.stderr}")
-                            db.add(log)
-                            await db.commit()
-                            return JSONResponse(status_code=400, content={"detail": f"conda 환경 requirements.txt 설치 실패", "error": proc.stderr})
-                    except Exception as e:
-                        log = ModuleValidationLog(filename=file.filename, status="fail", message=f"conda 환경 requirements.txt 설치 중 예외: {str(e)}")
-                        db.add(log)
-                        await db.commit()
-                        return JSONResponse(status_code=500, content={"detail": f"conda 환경 requirements.txt 설치 중 예외: {str(e)}"})
-                    module.env = conda_env_name
-                else:
-                    log = ModuleValidationLog(filename=file.filename, status="fail", message=f"알 수 없는 env 타입: {env_type}")
-                    db.add(log)
-                    await db.commit()
-                    return JSONResponse(status_code=400, content={"detail": f"알 수 없는 env 타입: {env_type}"})
-                # 7. 성공 기록 및 모듈 정보 갱신
-                log = ModuleValidationLog(filename="deploy", status="success", message="검증 통과 및 환경 생성/설치/모듈 정보 갱신")
+        # 6. requirements.txt 의존성 설치 (venv 폴더에 복사하지 않고, 경로만 지정)
+        requirements_path = os.path.join(dst_dir, "requirements.txt")
+        if os.path.exists(requirements_path):
+            venv_python = os.path.join(dst_dir, "venv", "bin", "python")
+            try:
+                install_requirements(venv_python, requirements_path)
+                log_module_action(module.name, getattr(module, 'version', 'unknown'), "requirements", "requirements.txt 의존성 설치 성공")
+                log = ModuleValidationLog(filename="requirements.txt", status="success", message=f"venv 내 requirements.txt 의존성 설치 성공")
                 db.add(log)
-                module.path = zip_path  # 실제 운영시에는 영구 저장소로 이동 필요
+            except Exception as e:
+                log_module_action(module.name, getattr(module, 'version', 'unknown'), "requirements", f"requirements.txt 설치 중 예외: {str(e)}")
+                log = ModuleValidationLog(filename="requirements.txt", status="fail", message=f"venv 내 requirements.txt 설치 중 예외: {str(e)}")
+                db.add(log)
                 await db.commit()
-                return {"detail": f"구조/필수 파일 및 handler 함수 검증 통과, {env_type} 환경 생성 및 의존성 설치, 모듈 정보 갱신 완료"}
+                return JSONResponse(status_code=500, content={"detail": f"venv 내 requirements.txt 설치 중 예외: {str(e)}"})
+        return {"detail": f"소스 복사 및 venv 환경 생성/의존성 설치 완료"}
 
     @app.delete("/api/modules/{name}/deploy")
     async def undeploy_module(name: str):
