@@ -10,10 +10,10 @@ import {
 import { Link, Outlet, useLocation } from "react-router-dom";
 
 const navItems = [
-  { label: "대시보드", path: "/" },
-  { label: "모듈 목록", path: "/modules" },
-  { label: "모듈 업로드", path: "/modules/upload" },
-  { label: "에러 로그", path: "/admin/error-logs" },
+  { label: "대시보드", path: "/dashboard" },
+  { label: "모듈 목록", path: "/dashboard/modules" },
+  { label: "모듈 업로드", path: "/dashboard/modules/upload" },
+  { label: "에러 로그", path: "/dashboard/admin/error-logs" },
 ];
 
 const Layout: React.FC = () => {

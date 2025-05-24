@@ -10,6 +10,19 @@ axios.interceptors.request.use((config) => {
   return config;
 });
 
+axios.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (
+      error.response &&
+      (error.response.status === 401 || error.response.status === 403)
+    ) {
+      window.location.href = "/login";
+    }
+    return Promise.reject(error);
+  }
+);
+
 export async function fetchModules() {
   const res = await axios.get("/api/modules");
   return res.data;
@@ -88,6 +101,11 @@ export async function deployModule(name: string) {
 
 export async function undeployModule(name: string) {
   const res = await axios.delete(`/api/modules/${name}/deploy`);
+  return res.data;
+}
+
+export async function deleteModule(name: string) {
+  const res = await axios.delete(`/api/modules/${name}`);
   return res.data;
 }
 

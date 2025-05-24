@@ -3,8 +3,12 @@ import subprocess
 import tempfile
 import json
 import time
+import logging
 from executors.base import Executor
 from models import ExecRequest, ExecResult
+
+def log_module_action(module_name, version, action, message):
+    logging.info(f"[{module_name}][v{version}][{action}] {message}")
 
 class VenvExecutor(Executor):
     def __init__(self, venv_path="module_envs", module_registry=None):
@@ -21,6 +25,7 @@ class VenvExecutor(Executor):
         module_name = request.module
         module = await self.module_registry.get_module(module_name)
         if not module or not module.path:
+            log_module_action(module_name, getattr(module, 'version', 'unknown'), "execute", "Module path not found")
             return ExecResult(
                 result_json={},
                 exit_code=1,
@@ -70,11 +75,14 @@ with open('{output_path}', 'w') as f:
             script_path = script_file.name
 
         try:
+            env = os.environ.copy()
+            env["PIP_DISABLE_PIP_VERSION_CHECK"] = "1"
             process = subprocess.run(
                 [python_bin, script_path],
                 capture_output=True,
                 text=True,
-                timeout=60
+                timeout=60,
+                env=env
             )
             if os.path.exists(output_path):
                 with open(output_path, 'r') as f:
@@ -84,16 +92,19 @@ with open('{output_path}', 'w') as f:
             exit_code = process.returncode
             stderr = process.stderr
             stdout = process.stdout
+            log_module_action(module_name, getattr(module, 'version', 'unknown'), "execute", f"실행 완료 (exit_code={exit_code})")
         except subprocess.TimeoutExpired:
             exit_code = 124
             stderr = "Execution timed out after 60 seconds"
             stdout = ""
             result_json = {}
+            log_module_action(module_name, getattr(module, 'version', 'unknown'), "execute", "실행 타임아웃")
         except Exception as e:
             exit_code = 1
             stderr = f"Error executing module: {str(e)}"
             stdout = ""
             result_json = {}
+            log_module_action(module_name, getattr(module, 'version', 'unknown'), "execute", f"실행 에러: {str(e)}")
         finally:
             if os.path.exists(input_path):
                 os.unlink(input_path)

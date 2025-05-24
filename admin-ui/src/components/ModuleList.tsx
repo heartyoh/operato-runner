@@ -1,5 +1,10 @@
 import React, { useEffect, useState } from "react";
-import { fetchModules, deployModule, undeployModule } from "../api";
+import {
+  fetchModules,
+  deployModule,
+  undeployModule,
+  deleteModule,
+} from "../api";
 import {
   Typography,
   Paper,
@@ -12,6 +17,11 @@ import {
   CircularProgress,
   Alert,
   Button,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
 } from "@mui/material";
 import { useNavigate } from "react-router-dom";
 
@@ -35,6 +45,9 @@ const ModuleList: React.FC = () => {
   const [undeployError, setUndeployError] = useState<{ [key: string]: string }>(
     {}
   );
+  const [deleteTarget, setDeleteTarget] = useState<Module | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -61,7 +74,7 @@ const ModuleList: React.FC = () => {
           <Table size="small">
             <TableHead>
               <TableRow>
-                <TableCell>ID</TableCell>
+                {/* <TableCell>ID</TableCell> */}
                 <TableCell>이름</TableCell>
                 <TableCell>환경</TableCell>
                 <TableCell>버전</TableCell>
@@ -71,8 +84,8 @@ const ModuleList: React.FC = () => {
             </TableHead>
             <TableBody>
               {modules.map((m) => (
-                <TableRow key={m.id} hover>
-                  <TableCell>{m.id}</TableCell>
+                <TableRow key={m.name} hover>
+                  {/* <TableCell>{m.id}</TableCell> */}
                   <TableCell>{m.name}</TableCell>
                   <TableCell>{m.env}</TableCell>
                   <TableCell>{m.version}</TableCell>
@@ -142,6 +155,15 @@ const ModuleList: React.FC = () => {
                     >
                       {undeploying === m.name ? "전개 해제중..." : "전개 해제"}
                     </Button>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      color="error"
+                      sx={{ ml: 1 }}
+                      onClick={() => setDeleteTarget(m)}
+                    >
+                      삭제
+                    </Button>
                     {deployLog[m.name] && (
                       <div
                         style={{ color: "green", fontSize: 12, marginTop: 4 }}
@@ -173,6 +195,52 @@ const ModuleList: React.FC = () => {
           </Table>
         </TableContainer>
       )}
+      {/* 삭제 확인 다이얼로그 */}
+      <Dialog open={!!deleteTarget} onClose={() => setDeleteTarget(null)}>
+        <DialogTitle>모듈 삭제 확인</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            정말 <b>{deleteTarget?.name}</b> 모듈을 삭제하시겠습니까?
+            <br />이 작업은 되돌릴 수 없습니다.
+          </DialogContentText>
+          {deleteError && (
+            <Alert severity="error" sx={{ mt: 2 }}>
+              {deleteError}
+            </Alert>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => setDeleteTarget(null)}
+            disabled={deleteLoading}
+          >
+            취소
+          </Button>
+          <Button
+            color="error"
+            variant="contained"
+            disabled={deleteLoading}
+            onClick={async () => {
+              if (!deleteTarget) return;
+              setDeleteLoading(true);
+              setDeleteError(null);
+              try {
+                await deleteModule(deleteTarget.name);
+                setModules((prev) =>
+                  prev.filter((mod) => mod.name !== deleteTarget.name)
+                );
+                setDeleteTarget(null);
+              } catch (err: any) {
+                setDeleteError(err?.response?.data?.detail || err.message);
+              } finally {
+                setDeleteLoading(false);
+              }
+            }}
+          >
+            {deleteLoading ? "삭제중..." : "삭제"}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Paper>
   );
 };

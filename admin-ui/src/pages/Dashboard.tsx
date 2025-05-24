@@ -1,78 +1,42 @@
-import React, { useState } from "react";
-import { Typography, Box, TextField, Button, Alert } from "@mui/material";
-import { login } from "../api";
+import React from "react";
+import { Typography, Box, Button } from "@mui/material";
+import { useNavigate } from "react-router-dom";
 
 const Dashboard: React.FC = () => {
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [loggedIn, setLoggedIn] = useState(
-    !!localStorage.getItem("access_token")
-  );
-
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    try {
-      const data = await login(username, password);
-      localStorage.setItem("access_token", data.access_token);
-      setLoggedIn(true);
-    } catch (err: any) {
-      setError(err?.response?.data?.detail || err.message);
-    }
-  };
-
-  const handleLogout = () => {
-    localStorage.removeItem("access_token");
-    setLoggedIn(false);
-  };
-
+  const navigate = useNavigate();
   return (
     <Box p={3}>
       <Typography variant="h4" gutterBottom>
         관리자 대시보드
       </Typography>
-      <Typography>모듈 관리 시스템에 오신 것을 환영합니다.</Typography>
-      {!loggedIn ? (
-        <Box
-          component="form"
-          onSubmit={handleLogin}
-          sx={{ mt: 3, maxWidth: 300 }}
-        >
-          <TextField
-            label="아이디"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            fullWidth
-            margin="normal"
-          />
-          <TextField
-            label="비밀번호"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            fullWidth
-            margin="normal"
-          />
-          <Button type="submit" variant="contained" fullWidth sx={{ mt: 2 }}>
-            로그인
-          </Button>
-          {error && (
-            <Alert severity="error" sx={{ mt: 2 }}>
-              {error}
-            </Alert>
-          )}
-        </Box>
-      ) : (
-        <Box sx={{ mt: 3 }}>
-          <Alert severity="success">로그인됨</Alert>
-          <Button variant="outlined" onClick={handleLogout} sx={{ mt: 2 }}>
-            로그아웃
-          </Button>
-        </Box>
-      )}
+      <Typography sx={{ mb: 3 }}>
+        모듈 관리 시스템에 오신 것을 환영합니다.
+        <br />
+        아래에서 주요 기능으로 바로 이동할 수 있습니다.
+      </Typography>
+      <Button
+        variant="contained"
+        onClick={() => navigate("/dashboard/modules")}
+      >
+        모듈 목록 바로가기
+      </Button>
+      <Button
+        variant="outlined"
+        sx={{ ml: 2 }}
+        onClick={() => navigate("/dashboard/modules/upload")}
+      >
+        모듈 업로드
+      </Button>
+      <Button
+        variant="outlined"
+        sx={{ ml: 2 }}
+        onClick={() => navigate("/dashboard/admin/error-logs")}
+      >
+        에러 로그
+      </Button>
     </Box>
   );
 };
 
 export default Dashboard;
+export {};
