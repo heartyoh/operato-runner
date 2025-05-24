@@ -402,27 +402,34 @@ def create_app() -> FastAPI:
     async def get_profile(current_user: UserRead = Depends(get_current_user)):
         return current_user
 
-    @app.patch("/users/me", response_model=UserRead)
-    async def update_profile(update: UserCreate, db: AsyncSession = Depends(get_db), current_user: UserRead = Depends(get_current_user)):
-        result = await db.execute(
-            User.__table__.select().where(User.username == current_user.username)
-        )
-        user = result.first()
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-        user = user[0] if isinstance(user, tuple) else user
-        if update.password:
-            try:
-                validate_password_policy(update.password)
-            except ValueError as e:
-                raise HTTPException(status_code=400, detail=str(e))
-            user.hashed_password = hash_password(update.password)
-        if update.email:
-            user.email = update.email
+    @app.patch("/api/modules/{name}")
+    async def update_module_info(
+        name: str,
+        description: str = Form(None),
+        tags: str = Form(None),
+        db: AsyncSession = Depends(get_db),
+        current_user: UserRead = Depends(get_current_user)
+    ):
+        result = await db.execute(select(Module).where(Module.name == name))
+        module = result.scalars().first()
+        if not module:
+            raise HTTPException(status_code=404, detail="Module not found")
+        if description is not None:
+            module.description = description
+            # 인라인 타입이면 활성화된 버전의 description도 같이 수정
+            if module.env == "inline":
+                v_result = await db.execute(
+                    select(Version).join(Deployment, Deployment.version_id == Version.id)
+                    .where(Version.module_id == module.id, Deployment.status == "active")
+                )
+                active_version = v_result.scalars().first()
+                if active_version:
+                    active_version.description = description
+        if tags is not None:
+            module.tags = tags
         await db.commit()
-        await db.refresh(user)
-        user.roles = []  # lazy load 방지
-        return UserRead.from_orm_safe(user)
+        await db.refresh(module)
+        return {"detail": "모듈 정보가 수정되었습니다."}
 
     @app.get("/admin")
     async def admin_only(current_user=Depends(has_role("admin"))):
@@ -1202,26 +1209,6 @@ def create_app() -> FastAPI:
             status_code=exc.status_code,
             content=exc.to_dict()
         )
-
-    @app.patch("/api/modules/{name}")
-    async def update_module_info(
-        name: str,
-        description: str = Form(None),
-        tags: str = Form(None),
-        db: AsyncSession = Depends(get_db),
-        current_user: UserRead = Depends(get_current_user)
-    ):
-        result = await db.execute(select(Module).where(Module.name == name))
-        module = result.scalars().first()
-        if not module:
-            raise HTTPException(status_code=404, detail="Module not found")
-        if description is not None:
-            module.description = description
-        if tags is not None:
-            module.tags = tags
-        await db.commit()
-        await db.refresh(module)
-        return {"detail": "모듈 정보가 수정되었습니다."}
 
     return app
 
