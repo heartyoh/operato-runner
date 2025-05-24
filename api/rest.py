@@ -288,14 +288,19 @@ def create_app() -> FastAPI:
             .where(Version.module_id == module_obj.id, Deployment.status == "active")
         )
         version_obj = active_version_result.scalars().first()
-        code = version_obj.code if version_obj else None
-        if not version_obj or not code:
+        if not version_obj:
             raise HTTPException(
                 status_code=400,
-                detail="활성화된 버전이 없거나, 해당 버전의 코드가 비어 있습니다. 배포/버전 상태를 확인하세요."
+                detail="활성화된 버전이 없습니다. 배포/버전 상태를 확인하세요."
             )
         # 인라인 실행 시 code를 직접 eval/exec로 실행
         if module_obj.env == "inline":
+            code = version_obj.code
+            if not code:
+                raise HTTPException(
+                    status_code=400,
+                    detail="활성화된 버전의 코드가 비어 있습니다. 배포/버전 상태를 확인하세요."
+                )
             input_data = request.input
             if not isinstance(input_data, dict):
                 try:
@@ -1079,9 +1084,17 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail="Module not found")
         if module.env != "venv":
             raise HTTPException(status_code=400, detail="현재는 venv 환경만 지원합니다.")
-        # 2. 영구 저장소 경로
-        src_dir = module.path  # modules/{name}/{version}/
-        if not src_dir or not os.path.exists(src_dir):
+        # 1-1. 활성화된 버전 조회
+        active_version_result = await db.execute(
+            select(Version).join(Deployment, Deployment.version_id == Version.id)
+            .where(Version.module_id == module.id, Deployment.status == "active")
+        )
+        active_version = active_version_result.scalars().first()
+        if not active_version:
+            raise HTTPException(status_code=400, detail="활성화된 버전이 없습니다. 먼저 버전을 활성화하세요.")
+        # 2. 영구 저장소 경로 (활성화된 버전 기준)
+        src_dir = os.path.join("modules", module.name, active_version.version)
+        if not os.path.exists(src_dir):
             raise HTTPException(status_code=400, detail="영구 저장소에 모듈 파일이 존재하지 않습니다.")
         # 3. 실행 환경 경로
         venv_dir = os.path.abspath(os.path.join("module_envs", module.name, "venv"))
