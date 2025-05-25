@@ -137,6 +137,14 @@ const ModuleDetail: React.FC = () => {
               <Typography variant="subtitle2">환경</Typography>
               <Typography>{module.env}</Typography>
             </Box>
+            {module.artifact_type && module.artifact_uri && (
+              <Box sx={{ mb: 1 }}>
+                <Typography variant="subtitle2">Artifact</Typography>
+                <Typography color="primary" fontWeight={500}>
+                  {module.artifact_type}: {module.artifact_uri}
+                </Typography>
+              </Box>
+            )}
             <Box sx={{ mb: 1 }}>
               <Typography variant="subtitle2">현재 적용 버전</Typography>
               <Typography>

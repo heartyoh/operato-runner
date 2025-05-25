@@ -33,15 +33,20 @@ class DockerExecutor(Executor):
         with open(input_path, "w") as f:
             json.dump(request.input_json, f)
         output_path = os.path.join(temp_dir, "output.json")
-        # 모듈 코득
-        code = ""
+        # artifact 기반 이미지 주소 사용
+        image_ref = None
         if self.module_registry:
             module = await self.module_registry.get_module(module_name)
-            if module and module.code:
-                code = module.code
-            elif module and module.path and os.path.exists(module.path):
-                with open(module.path, "r") as f:
-                    code = f.read()
+            if module and getattr(module, "artifact_type", None) == "docker":
+                image_ref = getattr(module, "artifact_uri", None)
+        if not image_ref:
+            return ExecResult(
+                result_json={},
+                exit_code=1,
+                stderr="docker artifact_uri가 지정되지 않았습니다.",
+                stdout="",
+                duration=0
+            )
         script_path = os.path.join(temp_dir, "script.py")
         with open(script_path, "w") as f:
             f.write("import json\n")
@@ -55,8 +60,10 @@ class DockerExecutor(Executor):
             f.write("    json.dump(result, f)\n")
         container = None
         try:
+            # 이미지 pull (최초 실행 시)
+            self.client.images.pull(image_ref)
             container = self.client.containers.run(
-                self.base_image,
+                image_ref,
                 command=["python", "/data/script.py"],
                 volumes={temp_dir: {"bind": "/data", "mode": "rw"}},
                 detach=True,

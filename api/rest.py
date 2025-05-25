@@ -165,6 +165,8 @@ def create_app() -> FastAPI:
         code: str = Form(None),
         description: str = Form(""),
         tags: str = Form(""),
+        artifact_type: str = Form(None),
+        artifact_uri: str = Form(None),
         file: UploadFile = File(None),
         input: str = Form(""),
         module_registry: ModuleRegistry = Depends(get_module_registry),
@@ -182,7 +184,30 @@ def create_app() -> FastAPI:
                 raise HTTPException(status_code=400, detail="input 필드는 올바른 JSON이어야 합니다.")
         # 태그 파싱
         tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
-        # 파일 업로드(venv 등)와 인라인 코드 등록 분기
+        # 외부 참조형(docker/git 등) artifact 등록 분기
+        if env in ["docker", "git"] and artifact_type and artifact_uri:
+            # (여기서 간단한 유효성 검사만, 실제 pull/clone 등은 별도 모듈화 가능)
+            module = Module(
+                name=name,
+                env=env,
+                version=version,
+                artifact_type=artifact_type,
+                artifact_uri=artifact_uri,
+                description=description,
+                tags=",".join(tag_list),
+            )
+            db.add(module)
+            await db.commit()
+            return {
+                "name": name,
+                "env": env,
+                "version": version,
+                "created_at": module.created_at.isoformat() if module.created_at else None,
+                "tags": tag_list,
+                "isDeployed": False,
+                "description": description,
+            }
+        # 기존 zip 업로드/인라인 분기(venv/conda 등)
         if file:
             import tempfile, zipfile, os, shutil
             # 1. 모듈명 중복 체크

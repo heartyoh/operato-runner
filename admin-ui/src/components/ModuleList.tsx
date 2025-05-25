@@ -34,6 +34,8 @@ interface Module {
   isDeployed: boolean;
   description?: string;
   tags?: string[];
+  artifact_type?: string;
+  artifact_uri?: string;
 }
 
 const ModuleList: React.FC = () => {
@@ -98,6 +100,7 @@ const ModuleList: React.FC = () => {
                   <TableCell>이름</TableCell>
                   <TableCell>환경</TableCell>
                   <TableCell>버전</TableCell>
+                  <TableCell>Artifact</TableCell>
                   <TableCell
                     sx={{
                       maxWidth: 320,
@@ -131,6 +134,15 @@ const ModuleList: React.FC = () => {
                     <TableCell>{m.name}</TableCell>
                     <TableCell>{m.env}</TableCell>
                     <TableCell>{m.version}</TableCell>
+                    <TableCell>
+                      {m.artifact_type && m.artifact_uri ? (
+                        <span style={{ color: "#1976d2", fontWeight: 500 }}>
+                          {m.artifact_type}: {m.artifact_uri}
+                        </span>
+                      ) : (
+                        <span style={{ color: "#888" }}>-</span>
+                      )}
+                    </TableCell>
                     <TableCell
                       sx={{
                         maxWidth: 320,

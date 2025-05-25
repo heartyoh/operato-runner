@@ -7,9 +7,11 @@ from typing import Optional, Dict, Any, List
 
 class ModuleSchema(BaseModel):
     name: StrictStr
-    env: StrictStr  # 'inline', 'venv', 'conda', 'docker'
+    env: StrictStr  # 'inline', 'venv', 'conda', 'docker', ...
     code: Optional[str] = None
     path: Optional[str] = None
+    artifact_type: Optional[str] = None  # ex: 'docker', 'git', 's3', ...
+    artifact_uri: Optional[str] = None   # ex: docker image, git url, s3 uri 등
     created_at: datetime = Field(default_factory=datetime.now)
     version: str = "0.1.0"
     tags: List[str] = []
@@ -35,6 +37,8 @@ class Module(Base):
     description = Column(Text, nullable=True)
     code = Column(Text, nullable=True)
     path = Column(String(255), nullable=True)
+    artifact_type = Column(String(20), nullable=True)  # ex: 'docker', 'git', 's3', ...
+    artifact_uri = Column(String(255), nullable=True)  # ex: docker image, git url, s3 uri 등
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     version = Column(String(20), default="0.1.0")
