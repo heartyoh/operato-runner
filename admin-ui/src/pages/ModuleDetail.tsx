@@ -369,7 +369,7 @@ const ModuleDetail: React.FC = () => {
               formData.append("tags", upgradeTags);
               if (module?.env === "inline") {
                 formData.append("code", upgradeCode);
-              } else {
+              } else if (module?.env === "venv" || module?.env === "conda") {
                 if (upgradeFile) formData.append("file", upgradeFile);
               }
               await uploadModuleVersion(name, formData);
@@ -402,14 +402,14 @@ const ModuleDetail: React.FC = () => {
                 style={{ width: 400, fontFamily: "monospace" }}
                 required
               />
-            ) : (
+            ) : module?.env === "venv" || module?.env === "conda" ? (
               <input
                 type="file"
                 accept=".zip"
                 onChange={(e) => setUpgradeFile(e.target.files?.[0] || null)}
                 style={{ display: "inline-block" }}
               />
-            )}
+            ) : null}
             <input
               type="text"
               placeholder="버전 (예: 0.2.0)"
@@ -424,6 +424,13 @@ const ModuleDetail: React.FC = () => {
               value={upgradeTags}
               onChange={(e) => setUpgradeTags(e.target.value)}
               style={{ width: 160 }}
+            />
+            <input
+              type="text"
+              placeholder="설명"
+              value={upgradeDesc}
+              onChange={(e) => setUpgradeDesc(e.target.value)}
+              style={{ width: 200 }}
             />
             <Button type="submit" variant="contained" disabled={upgradeLoading}>
               {upgradeLoading ? "업로드중..." : "업그레이드"}

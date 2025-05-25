@@ -1230,6 +1230,68 @@ def create_app() -> FastAPI:
         module = result.scalars().first()
         if not module:
             raise HTTPException(status_code=404, detail="Module not found")
+        # --- git artifact 분기 ---
+        if module.env == "venv" and getattr(module, "artifact_type", None) == "git" and getattr(module, "artifact_uri", None):
+            import subprocess, shutil, os
+            # 1. git clone (module_envs/{name}/src)
+            dst_dir = os.path.join("module_envs", module.name)
+            src_dir = os.path.join(dst_dir, "src")
+            if os.path.exists(src_dir):
+                shutil.rmtree(src_dir)
+            try:
+                subprocess.run(["git", "clone", module.artifact_uri, src_dir], check=True)
+            except Exception as e:
+                log_module_action(module.name, getattr(module, 'version', 'unknown'), "git", f"git clone 실패: {str(e)}")
+                return JSONResponse(status_code=500, content={"detail": f"git clone 실패: {str(e)}"})
+            # requirements.txt가 있는 폴더 찾기
+            def find_requirements_dir(base_dir):
+                for root, dirs, files in os.walk(base_dir):
+                    if "requirements.txt" in files:
+                        return root
+                return base_dir
+            req_dir = find_requirements_dir(src_dir)
+            # dst_dir 비우기(venv 폴더만 남기고 src만 유지)
+            for item in os.listdir(dst_dir):
+                if item in ["venv", "src"]:
+                    continue
+                item_path = os.path.join(dst_dir, item)
+                if os.path.isdir(item_path):
+                    shutil.rmtree(item_path)
+                else:
+                    os.remove(item_path)
+            # req_dir의 파일/폴더만 dst_dir로 복사 (venv, src 폴더에는 복사하지 않음)
+            for item in os.listdir(req_dir):
+                s = os.path.join(req_dir, item)
+                d = os.path.join(dst_dir, item)
+                if item in ["venv", "src"]:
+                    continue
+                if os.path.isdir(s):
+                    shutil.copytree(s, d, dirs_exist_ok=True)
+                elif os.path.isfile(s):
+                    shutil.copy2(s, d)
+            # venv 생성 (venv 폴더에는 아무것도 복사하지 않음)
+            venv_dir = os.path.join(dst_dir, "venv")
+            if not os.path.exists(os.path.join(venv_dir, "bin", "activate")):
+                try:
+                    subprocess.run(["python3", "-m", "venv", venv_dir], check=True)
+                    venv_python = os.path.join(venv_dir, "bin", "python")
+                    upgrade_pip(venv_python)
+                    log_module_action(module.name, getattr(module, 'version', 'unknown'), "venv", "venv 및 pip 업그레이드 성공")
+                except Exception as e:
+                    log_module_action(module.name, getattr(module, 'version', 'unknown'), "venv", f"venv 생성 실패: {str(e)}")
+                    return JSONResponse(status_code=500, content={"detail": f"venv 생성 실패: {str(e)}"})
+            # requirements.txt 의존성 설치
+            requirements_path = os.path.join(dst_dir, "requirements.txt")
+            if os.path.exists(requirements_path):
+                venv_python = os.path.join(dst_dir, "venv", "bin", "python")
+                try:
+                    install_requirements(venv_python, requirements_path)
+                    log_module_action(module.name, getattr(module, 'version', 'unknown'), "requirements", "requirements.txt 의존성 설치 성공")
+                except Exception as e:
+                    log_module_action(module.name, getattr(module, 'version', 'unknown'), "requirements", f"requirements.txt 설치 중 예외: {str(e)}")
+                    return JSONResponse(status_code=500, content={"detail": f"venv 내 requirements.txt 설치 중 예외: {str(e)}"})
+            return {"detail": f"git clone 및 venv 환경 생성/의존성 설치 완료"}
+        # --- 기존 venv zip 업로드 방식 ---
         if module.env != "venv":
             raise HTTPException(status_code=400, detail="현재는 venv 환경만 지원합니다.")
         # 1-1. 활성화된 버전 조회
@@ -1291,13 +1353,8 @@ def create_app() -> FastAPI:
             try:
                 install_requirements(venv_python, requirements_path)
                 log_module_action(module.name, getattr(module, 'version', 'unknown'), "requirements", "requirements.txt 의존성 설치 성공")
-                log = ModuleValidationLog(filename="requirements.txt", status="success", message=f"venv 내 requirements.txt 의존성 설치 성공")
-                db.add(log)
             except Exception as e:
                 log_module_action(module.name, getattr(module, 'version', 'unknown'), "requirements", f"requirements.txt 설치 중 예외: {str(e)}")
-                log = ModuleValidationLog(filename="requirements.txt", status="fail", message=f"venv 내 requirements.txt 설치 중 예외: {str(e)}")
-                db.add(log)
-                await db.commit()
                 return JSONResponse(status_code=500, content={"detail": f"venv 내 requirements.txt 설치 중 예외: {str(e)}"})
             return {"detail": f"소스 복사 및 venv 환경 생성/의존성 설치 완료"}
 

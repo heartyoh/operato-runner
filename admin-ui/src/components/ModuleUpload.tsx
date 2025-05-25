@@ -26,6 +26,7 @@ const ModuleUpload: React.FC<Props> = ({ onUploadSuccess }) => {
   const [env, setEnv] = useState("venv");
   const [version, setVersion] = useState("0.1.0");
   const [file, setFile] = useState<File | null>(null);
+  const [artifactUri, setArtifactUri] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -42,14 +43,19 @@ const ModuleUpload: React.FC<Props> = ({ onUploadSuccess }) => {
   "y": 2
 }`);
   const [artifactType, setArtifactType] = useState("");
-  const [artifactUri, setArtifactUri] = useState("");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setSuccess(false);
-    if (!name || (!file && env !== "docker" && env !== "git")) {
-      setError("모듈 이름과 파일(또는 외부 artifact 주소)을 모두 입력하세요.");
+    if (!name || (!file && !artifactUri)) {
+      setError(
+        "모듈 이름과 소스(zip 파일 또는 git 링크) 중 하나를 입력하세요."
+      );
+      return;
+    }
+    if (file && artifactUri) {
+      setError("zip 파일과 git 링크 중 하나만 입력하세요.");
       return;
     }
     setLoading(true);
@@ -58,11 +64,10 @@ const ModuleUpload: React.FC<Props> = ({ onUploadSuccess }) => {
       formData.append("name", name);
       formData.append("env", env);
       formData.append("version", version);
-      if (env === "docker" || env === "git") {
-        formData.append("artifact_type", env); // docker, git 등
-        formData.append("artifact_uri", artifactUri);
-      } else if (file) {
+      if (file) {
         formData.append("file", file);
+      } else if (artifactUri) {
+        formData.append("artifact_uri", artifactUri);
       }
       await axios.post("/api/modules", formData, {
         headers: { "Content-Type": "multipart/form-data" },
@@ -72,7 +77,6 @@ const ModuleUpload: React.FC<Props> = ({ onUploadSuccess }) => {
       setEnv("venv");
       setVersion("0.1.0");
       setFile(null);
-      setArtifactType("");
       setArtifactUri("");
       if (onUploadSuccess) onUploadSuccess();
     } catch (err: any) {
@@ -177,21 +181,11 @@ const ModuleUpload: React.FC<Props> = ({ onUploadSuccess }) => {
               label="환경"
               select
               value={env}
-              onChange={(e) => {
-                setEnv(e.target.value);
-                if (e.target.value === "docker" || e.target.value === "git") {
-                  setArtifactType(e.target.value);
-                } else {
-                  setArtifactType("");
-                  setArtifactUri("");
-                }
-              }}
+              onChange={(e) => setEnv(e.target.value)}
               size="small"
             >
               <MenuItem value="venv">venv</MenuItem>
               <MenuItem value="conda">conda</MenuItem>
-              <MenuItem value="docker">docker</MenuItem>
-              <MenuItem value="git">git</MenuItem>
             </TextField>
             <TextField
               label="버전"
@@ -199,33 +193,36 @@ const ModuleUpload: React.FC<Props> = ({ onUploadSuccess }) => {
               onChange={(e) => setVersion(e.target.value)}
               size="small"
             />
-            {(env === "docker" || env === "git") && (
-              <TextField
-                label={env === "docker" ? "도커 이미지 주소" : "Git URL"}
-                value={artifactUri}
-                onChange={(e) => setArtifactUri(e.target.value)}
-                required
-                size="small"
-                sx={{ minWidth: 260 }}
-                placeholder={
-                  env === "docker"
-                    ? "docker.io/username/image:tag"
-                    : "https://github.com/username/repo.git"
-                }
+            {/* zip 파일 업로드 또는 git 링크 중 하나만 입력 */}
+            <Button
+              variant="contained"
+              component="label"
+              disabled={!!artifactUri}
+            >
+              파일 선택
+              <input
+                type="file"
+                accept=".zip"
+                hidden
+                onChange={(e) => {
+                  setFile(e.target.files?.[0] || null);
+                  if (e.target.files?.[0]) setArtifactUri("");
+                }}
               />
-            )}
-            {(env === "venv" || env === "conda") && (
-              <Button variant="contained" component="label">
-                파일 선택
-                <input
-                  type="file"
-                  accept=".zip"
-                  hidden
-                  onChange={(e) => setFile(e.target.files?.[0] || null)}
-                />
-              </Button>
-            )}
+            </Button>
             {file && <Typography>{file.name}</Typography>}
+            <TextField
+              label="Git 저장소 링크"
+              value={artifactUri}
+              onChange={(e) => {
+                setArtifactUri(e.target.value);
+                if (e.target.value) setFile(null);
+              }}
+              size="small"
+              sx={{ minWidth: 260 }}
+              placeholder="https://github.com/username/repo.git"
+              disabled={!!file}
+            />
             <Button
               type="submit"
               variant="contained"
