@@ -209,7 +209,6 @@ def create_app() -> FastAPI:
             }
         # 기존 zip 업로드/인라인 분기(venv/conda 등)
         if file:
-            import tempfile, zipfile, os, shutil
             # 1. 모듈명 중복 체크
             result = await db.execute(select(Module).where(Module.name == name))
             if result.scalars().first():
@@ -735,7 +734,6 @@ def create_app() -> FastAPI:
                 dockerfile_path = os.path.join(src_dir, "Dockerfile")
                 if not os.path.exists(dockerfile_path):
                     return JSONResponse(status_code=400, content={"detail": "Dockerfile이 존재하지 않습니다."})
-                import subprocess
                 try:
                     proc = subprocess.run([
                         "docker", "build", "-t", docker_tag, src_dir
@@ -829,25 +827,22 @@ def create_app() -> FastAPI:
         await db.commit()
         await log_audit_event(db, action="module_delete", detail=f"Module {module.name} deleted", user_id=current_user.id)
         # 환경/파일 정리
-        import shutil, subprocess, os
-        module_env_dir = os.path.abspath(os.path.join("module_envs", module.name))
-        venv_dir = os.path.join(module_env_dir, "venv")
-        conda_env_dir = os.path.join(module_env_dir, "conda_env")
         # venv 환경 삭제
-        if os.path.exists(venv_dir):
+        if os.path.exists(os.path.join("module_envs", module.name, "venv")):
             try:
-                shutil.rmtree(venv_dir)
+                shutil.rmtree(os.path.join("module_envs", module.name, "venv"))
             except Exception:
                 pass
         # conda 환경 삭제
-        if os.path.exists(conda_env_dir):
+        if os.path.exists(os.path.join("module_envs", module.name, "conda_env")):
+            import subprocess
             try:
-                subprocess.run(["conda", "remove", "-y", "-p", conda_env_dir, "--all"], check=False)
+                subprocess.run(["conda", "remove", "-y", "-p", os.path.join("module_envs", module.name, "conda_env"), "--all"], check=False)
             except Exception:
                 pass
             try:
-                if os.path.exists(conda_env_dir):
-                    shutil.rmtree(conda_env_dir)
+                if os.path.exists(os.path.join("module_envs", module.name, "conda_env")):
+                    shutil.rmtree(os.path.join("module_envs", module.name, "conda_env"))
             except Exception:
                 pass
         # docker 환경 삭제
@@ -858,16 +853,15 @@ def create_app() -> FastAPI:
             except Exception:
                 pass
         # 실행환경 폴더 전체 삭제
-        if os.path.exists(module_env_dir):
+        if os.path.exists(os.path.join("module_envs", module.name)):
             try:
-                shutil.rmtree(module_env_dir)
+                shutil.rmtree(os.path.join("module_envs", module.name))
             except Exception:
                 pass
         # 소스 폴더 삭제
-        modules_dir = os.path.abspath(os.path.join("modules", module.name))
-        if os.path.exists(modules_dir):
+        if os.path.exists(os.path.join("modules", module.name)):
             try:
-                shutil.rmtree(modules_dir)
+                shutil.rmtree(os.path.join("modules", module.name))
             except Exception:
                 pass
         return {"success": True, "log": "전개 환경이 제거되었습니다."}
@@ -945,7 +939,10 @@ def create_app() -> FastAPI:
         tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
         # input 파싱 (사용하지 않으면 생략)
         if file:
-            import tempfile, zipfile, os, shutil
+            # 1. 모듈명 중복 체크
+            result = await db.execute(select(Module).where(Module.name == name))
+            if result.scalars().first():
+                raise HTTPException(status_code=400, detail=f"이미 등록된 모듈명입니다: {name}")
             with tempfile.TemporaryDirectory() as tmpdir:
                 zip_path = os.path.join(tmpdir, file.filename)
                 with open(zip_path, "wb") as f:
@@ -1232,7 +1229,6 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail="Module not found")
         # --- git artifact 분기 ---
         if module.env == "venv" and getattr(module, "artifact_type", None) == "git" and getattr(module, "artifact_uri", None):
-            import subprocess, shutil, os
             # 1. git clone (module_envs/{name}/src)
             dst_dir = os.path.join("module_envs", module.name)
             src_dir = os.path.join(dst_dir, "src")
@@ -1280,17 +1276,7 @@ def create_app() -> FastAPI:
                 except Exception as e:
                     log_module_action(module.name, getattr(module, 'version', 'unknown'), "venv", f"venv 생성 실패: {str(e)}")
                     return JSONResponse(status_code=500, content={"detail": f"venv 생성 실패: {str(e)}"})
-            # requirements.txt 의존성 설치
-            requirements_path = os.path.join(dst_dir, "requirements.txt")
-            if os.path.exists(requirements_path):
-                venv_python = os.path.join(dst_dir, "venv", "bin", "python")
-                try:
-                    install_requirements(venv_python, requirements_path)
-                    log_module_action(module.name, getattr(module, 'version', 'unknown'), "requirements", "requirements.txt 의존성 설치 성공")
-                except Exception as e:
-                    log_module_action(module.name, getattr(module, 'version', 'unknown'), "requirements", f"requirements.txt 설치 중 예외: {str(e)}")
-                    return JSONResponse(status_code=500, content={"detail": f"venv 내 requirements.txt 설치 중 예외: {str(e)}"})
-            return {"detail": f"git clone 및 venv 환경 생성/의존성 설치 완료"}
+                return {"detail": f"git clone 및 venv 환경 생성/의존성 설치 완료"}
         # --- 기존 venv zip 업로드 방식 ---
         if module.env != "venv":
             raise HTTPException(status_code=400, detail="현재는 venv 환경만 지원합니다.")
