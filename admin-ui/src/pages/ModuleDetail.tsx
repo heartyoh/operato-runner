@@ -275,48 +275,62 @@ const ModuleDetail: React.FC = () => {
               </TableRow>
             </TableHead>
             <TableBody>
-              {versions.map((v) => (
-                <TableRow key={v.id}>
-                  <TableCell>{v.name}</TableCell>
-                  <TableCell>{v.env}</TableCell>
-                  <TableCell>{v.version}</TableCell>
-                  <TableCell>{v.description || ""}</TableCell>
-                  <TableCell>
-                    {Array.isArray(v.tags) ? v.tags.join(", ") : v.tags || ""}
-                  </TableCell>
-                  <TableCell>{v.status}</TableCell>
-                  <TableCell>
-                    <Stack direction="row" spacing={1}>
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        disabled={actionLoading || v.status === "active"}
-                        onClick={() => handleAction("rollback", v.version)}
-                      >
-                        롤백
-                      </Button>
-                      <Button
-                        size="small"
-                        variant="contained"
-                        color="success"
-                        disabled={actionLoading || v.status === "active"}
-                        onClick={() => handleAction("activate", v.version)}
-                      >
-                        활성화
-                      </Button>
-                      <Button
-                        size="small"
-                        variant="contained"
-                        color="warning"
-                        disabled={actionLoading || v.status === "inactive"}
-                        onClick={() => handleAction("deactivate", v.version)}
-                      >
-                        비활성화
-                      </Button>
-                    </Stack>
-                  </TableCell>
-                </TableRow>
-              ))}
+              {versions
+                .sort((a, b) => {
+                  // 버전 문자열을 숫자 배열로 변환 (예: "1.2.3" -> [1, 2, 3])
+                  const vA = a.version.split(".").map(Number);
+                  const vB = b.version.split(".").map(Number);
+
+                  // 역순 정렬 (최신 버전이 위로)
+                  for (let i = 0; i < Math.max(vA.length, vB.length); i++) {
+                    const numA = vA[i] || 0;
+                    const numB = vB[i] || 0;
+                    if (numA !== numB) return numB - numA;
+                  }
+                  return 0;
+                })
+                .map((v) => (
+                  <TableRow key={v.id}>
+                    <TableCell>{v.name}</TableCell>
+                    <TableCell>{v.env}</TableCell>
+                    <TableCell>{v.version}</TableCell>
+                    <TableCell>{v.description || ""}</TableCell>
+                    <TableCell>
+                      {Array.isArray(v.tags) ? v.tags.join(", ") : v.tags || ""}
+                    </TableCell>
+                    <TableCell>{v.status}</TableCell>
+                    <TableCell>
+                      <Stack direction="row" spacing={1}>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          disabled={actionLoading || v.status === "active"}
+                          onClick={() => handleAction("rollback", v.version)}
+                        >
+                          롤백
+                        </Button>
+                        <Button
+                          size="small"
+                          variant="contained"
+                          color="success"
+                          disabled={actionLoading || v.status === "active"}
+                          onClick={() => handleAction("activate", v.version)}
+                        >
+                          활성화
+                        </Button>
+                        <Button
+                          size="small"
+                          variant="contained"
+                          color="warning"
+                          disabled={actionLoading || v.status === "inactive"}
+                          onClick={() => handleAction("deactivate", v.version)}
+                        >
+                          비활성화
+                        </Button>
+                      </Stack>
+                    </TableCell>
+                  </TableRow>
+                ))}
             </TableBody>
           </Table>
         </TableContainer>

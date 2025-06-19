@@ -36,7 +36,40 @@ Operato Runner는 다양한 실행 환경(inline, venv, conda, docker)에서 Pyt
   - Conda (Conda 실행 환경 사용 시)
   - uv (uv 실행 환경 사용 시, https://github.com/astral-sh/uv)
 
-## 설치 방법
+## ⚡️ uv 기반 개발 환경(권장)
+
+[uv](https://github.com/astral-sh/uv)는 초고속 Python 패키지/가상환경 관리 도구입니다. 기존 venv 환경과 100% 호환되며, 훨씬 빠른 설치/실행이 가능합니다.
+
+### uv 설치
+
+- macOS: `brew install astral-sh/uv/uv`
+- 또는 [공식 문서](https://github.com/astral-sh/uv) 참고
+
+### uv로 가상환경 생성 (선택)
+
+```bash
+uv venv  # .venv 폴더 생성 (기존 venv도 그대로 사용 가능)
+```
+
+### 패키지 설치
+
+```bash
+uv pip install -r requirements.txt
+```
+
+### 실행
+
+```bash
+uv run python main.py
+uv run pytest
+```
+
+### 기존 venv 환경과의 호환성
+
+- 기존 `.venv` 폴더가 있다면 별도 생성 없이 바로 uv 명령어 사용 가능
+- 기존 venv 워크플로우와 병행 가능
+
+## 설치 방법 (venv/uv 모두 지원)
 
 ### 소스에서 설치
 
@@ -45,12 +78,16 @@ Operato Runner는 다양한 실행 환경(inline, venv, conda, docker)에서 Pyt
 git clone https://github.com/yourusername/operato-runner.git
 cd operato-runner
 
-# 가상환경 생성 및 활성화
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
+# 가상환경 생성 및 활성화 (venv)
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 
-# 의존성 설치
-pip install -r requirements.txt
+# 또는 uv로 가상환경 생성 (권장)
+uv venv
+
+# 의존성 설치 (uv 권장)
+uv pip install -r requirements.txt
+# 또는 pip install -r requirements.txt
 ```
 
 ### Docker를 통한 설치

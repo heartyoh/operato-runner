@@ -38,6 +38,7 @@ from fastapi.responses import StreamingResponse
 from io import StringIO
 import shutil
 import subprocess
+from sqlalchemy import text
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Operato Runner", description="Python module execution platform")
@@ -349,7 +350,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail=f"Module '{name}' not found")
         return None
 
-    @app.post("/run/{module}", response_model=RunResponse)
+    @app.post("/api/run/{module}", response_model=RunResponse)
     async def run_module(
         module: str,
         request: RunRequest = Body(...),
@@ -427,17 +428,17 @@ def create_app() -> FastAPI:
             duration=result.duration
         )
 
-    @app.get("/environments")
+    @app.get("/api/environments")
     async def list_environments(
         executor_manager: ExecutorManager = Depends(get_executor_manager)
     ):
         return {"environments": executor_manager.get_available_environments()}
 
     # DB 연결 상태 확인 엔드포인트
-    @app.get("/health/db")
+    @app.get("/api/health/db")
     async def health_check(db: AsyncSession = Depends(get_db)):
         try:
-            await db.execute("SELECT 1")
+            await db.execute(text("SELECT 1"))
             return {"status": "ok"}
         except Exception as e:
             return {"status": "error", "detail": str(e)}
@@ -529,7 +530,7 @@ def create_app() -> FastAPI:
     async def admin_only(current_user=Depends(has_role("admin"))):
         return {"message": f"Hello, admin {current_user.username}!"}
 
-    @app.get("/audit/logs", response_model=List[AuditLogRead])
+    @app.get("/api/audit/logs", response_model=List[AuditLogRead])
     async def get_audit_logs(db: AsyncSession = Depends(get_db), current_user=Depends(has_role("admin"))):
         result = await db.execute(AuditLog.__table__.select().order_by(AuditLog.created_at.desc()))
         logs = result.fetchall()
@@ -542,58 +543,58 @@ def create_app() -> FastAPI:
             await conn.run_sync(Base.metadata.create_all)
         return {"status": "ok"}
 
-    @app.post("/api/modules/upload")
-    async def upload_module(file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
-        # 1. 임시 디렉토리 생성 및 파일 저장
-        with tempfile.TemporaryDirectory() as tmpdir:
-            zip_path = os.path.join(tmpdir, file.filename)
-            with open(zip_path, "wb") as f:
-                content = await file.read()
-                f.write(content)
-            # 2. 압축 해제
-            try:
-                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                    zip_ref.extractall(tmpdir)
-            except zipfile.BadZipFile:
-                log = ModuleValidationLog(filename=file.filename, status="fail", message="압축 해제 실패: 올바른 zip 파일이 아님")
-                db.add(log)
-                await db.commit()
-                return JSONResponse(status_code=400, content={"detail": "업로드 파일이 올바른 zip 압축파일이 아닙니다."})
-            # 3. 필수 파일 검사
-            required_files = ["handler.py", "requirements.txt", "README", "README.md"]
-            found = {f: False for f in required_files}
-            handler_path = None
-            for root, dirs, files in os.walk(tmpdir):
-                for fname in files:
-                    for req in required_files:
-                        if fname.lower() == req.lower():
-                            found[req] = True
-                    if fname.lower() == "handler.py":
-                        handler_path = os.path.join(root, fname)
-            missing = [f for f, ok in found.items() if not ok and not (f.startswith("README") and (found["README"] or found["README.md"]))]
-            if missing:
-                log = ModuleValidationLog(filename=file.filename, status="fail", message=f"필수 파일 누락: {', '.join(missing)}")
-                db.add(log)
-                await db.commit()
-                return JSONResponse(status_code=400, content={"detail": f"필수 파일 누락: {', '.join(missing)}"})
-            # 4. handler.py 내부에 handler 함수 존재 여부 검사
-            if handler_path:
-                with open(handler_path, "r", encoding="utf-8") as f:
-                    handler_code = f.read()
-                if "def handler(" not in handler_code:
-                    log = ModuleValidationLog(filename=file.filename, status="fail", message="handler.py에 'def handler' 함수가 없음")
-                    db.add(log)
-                    await db.commit()
-                    return JSONResponse(status_code=400, content={"detail": "handler.py에 'def handler' 함수가 정의되어 있지 않습니다."})
-            else:
-                log = ModuleValidationLog(filename=file.filename, status="fail", message="handler.py 파일 없음")
-                db.add(log)
-                await db.commit()
-                return JSONResponse(status_code=400, content={"detail": "handler.py 파일을 찾을 수 없습니다."})
-            # 성공 기록
-            log = ModuleValidationLog(filename="deploy", status="success", message="검증 통과 및 환경 생성/설치/모듈 정보 갱신")
-            db.add(log)
-            return {"detail": "구조/필수 파일 및 handler 함수 검증 통과, venv 환경 생성 및 의존성 설치, 모듈 정보 갱신 완료"}
+    # @app.post("/api/modules/upload")
+    # async def upload_module(file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
+    #     # 1. 임시 디렉토리 생성 및 파일 저장
+    #     with tempfile.TemporaryDirectory() as tmpdir:
+    #         zip_path = os.path.join(tmpdir, file.filename)
+    #         with open(zip_path, "wb") as f:
+    #             content = await file.read()
+    #             f.write(content)
+    #         # 2. 압축 해제
+    #         try:
+    #             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+    #                 zip_ref.extractall(tmpdir)
+    #         except zipfile.BadZipFile:
+    #             log = ModuleValidationLog(filename=file.filename, status="fail", message="압축 해제 실패: 올바른 zip 파일이 아님")
+    #             db.add(log)
+    #             await db.commit()
+    #             return JSONResponse(status_code=400, content={"detail": "업로드 파일이 올바른 zip 압축파일이 아닙니다."})
+    #         # 3. 필수 파일 검사
+    #         required_files = ["handler.py", "requirements.txt", "README", "README.md"]
+    #         found = {f: False for f in required_files}
+    #         handler_path = None
+    #         for root, dirs, files in os.walk(tmpdir):
+    #             for fname in files:
+    #                 for req in required_files:
+    #                     if fname.lower() == req.lower():
+    #                         found[req] = True
+    #                 if fname.lower() == "handler.py":
+    #                     handler_path = os.path.join(root, fname)
+    #         missing = [f for f, ok in found.items() if not ok and not (f.startswith("README") and (found["README"] or found["README.md"]))]
+    #         if missing:
+    #             log = ModuleValidationLog(filename=file.filename, status="fail", message=f"필수 파일 누락: {', '.join(missing)}")
+    #             db.add(log)
+    #             await db.commit()
+    #             return JSONResponse(status_code=400, content={"detail": f"필수 파일 누락: {', '.join(missing)}"})
+    #         # 4. handler.py 내부에 handler 함수 존재 여부 검사
+    #         if handler_path:
+    #             with open(handler_path, "r", encoding="utf-8") as f:
+    #                 handler_code = f.read()
+    #             if "def handler(" not in handler_code:
+    #                 log = ModuleValidationLog(filename=file.filename, status="fail", message="handler.py에 'def handler' 함수가 없음")
+    #                 db.add(log)
+    #                 await db.commit()
+    #                 return JSONResponse(status_code=400, content={"detail": "handler.py에 'def handler' 함수가 정의되어 있지 않습니다."})
+    #         else:
+    #             log = ModuleValidationLog(filename=file.filename, status="fail", message="handler.py 파일 없음")
+    #             db.add(log)
+    #             await db.commit()
+    #             return JSONResponse(status_code=400, content={"detail": "handler.py 파일을 찾을 수 없습니다."})
+    #         # 성공 기록
+    #         log = ModuleValidationLog(filename="deploy", status="success", message="검증 통과 및 환경 생성/설치/모듈 정보 갱신")
+    #         db.add(log)
+    #         return {"detail": "구조/필수 파일 및 handler 함수 검증 통과, venv 환경 생성 및 의존성 설치, 모듈 정보 갱신 완료"}
 
     @app.post("/api/modules/{module_id}/upload")
     async def upload_module_for_id(module_id: int, file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
@@ -825,53 +826,53 @@ def create_app() -> FastAPI:
             await db.commit()
             return {"detail": f"구조/필수 파일 및 handler 함수 검증 통과, {env_type} 환경 생성 및 의존성 설치, 모듈 정보 갱신 완료"}
 
-    @app.post("/modules/{module_id}/activate")
-    async def activate_module(id: int, db: AsyncSession = Depends(get_db), current_user: UserRead = Depends(get_current_user)):
-        result = await db.execute(select(Module).where(Module.id == id))
-        module = result.scalars().first()
-        if not module:
-            raise HTTPException(status_code=404, detail="Module not found")
-        if getattr(module, 'status', None) == 'active':
-            raise HTTPException(status_code=400, detail="이미 활성화된 모듈입니다.")
-        # handler 정상 동작 확인 (간단히 import 및 함수 존재만 체크)
-        try:
-            env_type = module.env.lower() if module.env else "venv"
-            if env_type == "venv":
-                handler_path = os.path.abspath(os.path.join("module_envs", module.name, "venv", "handler.py"))
-            elif env_type == "conda":
-                handler_path = os.path.join("modules", str(id), "handler.py")
-            elif env_type == "docker":
-                handler_path = None  # docker는 별도 실행 필요
-            elif env_type == "uv":
-                handler_path = None  # uv는 별도 실행 필요
-            else:
-                handler_path = None
-            if handler_path and os.path.exists(handler_path):
-                with open(handler_path, "r", encoding="utf-8") as f:
-                    code = f.read()
-                if "def handler(" not in code:
-                    raise Exception("handler 함수가 없습니다.")
-            # docker는 실제 컨테이너 실행 등 추가 구현 필요
-        except Exception as e:
-            await log_audit_event(db, action="module_activate_fail", detail=f"Module {module.name} activate fail: {str(e)}", user_id=current_user.id)
-            raise HTTPException(status_code=400, detail=f"핸들러 동작 확인 실패: {str(e)}")
-        module.status = 'active'
-        await db.commit()
-        await log_audit_event(db, action="module_activate", detail=f"Module {module.name} activated", user_id=current_user.id)
-        return {"detail": "모듈이 활성화되었습니다."}
+    # @app.post("/modules/{module_id}/activate")
+    # async def activate_module(id: int, db: AsyncSession = Depends(get_db), current_user: UserRead = Depends(get_current_user)):
+    #     result = await db.execute(select(Module).where(Module.id == id))
+    #     module = result.scalars().first()
+    #     if not module:
+    #         raise HTTPException(status_code=404, detail="Module not found")
+    #     if getattr(module, 'status', None) == 'active':
+    #         raise HTTPException(status_code=400, detail="이미 활성화된 모듈입니다.")
+    #     # handler 정상 동작 확인 (간단히 import 및 함수 존재만 체크)
+    #     try:
+    #         env_type = module.env.lower() if module.env else "venv"
+    #         if env_type == "venv":
+    #             handler_path = os.path.abspath(os.path.join("module_envs", module.name, "venv", "handler.py"))
+    #         elif env_type == "conda":
+    #             handler_path = os.path.join("modules", str(id), "handler.py")
+    #         elif env_type == "docker":
+    #             handler_path = None  # docker는 별도 실행 필요
+    #         elif env_type == "uv":
+    #             handler_path = None  # uv는 별도 실행 필요
+    #         else:
+    #             handler_path = None
+    #         if handler_path and os.path.exists(handler_path):
+    #             with open(handler_path, "r", encoding="utf-8") as f:
+    #                 code = f.read()
+    #             if "def handler(" not in code:
+    #                 raise Exception("handler 함수가 없습니다.")
+    #         # docker는 실제 컨테이너 실행 등 추가 구현 필요
+    #     except Exception as e:
+    #         await log_audit_event(db, action="module_activate_fail", detail=f"Module {module.name} activate fail: {str(e)}", user_id=current_user.id)
+    #         raise HTTPException(status_code=400, detail=f"핸들러 동작 확인 실패: {str(e)}")
+    #     module.status = 'active'
+    #     await db.commit()
+    #     await log_audit_event(db, action="module_activate", detail=f"Module {module.name} activated", user_id=current_user.id)
+    #     return {"detail": "모듈이 활성화되었습니다."}
 
-    @app.post("/modules/{module_id}/deactivate")
-    async def deactivate_module(id: int, db: AsyncSession = Depends(get_db), current_user: UserRead = Depends(get_current_user)):
-        result = await db.execute(select(Module).where(Module.id == id))
-        module = result.scalars().first()
-        if not module:
-            raise HTTPException(status_code=404, detail="Module not found")
-        if getattr(module, 'status', None) == 'inactive':
-            raise HTTPException(status_code=400, detail="이미 비활성화된 모듈입니다.")
-        module.status = 'inactive'
-        await db.commit()
-        await log_audit_event(db, action="module_deactivate", detail=f"Module {module.name} deactivated", user_id=current_user.id)
-        return {"detail": "모듈이 비활성화되었습니다."}
+    # @app.post("/modules/{module_id}/deactivate")
+    # async def deactivate_module(id: int, db: AsyncSession = Depends(get_db), current_user: UserRead = Depends(get_current_user)):
+    #     result = await db.execute(select(Module).where(Module.id == id))
+    #     module = result.scalars().first()
+    #     if not module:
+    #         raise HTTPException(status_code=404, detail="Module not found")
+    #     if getattr(module, 'status', None) == 'inactive':
+    #         raise HTTPException(status_code=400, detail="이미 비활성화된 모듈입니다.")
+    #     module.status = 'inactive'
+    #     await db.commit()
+    #     await log_audit_event(db, action="module_deactivate", detail=f"Module {module.name} deactivated", user_id=current_user.id)
+    #     return {"detail": "모듈이 비활성화되었습니다."}
 
     @app.delete("/modules/{id}/delete")
     async def delete_module_api(id: int, db: AsyncSession = Depends(get_db), current_user: UserRead = Depends(get_current_user)):
@@ -930,21 +931,13 @@ def create_app() -> FastAPI:
                 pass
         return {"success": True, "log": "전개 환경이 제거되었습니다."}
 
-    @app.get("/modules/{id}/status")
-    async def get_module_status(id: int, db: AsyncSession = Depends(get_db)):
-        result = await db.execute(select(Module).where(Module.id == id))
-        module = result.scalars().first()
-        if not module:
-            raise HTTPException(status_code=404, detail="Module not found")
-        return {"id": id, "name": module.name, "status": getattr(module, 'status', None)}
-
-    @app.get("/modules/{id}/history")
-    async def get_module_history(id: int, db: AsyncSession = Depends(get_db), current_user: UserRead = Depends(get_current_user)):
-        # AuditLog에서 해당 모듈 관련 이력 반환(간단히 action/detail에 모듈명 포함된 것)
-        from models.audit_log import AuditLog
-        result = await db.execute(AuditLog.__table__.select().where(AuditLog.detail.contains(str(id))).order_by(AuditLog.created_at.desc()))
-        logs = result.fetchall()
-        return [dict(row) if not isinstance(row, tuple) else dict(row[0]) for row in logs]
+    # @app.get("/modules/{id}/history")
+    # async def get_module_history(id: int, db: AsyncSession = Depends(get_db), current_user: UserRead = Depends(get_current_user)):
+    #     # AuditLog에서 해당 모듈 관련 이력 반환(간단히 action/detail에 모듈명 포함된 것)
+    #     from models.audit_log import AuditLog
+    #     result = await db.execute(AuditLog.__table__.select().where(AuditLog.detail.contains(str(id))).order_by(AuditLog.created_at.desc()))
+    #     logs = result.fetchall()
+    #     return [dict(row) if not isinstance(row, tuple) else dict(row[0]) for row in logs]
 
     @app.get("/api/modules/{name}/versions")
     async def get_module_versions(name: str, db: AsyncSession = Depends(get_db)):

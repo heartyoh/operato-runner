@@ -53,6 +53,6 @@ async def test_admin_only_logs():
         })
         assert resp.status_code == 200
         token = resp.json()["access_token"]
-        # /audit/logs 접근 (관리자만 가능)
-        resp = await ac.get("/audit/logs", headers={"Authorization": f"Bearer {token}"})
+        # /api/audit/logs 접근 (관리자만 가능)
+        resp = await ac.get("/api/audit/logs", headers={"Authorization": f"Bearer {token}"})
         assert resp.status_code == 403 
