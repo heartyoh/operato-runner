@@ -757,6 +757,62 @@ def create_app() -> FastAPI:
                     await db.commit()
                     return JSONResponse(status_code=500, content={"detail": f"docker 이미지 빌드 중 예외: {str(e)}"})
                 module.env = docker_tag
+            elif env_type == "uv":
+                src_dir = os.path.join("modules", module.name, module.version)
+                dst_dir = os.path.join("module_envs", module.name)
+                if not os.path.exists(src_dir):
+                    raise HTTPException(status_code=400, detail="영구 저장소에 모듈 파일이 존재하지 않습니다.")
+                os.makedirs(dst_dir, exist_ok=True)
+                # requirements.txt가 있는 폴더 찾기
+                def find_requirements_dir(base_dir):
+                    for root, dirs, files in os.walk(base_dir):
+                        if "requirements.txt" in files:
+                            return root
+                    return base_dir
+                req_dir = find_requirements_dir(src_dir)
+                # dst_dir 비우기(uv 폴더만 남기고)
+                for item in os.listdir(dst_dir):
+                    if item == "uv":
+                        continue
+                    item_path = os.path.join(dst_dir, item)
+                    if os.path.isdir(item_path):
+                        shutil.rmtree(item_path)
+                    else:
+                        os.remove(item_path)
+                # req_dir의 파일/폴더만 dst_dir로 복사 (uv 폴더에는 복사하지 않음)
+                for item in os.listdir(req_dir):
+                    s = os.path.join(req_dir, item)
+                    d = os.path.join(dst_dir, item)
+                    if os.path.isdir(s):
+                        shutil.copytree(s, d, dirs_exist_ok=True)
+                    elif os.path.isfile(s):
+                        shutil.copy2(s, d)
+                # uv 가상환경 생성
+                uv_dir = os.path.join(dst_dir, "uv")
+                if not os.path.exists(os.path.join(uv_dir, "bin", "python")):
+                    try:
+                        subprocess.run(["uv", "venv", uv_dir], check=True)
+                        log_module_action(module.name, getattr(module, 'version', 'unknown'), "uv", "uv 가상환경 생성 성공")
+                    except Exception as e:
+                        log_module_action(module.name, getattr(module, 'version', 'unknown'), "uv", f"uv 가상환경 생성 실패: {str(e)}")
+                        log = ModuleValidationLog(filename=module.name, status="fail", message=f"uv 가상환경 생성 실패: {str(e)}")
+                        db.add(log)
+                        await db.commit()
+                        return JSONResponse(status_code=500, content={"detail": f"uv 가상환경 생성 실패: {str(e)}"})
+                # requirements.txt 의존성 설치
+                requirements_path = os.path.join(dst_dir, "requirements.txt")
+                if os.path.exists(requirements_path):
+                    try:
+                        subprocess.run(["uv", "pip", "install", "-r", requirements_path], check=True, cwd=uv_dir)
+                        log_module_action(module.name, getattr(module, 'version', 'unknown'), "requirements", "uv 환경 requirements.txt 의존성 설치 성공")
+                        log = ModuleValidationLog(filename="requirements.txt", status="success", message=f"uv 내 requirements.txt 의존성 설치 성공")
+                        db.add(log)
+                    except Exception as e:
+                        log_module_action(module.name, getattr(module, 'version', 'unknown'), "requirements", f"uv 환경 requirements.txt 설치 중 예외: {str(e)}")
+                        log = ModuleValidationLog(filename="requirements.txt", status="fail", message=f"uv 내 requirements.txt 설치 중 예외: {str(e)}")
+                        db.add(log)
+                        await db.commit()
+                        return JSONResponse(status_code=500, content={"detail": f"uv 내 requirements.txt 설치 중 예외: {str(e)}"})
             else:
                 log = ModuleValidationLog(filename=file.filename, status="fail", message=f"알 수 없는 env 타입: {env_type}")
                 db.add(log)
@@ -786,6 +842,8 @@ def create_app() -> FastAPI:
                 handler_path = os.path.join("modules", str(id), "handler.py")
             elif env_type == "docker":
                 handler_path = None  # docker는 별도 실행 필요
+            elif env_type == "uv":
+                handler_path = None  # uv는 별도 실행 필요
             else:
                 handler_path = None
             if handler_path and os.path.exists(handler_path):
@@ -850,6 +908,12 @@ def create_app() -> FastAPI:
             try:
                 docker_tag = f"mod_{module.name}:{module.version}"
                 subprocess.run(["docker", "rmi", "-f", docker_tag], check=False)
+            except Exception:
+                pass
+        # uv 환경 삭제
+        if os.path.exists(os.path.join("module_envs", module.name, "uv")):
+            try:
+                shutil.rmtree(os.path.join("module_envs", module.name, "uv"))
             except Exception:
                 pass
         # 실행환경 폴더 전체 삭제
@@ -1275,6 +1339,9 @@ def create_app() -> FastAPI:
                     log_module_action(module.name, getattr(module, 'version', 'unknown'), "venv", "venv 및 pip 업그레이드 성공")
                 except Exception as e:
                     log_module_action(module.name, getattr(module, 'version', 'unknown'), "venv", f"venv 생성 실패: {str(e)}")
+                    log = ModuleValidationLog(filename=module.name, status="fail", message=f"venv 생성 실패: {str(e)}")
+                    db.add(log)
+                    await db.commit()
                     return JSONResponse(status_code=500, content={"detail": f"venv 생성 실패: {str(e)}"})
                 return {"detail": f"git clone 및 venv 환경 생성/의존성 설치 완료"}
         # --- 기존 venv zip 업로드 방식 ---

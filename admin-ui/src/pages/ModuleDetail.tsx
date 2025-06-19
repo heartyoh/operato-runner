@@ -369,7 +369,11 @@ const ModuleDetail: React.FC = () => {
               formData.append("tags", upgradeTags);
               if (module?.env === "inline") {
                 formData.append("code", upgradeCode);
-              } else if (module?.env === "venv" || module?.env === "conda") {
+              } else if (
+                module?.env === "venv" ||
+                module?.env === "conda" ||
+                module?.env === "uv"
+              ) {
                 if (upgradeFile) formData.append("file", upgradeFile);
               }
               await uploadModuleVersion(name, formData);
@@ -402,7 +406,9 @@ const ModuleDetail: React.FC = () => {
                 style={{ width: 400, fontFamily: "monospace" }}
                 required
               />
-            ) : module?.env === "venv" || module?.env === "conda" ? (
+            ) : module?.env === "venv" ||
+              module?.env === "conda" ||
+              module?.env === "uv" ? (
               <input
                 type="file"
                 accept=".zip"

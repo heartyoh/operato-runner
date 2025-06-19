@@ -10,6 +10,7 @@ Operato Runner는 다양한 실행 환경(inline, venv, conda, docker)에서 Pyt
   - `venv`: Python 가상환경에서 실행
   - `conda`: Conda 환경에서 실행
   - `docker`: Docker 컨테이너에서 실행
+  - `uv`: uv 가상환경에서 실행 (초고속 Python 패키지/실행 환경)
 
 - **모듈 관리**
 
@@ -33,6 +34,7 @@ Operato Runner는 다양한 실행 환경(inline, venv, conda, docker)에서 Pyt
 - 선택적 요구사항:
   - Docker (Docker 실행 환경 사용 시)
   - Conda (Conda 실행 환경 사용 시)
+  - uv (uv 실행 환경 사용 시, https://github.com/astral-sh/uv)
 
 ## 설치 방법
 
@@ -99,6 +101,14 @@ modules:
     tags:
       - data
       - processing
+
+  - name: fast-ml
+    env: uv
+    path: ./modules/fast_ml.py
+    version: "0.1.0"
+    tags:
+      - ml
+      - fast
 ```
 
 ### REST API 사용 예제
@@ -151,7 +161,9 @@ operato-runner/
 │   ├── inline.py           # 인라인 실행기
 │   ├── venv.py             # 가상환경 실행기
 │   ├── conda.py            # Conda 실행기
-│   └── docker.py           # Docker 실행기
+│   ├── docker.py           # Docker 실행기
+│   ├── uv.py               # uv 실행기 (초고속 Python 환경)
+│   └── ... (uv 실행기 구현 파일)
 ├── proto/                  # gRPC 프로토콜 정의
 │   ├── executor.proto      # 프로토콜 버퍼 정의
 │   ├── executor_pb2.py     # 생성된 프로토콜 버퍼 코드

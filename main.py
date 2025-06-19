@@ -8,6 +8,7 @@ from executors.inline import InlineExecutor
 from executors.venv import VenvExecutor
 from executors.conda import CondaExecutor
 from executors.docker import DockerExecutor
+from executors.uv import UvExecutor
 from api.rest import app as rest_app
 from api.grpc_server import serve as serve_grpc
 import uvicorn
@@ -33,6 +34,7 @@ async def main():
         executor_manager.register_executor("venv", VenvExecutor(venv_path=args.venv_path, module_registry=module_registry))
         executor_manager.register_executor("conda", CondaExecutor(module_registry))
         executor_manager.register_executor("docker", DockerExecutor(module_registry))
+        executor_manager.register_executor("uv", UvExecutor(uv_path=args.venv_path, module_registry=module_registry))
 
         # FastAPI 앱에 context 주입
         rest_app.state.module_registry = module_registry

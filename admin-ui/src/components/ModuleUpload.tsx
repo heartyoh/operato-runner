@@ -186,6 +186,7 @@ const ModuleUpload: React.FC<Props> = ({ onUploadSuccess }) => {
             >
               <MenuItem value="venv">venv</MenuItem>
               <MenuItem value="conda">conda</MenuItem>
+              <MenuItem value="uv">uv</MenuItem>
             </TextField>
             <TextField
               label="버전"

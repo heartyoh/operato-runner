@@ -32,15 +32,18 @@ class ModuleRegistry:
         result = await self.db.execute(select(Module).where(Module.name == name))
         module = result.scalars().first()
         if module:
-            # venv 타입이면 환경/모듈 폴더 삭제
-            if module.env == "venv":
-                venv_dir = os.path.abspath(os.path.join("module_envs", name, "venv"))
+            # venv/uv 타입이면 환경/모듈 폴더 삭제
+            if module.env in ("venv", "uv"):
+                env_dir = os.path.abspath(os.path.join("module_envs", name, module.env))
                 module_env_dir = os.path.abspath(os.path.join("module_envs", name))
                 modules_dir = os.path.abspath(os.path.join("modules", name))
-                # 1. venv 프로세스 종료 (ExecutorManager가 있으면 활용)
+                # 1. venv/uv 프로세스 종료 (ExecutorManager가 있으면 활용)
                 if hasattr(self, "executor_manager") and self.executor_manager:
-                    await self.executor_manager.cleanup_module_venv(name)
-                # 2. venv 폴더 삭제
+                    if module.env == "venv":
+                        await self.executor_manager.cleanup_module_venv(name)
+                    elif module.env == "uv":
+                        await self.executor_manager.cleanup_module_uv(name) if hasattr(self.executor_manager, "cleanup_module_uv") else None
+                # 2. venv/uv 폴더 삭제
                 if os.path.exists(module_env_dir):
                     try:
                         shutil.rmtree(module_env_dir)
