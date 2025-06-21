@@ -764,32 +764,35 @@ def create_app() -> FastAPI:
         result = await db.execute(select(Module).where(Module.name == name))
         module = result.scalars().first()
         if not module:
-            raise HTTPException(status_code=404, detail="Module not found")
-        if description is not None:
-            module.description = description
-            # 활성화된 버전의 description도 같이 수정
-            v_result = await db.execute(
-                select(Version).join(Deployment, Deployment.version_id == Version.id)
-                .where(Version.module_id == module.id, Deployment.status == "active")
-            )
-            active_version = v_result.scalars().first()
-            if active_version:
-                active_version.description = description
-        if tags is not None:
-            module.tags = tags
-        await db.commit()
-        await db.refresh(module)
-        return {"detail": "모듈 정보가 수정되었습니다."}
+            raise HTTPException(status_code=404, detail="모듈을 찾을 수 없습니다.")
 
-    @app.get("/admin")
-    async def admin_only(current_user=Depends(has_role("admin"))):
-        return {"message": f"Hello, admin {current_user.username}!"}
+        update_fields = {}
+        if description is not None:
+            # 인라인 모듈의 경우, 활성화된 버전의 설명을 업데이트
+            if module.env == 'inline':
+                v_result = await db.execute(
+                    select(Version).join(Deployment, Deployment.version_id == Version.id)
+                    .where(Version.module_id == module.id, Deployment.status == "active")
+                )
+                active_version = v_result.scalars().first()
+                if active_version:
+                    active_version.description = description
+            else:
+                update_fields['description'] = description
+        
+        if tags is not None:
+            update_fields['tags'] = tags
+
+        if update_fields:
+            await db.execute(update(Module).where(Module.name == name).values(**update_fields))
+
+        await db.commit()
+        return {"detail": "모듈 정보가 수정되었습니다."}
 
     @app.get("/api/audit/logs", response_model=List[AuditLogRead])
     async def get_audit_logs(db: AsyncSession = Depends(get_db), current_user=Depends(has_role("admin"))):
-        result = await db.execute(AuditLog.__table__.select().order_by(AuditLog.created_at.desc()))
-        logs = result.fetchall()
-        return [AuditLogRead.from_orm(row if not isinstance(row, tuple) else row[0]) for row in logs]
+        result = await db.execute(select(AuditLog).order_by(AuditLog.created_at.desc()))
+        return result.scalars().all()
 
     @app.get("/api/logs/errors", response_model=List[ErrorLogRead])
     async def get_error_logs(
