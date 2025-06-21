@@ -133,12 +133,17 @@ const UserManagement: React.FC = () => {
       fetchUsers();
       handleClose();
     } catch (err: any) {
-      setError(
-        err?.response?.data?.detail ||
-          (editingUser
-            ? "사용자 수정에 실패했습니다."
-            : "사용자 생성에 실패했습니다.")
-      );
+      const detail = err?.response?.data?.detail;
+      let message = "작업에 실패했습니다.";
+
+      if (typeof detail === "string") {
+        message = detail;
+      } else if (Array.isArray(detail)) {
+        // FastAPI validation error format
+        message = detail.map((d) => `${d.loc.join(".")}: ${d.msg}`).join(", ");
+      }
+
+      setError(message);
     }
   };
 

@@ -13,7 +13,7 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     password: str
-    roles: Optional[List[int]] = []
+    roles: Optional[List[str]] = []
 
 class UserRead(UserBase):
     id: int

@@ -566,13 +566,23 @@ def create_app() -> FastAPI:
         await db.commit()
         await db.refresh(user)
         
-        # 관계 미리 로드
+        # Eagerly load roles to prevent lazy loading issues in async context
         result = await db.execute(
             select(User).options(selectinload(User.roles)).where(User.id == user.id)
         )
-        user = result.scalar_one()
-        print("[register] db hash:", user.hashed_password)
-        return UserRead.from_orm_safe(user)
+        refreshed_user = result.scalar_one()
+        
+        response = UserRead(
+            id=refreshed_user.id,
+            username=refreshed_user.username,
+            email=refreshed_user.email,
+            created_at=refreshed_user.created_at,
+            roles=[
+                RoleRead(id=role.id, name=role.name, description=role.description)
+                for role in refreshed_user.roles
+            ]
+        )
+        return response
 
     @app.post("/auth/login")
     async def login(form: UserLogin, db: AsyncSession = Depends(get_db)):
@@ -643,11 +653,19 @@ def create_app() -> FastAPI:
             
         hashed_pw = hash_password(user_in.password)
         user = User(username=user_in.username, email=user_in.email, hashed_password=hashed_pw)
+        
+        # Role assignment logic
+        if user_in.roles:
+            roles_result = await db.execute(
+                select(Role).where(Role.name.in_(user_in.roles))
+            )
+            roles = roles_result.scalars().all()
+            for role in roles:
+                user.roles.append(role)
+
         db.add(user)
         await db.commit()
         await db.refresh(user)
-        
-        # TODO: Role assignment logic
         
         # Eagerly load roles to prevent lazy loading issues in async context
         result = await db.execute(
@@ -655,7 +673,17 @@ def create_app() -> FastAPI:
         )
         refreshed_user = result.scalar_one()
         
-        return UserRead.from_orm_safe(refreshed_user)
+        response = UserRead(
+            id=refreshed_user.id,
+            username=refreshed_user.username,
+            email=refreshed_user.email,
+            created_at=refreshed_user.created_at,
+            roles=[
+                RoleRead(id=role.id, name=role.name, description=role.description)
+                for role in refreshed_user.roles
+            ]
+        )
+        return response
 
     @app.patch("/api/users/{user_id}", response_model=UserRead)
     async def update_user(
