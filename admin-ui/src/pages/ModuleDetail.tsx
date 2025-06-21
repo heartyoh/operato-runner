@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import {
   Typography,
@@ -16,6 +16,8 @@ import {
   TableHead,
   TableRow,
   Button,
+  Grid,
+  TextField,
 } from "@mui/material";
 import {
   fetchModuleDetail,
@@ -60,21 +62,35 @@ const ModuleDetail: React.FC = () => {
   const [editError, setEditError] = useState<string | null>(null);
   const [upgradeCode, setUpgradeCode] = useState("");
 
-  useEffect(() => {
+  const fetchData = useCallback(() => {
     if (!name) return;
     setLoading(true);
-    fetchModuleDetail(name)
-      .then((mod) => {
+    Promise.all([
+      fetchModuleDetail(name),
+      fetchModuleVersions(name),
+      fetchModuleHistory(name),
+    ])
+      .then(([mod, versions, history]) => {
         setModule(mod);
         if (mod.env === "inline") {
           setUpgradeCode(mod.code || "");
         }
+        setVersions(versions);
+        setHistory(history);
       })
       .catch((err) => setError(err?.response?.data?.detail || err.message))
       .finally(() => setLoading(false));
-    fetchModuleVersions(name).then(setVersions);
-    fetchModuleHistory(name).then(setHistory);
-  }, [name, actionMsg]);
+  }, [name]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  useEffect(() => {
+    if (actionMsg) {
+      fetchData();
+    }
+  }, [actionMsg, fetchData]);
 
   const handleAction = async (
     type: "rollback" | "activate" | "deactivate",
@@ -91,10 +107,6 @@ const ModuleDetail: React.FC = () => {
       if (type === "deactivate")
         res = await deactivateModuleVersion(name, version);
       setActionMsg(res.detail || "성공");
-      // 데이터 새로고침
-      fetchModuleVersions(name).then(setVersions);
-      fetchModuleDetail(name).then(setModule);
-      fetchModuleHistory(name).then(setHistory);
     } catch (e: any) {
       setActionError(e?.response?.data?.detail || e.message);
     } finally {
@@ -133,237 +145,194 @@ const ModuleDetail: React.FC = () => {
         )}
         {module && (
           <>
-            <Box sx={{ mb: 1 }}>
-              <Typography variant="subtitle2">이름</Typography>
-              <Typography>{module.name}</Typography>
-            </Box>
-            <Box sx={{ mb: 1 }}>
-              <Typography variant="subtitle2">환경</Typography>
-              <Typography>{module.env}</Typography>
-            </Box>
-            {module.artifact_type && module.artifact_uri && (
-              <Box sx={{ mb: 1 }}>
-                <Typography variant="subtitle2">Artifact</Typography>
-                <Typography color="primary" fontWeight={500}>
-                  {module.artifact_type}: {module.artifact_uri}
-                </Typography>
-              </Box>
-            )}
-            <Box sx={{ mb: 1 }}>
-              <Typography variant="subtitle2">현재 적용 버전</Typography>
-              <Typography>
-                {module.current_version || module.version}
-              </Typography>
-            </Box>
-            <Box sx={{ mb: 1 }}>
-              <Typography variant="subtitle2">최신 업로드 버전</Typography>
-              <Typography>{module.latest_version || module.version}</Typography>
-            </Box>
-            <Box sx={{ mb: 1 }}>
-              <Typography variant="subtitle2">태그</Typography>
-              {editMode ? (
-                <input
-                  type="text"
-                  value={editTags}
-                  onChange={(e) => setEditTags(e.target.value)}
-                  style={{ width: 200, marginRight: 8 }}
-                />
-              ) : (
-                <Stack direction="row" spacing={1}>
-                  {module.tags?.map((tag: string) => (
-                    <Chip key={tag} label={tag} size="small" />
-                  ))}
-                </Stack>
-              )}
-            </Box>
-            <Box sx={{ mb: 1 }}>
-              <Typography variant="subtitle2">설명</Typography>
-              {editMode ? (
-                <input
-                  type="text"
-                  value={editDesc}
-                  onChange={(e) => setEditDesc(e.target.value)}
-                  style={{ width: 400, marginRight: 8 }}
-                />
-              ) : (
-                <Typography>{module.description}</Typography>
-              )}
-            </Box>
-            {editMsg && <Alert severity="success">{editMsg}</Alert>}
-            {editError && <Alert severity="error">{editError}</Alert>}
-            <Box sx={{ mb: 2 }}>
-              {editMode ? (
-                <>
-                  <Button
-                    size="small"
-                    variant="contained"
-                    color="primary"
-                    disabled={editLoading}
-                    onClick={async () => {
-                      if (!name) return;
-                      setEditLoading(true);
-                      setEditMsg(null);
-                      setEditError(null);
-                      try {
-                        await updateModuleInfo(name, {
-                          description: editDesc,
-                          tags: editTags,
-                        });
-                        setEditMsg("수정 완료");
-                        setEditMode(false);
-                        fetchModuleDetail(name).then(setModule);
-                      } catch (e: any) {
-                        setEditError(e?.response?.data?.detail || e.message);
-                      } finally {
-                        setEditLoading(false);
+            <Grid container spacing={3}>
+              {/* Left Column */}
+              <Grid item xs={12} md={6}>
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="subtitle2" color="text.secondary">
+                    이름
+                  </Typography>
+                  <Typography>{module.name}</Typography>
+                </Box>
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="subtitle2" color="text.secondary">
+                    환경
+                  </Typography>
+                  <Typography>{module.env}</Typography>
+                </Box>
+                {module.artifact_type && module.artifact_uri && (
+                  <Box sx={{ mb: 2 }}>
+                    <Typography variant="subtitle2" color="text.secondary">
+                      Artifact
+                    </Typography>
+                    <Typography color="primary" fontWeight={500}>
+                      {module.artifact_type}: {module.artifact_uri}
+                    </Typography>
+                  </Box>
+                )}
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="subtitle2" color="text.secondary">
+                    현재 적용 버전
+                  </Typography>
+                  <Typography>
+                    {module.current_version || module.version}
+                  </Typography>
+                </Box>
+                <Box>
+                  <Typography variant="subtitle2" color="text.secondary">
+                    생성일
+                  </Typography>
+                  <Typography>{formatDate(module.created_at)}</Typography>
+                </Box>
+              </Grid>
+
+              {/* Right Column */}
+              <Grid item xs={12} md={6}>
+                <Box sx={{ mb: 2 }}>
+                  <Typography
+                    variant="subtitle2"
+                    color="text.secondary"
+                    sx={{ mb: 0.5 }}
+                  >
+                    태그
+                  </Typography>
+                  {editMode ? (
+                    <TextField
+                      fullWidth
+                      size="small"
+                      value={editTags}
+                      onChange={(e) => setEditTags(e.target.value)}
+                      variant="outlined"
+                    />
+                  ) : (
+                    <Stack
+                      direction="row"
+                      spacing={1}
+                      useFlexGap
+                      flexWrap="wrap"
+                    >
+                      {module.tags?.length > 0 ? (
+                        module.tags.map((tag: string) => (
+                          <Chip key={tag} label={tag} size="small" />
+                        ))
+                      ) : (
+                        <Typography variant="body2" color="text.secondary">
+                          태그 없음
+                        </Typography>
+                      )}
+                    </Stack>
+                  )}
+                </Box>
+                <Box sx={{ mb: 2 }}>
+                  <Typography
+                    variant="subtitle2"
+                    color="text.secondary"
+                    sx={{ mb: 0.5 }}
+                  >
+                    설명
+                  </Typography>
+                  {editMode ? (
+                    <TextField
+                      fullWidth
+                      multiline
+                      rows={4}
+                      size="small"
+                      value={editDesc}
+                      onChange={(e) => setEditDesc(e.target.value)}
+                      variant="outlined"
+                    />
+                  ) : (
+                    <Typography
+                      variant="body2"
+                      color={
+                        module.description ? "text.primary" : "text.secondary"
                       }
-                    }}
-                  >
-                    저장
-                  </Button>
-                  <Button
-                    size="small"
-                    sx={{ ml: 1 }}
-                    onClick={() => setEditMode(false)}
-                    disabled={editLoading}
-                  >
-                    취소
-                  </Button>
-                </>
-              ) : (
-                <Button
-                  size="small"
-                  variant="outlined"
-                  onClick={() => {
-                    setEditMode(true);
-                    setEditDesc(module.description || "");
-                    setEditTags(
-                      Array.isArray(module.tags)
-                        ? module.tags.join(",")
-                        : module.tags || ""
-                    );
-                    setEditMsg(null);
-                    setEditError(null);
-                  }}
-                >
-                  수정
-                </Button>
-              )}
-            </Box>
-            <Box sx={{ mb: 1 }}>
-              <Typography variant="subtitle2">생성일</Typography>
-              <Typography>{formatDate(module.created_at)}</Typography>
-            </Box>
+                      sx={{ whiteSpace: "pre-wrap", minHeight: "22px" }}
+                    >
+                      {module.description || "설명 없음"}
+                    </Typography>
+                  )}
+                </Box>
+
+                {editMsg && (
+                  <Alert severity="success" sx={{ mb: 2 }}>
+                    {editMsg}
+                  </Alert>
+                )}
+                {editError && (
+                  <Alert severity="error" sx={{ mb: 2 }}>
+                    {editError}
+                  </Alert>
+                )}
+
+                <Box>
+                  {editMode ? (
+                    <>
+                      <Button
+                        size="small"
+                        variant="contained"
+                        color="primary"
+                        disabled={editLoading}
+                        onClick={async () => {
+                          if (!name) return;
+                          setEditLoading(true);
+                          setEditMsg(null);
+                          setEditError(null);
+                          try {
+                            await updateModuleInfo(name, {
+                              description: editDesc,
+                              tags: editTags,
+                            });
+                            setEditMsg("수정 완료");
+                            setEditMode(false);
+                            fetchData();
+                          } catch (e: any) {
+                            setEditError(
+                              e?.response?.data?.detail || e.message
+                            );
+                          } finally {
+                            setEditLoading(false);
+                          }
+                        }}
+                      >
+                        저장
+                      </Button>
+                      <Button
+                        size="small"
+                        sx={{ ml: 1 }}
+                        onClick={() => setEditMode(false)}
+                        disabled={editLoading}
+                      >
+                        취소
+                      </Button>
+                    </>
+                  ) : (
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => {
+                        setEditMode(true);
+                        setEditDesc(module.description || "");
+                        setEditTags(
+                          Array.isArray(module.tags)
+                            ? module.tags.join(",")
+                            : module.tags || ""
+                        );
+                        setEditMsg(null);
+                        setEditError(null);
+                      }}
+                    >
+                      수정
+                    </Button>
+                  )}
+                </Box>
+              </Grid>
+            </Grid>
           </>
         )}
         {!loading && !error && !module && (
           <Typography>모듈 정보를 찾을 수 없습니다.</Typography>
         )}
-        <Divider sx={{ my: 3 }} />
-        <Typography variant="h6" gutterBottom>
-          버전 목록
-        </Typography>
-        {actionMsg && <Alert severity="success">{actionMsg}</Alert>}
-        {actionError && <Alert severity="error">{actionError}</Alert>}
-        <TableContainer sx={{ mb: 2 }}>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>이름</TableCell>
-                <TableCell>환경</TableCell>
-                <TableCell>버전</TableCell>
-                <TableCell>설명</TableCell>
-                <TableCell>태그</TableCell>
-                <TableCell>상태</TableCell>
-                <TableCell>액션</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {versions
-                .sort((a, b) => {
-                  // 버전 문자열을 숫자 배열로 변환 (예: "1.2.3" -> [1, 2, 3])
-                  const vA = a.version.split(".").map(Number);
-                  const vB = b.version.split(".").map(Number);
-
-                  // 역순 정렬 (최신 버전이 위로)
-                  for (let i = 0; i < Math.max(vA.length, vB.length); i++) {
-                    const numA = vA[i] || 0;
-                    const numB = vB[i] || 0;
-                    if (numA !== numB) return numB - numA;
-                  }
-                  return 0;
-                })
-                .map((v) => (
-                  <TableRow key={v.id}>
-                    <TableCell>{v.name}</TableCell>
-                    <TableCell>{v.env}</TableCell>
-                    <TableCell>{v.version}</TableCell>
-                    <TableCell>{v.description || ""}</TableCell>
-                    <TableCell>
-                      {Array.isArray(v.tags) ? v.tags.join(", ") : v.tags || ""}
-                    </TableCell>
-                    <TableCell>{v.status}</TableCell>
-                    <TableCell>
-                      <Stack direction="row" spacing={1}>
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          disabled={actionLoading || v.status === "active"}
-                          onClick={() => handleAction("rollback", v.version)}
-                        >
-                          롤백
-                        </Button>
-                        <Button
-                          size="small"
-                          variant="contained"
-                          color="success"
-                          disabled={actionLoading || v.status === "active"}
-                          onClick={() => handleAction("activate", v.version)}
-                        >
-                          활성화
-                        </Button>
-                        <Button
-                          size="small"
-                          variant="contained"
-                          color="warning"
-                          disabled={actionLoading || v.status === "inactive"}
-                          onClick={() => handleAction("deactivate", v.version)}
-                        >
-                          비활성화
-                        </Button>
-                      </Stack>
-                    </TableCell>
-                  </TableRow>
-                ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
-        <Divider sx={{ my: 3 }} />
-        <Typography variant="h6" gutterBottom>
-          이력
-        </Typography>
-        <TableContainer>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>액션</TableCell>
-                <TableCell>버전</TableCell>
-                <TableCell>담당자</TableCell>
-                <TableCell>일시</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {history.map((h) => (
-                <TableRow key={h.id}>
-                  <TableCell>{h.action}</TableCell>
-                  <TableCell>{h.version_id}</TableCell>
-                  <TableCell>{h.operator}</TableCell>
-                  <TableCell>{formatDate(h.timestamp)}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
         <Divider sx={{ my: 3 }} />
         <Typography variant="h6" gutterBottom>
           새 버전 업로드
@@ -397,16 +366,9 @@ const ModuleDetail: React.FC = () => {
               await uploadModuleVersion(name, formData);
               setUpgradeMsg("새 버전 업로드 성공");
               setUpgradeVersion("");
-              fetchModuleDetail(name).then((mod) => {
-                setModule(mod);
-                if (mod.env === "inline") {
-                  setUpgradeCode(mod.code || "");
-                  setUpgradeDesc(mod.description || "");
-                }
-              });
+              fetchData();
               setUpgradeTags("");
               setUpgradeFile(null);
-              fetchModuleVersions(name).then(setVersions);
             } catch (e: any) {
               setUpgradeError(e?.response?.data?.detail || e.message);
             } finally {
@@ -461,6 +423,111 @@ const ModuleDetail: React.FC = () => {
             </Button>
           </Stack>
         </Box>
+        <Divider sx={{ my: 3 }} />
+        <Typography variant="h6" gutterBottom>
+          버전 목록
+        </Typography>
+        {actionMsg && <Alert severity="success">{actionMsg}</Alert>}
+        {actionError && <Alert severity="error">{actionError}</Alert>}
+        <TableContainer sx={{ mb: 2 }}>
+          <Table size="small">
+            <TableHead>
+              <TableRow key="version-header">
+                <TableCell>이름</TableCell>
+                <TableCell>환경</TableCell>
+                <TableCell>버전</TableCell>
+                <TableCell>설명</TableCell>
+                <TableCell>태그</TableCell>
+                <TableCell>상태</TableCell>
+                <TableCell>액션</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {versions
+                .sort((a, b) => {
+                  // 버전 문자열을 숫자 배열로 변환 (예: "1.2.3" -> [1, 2, 3])
+                  const vA = a.version.split(".").map(Number);
+                  const vB = b.version.split(".").map(Number);
+
+                  // 역순 정렬 (최신 버전이 위로)
+                  for (let i = 0; i < Math.max(vA.length, vB.length); i++) {
+                    const numA = vA[i] || 0;
+                    const numB = vB[i] || 0;
+                    if (numA !== numB) return numB - numA;
+                  }
+                  return 0;
+                })
+                .map((v, index) => (
+                  <TableRow key={`${v.id}-${index}`}>
+                    <TableCell>{v.name}</TableCell>
+                    <TableCell>{v.env}</TableCell>
+                    <TableCell>{v.version}</TableCell>
+                    <TableCell>{v.description || ""}</TableCell>
+                    <TableCell>
+                      {Array.isArray(v.tags) ? v.tags.join(", ") : v.tags || ""}
+                    </TableCell>
+                    <TableCell>{v.status}</TableCell>
+                    <TableCell>
+                      <Stack direction="row" spacing={1}>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          disabled={actionLoading || v.status === "active"}
+                          onClick={() => handleAction("rollback", v.version)}
+                        >
+                          롤백
+                        </Button>
+                        <Button
+                          size="small"
+                          variant="contained"
+                          color="success"
+                          disabled={actionLoading || v.status === "active"}
+                          onClick={() => handleAction("activate", v.version)}
+                        >
+                          활성화
+                        </Button>
+                        <Button
+                          size="small"
+                          variant="contained"
+                          color="warning"
+                          disabled={actionLoading || v.status === "inactive"}
+                          onClick={() => handleAction("deactivate", v.version)}
+                        >
+                          비활성화
+                        </Button>
+                      </Stack>
+                    </TableCell>
+                  </TableRow>
+                ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+        <Divider sx={{ my: 3 }} />
+        <Typography variant="h6" gutterBottom>
+          이력
+        </Typography>
+        <TableContainer>
+          <Table size="small">
+            <TableHead>
+              <TableRow key="history-header">
+                <TableCell>액션</TableCell>
+                <TableCell>버전</TableCell>
+                <TableCell>담당자</TableCell>
+                <TableCell>일시</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {history.map((h, index) => (
+                <TableRow key={`${h.id}-${index}`}>
+                  <TableCell>{h.action}</TableCell>
+                  <TableCell>{h.version_id}</TableCell>
+                  <TableCell>{h.operator}</TableCell>
+                  <TableCell>{formatDate(h.timestamp)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
       </Paper>
     </div>
   );

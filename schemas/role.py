@@ -10,7 +10,6 @@ class RoleCreate(RoleBase):
 
 class RoleRead(RoleBase):
     id: int
-    users: Optional[List[int]] = []
 
     class Config:
         orm_mode = True 

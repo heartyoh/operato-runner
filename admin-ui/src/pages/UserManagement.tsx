@@ -14,6 +14,10 @@ import {
   Box,
   Modal,
   TextField,
+  Switch,
+  FormControlLabel,
+  FormGroup,
+  Checkbox,
 } from "@mui/material";
 import { listUsers, updateUser, deleteUser, createUser } from "../api";
 
@@ -45,14 +49,42 @@ const UserManagement: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   const [open, setOpen] = useState(false);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
   const [newUser, setNewUser] = useState({
     username: "",
     email: "",
     password: "",
+    roles: [] as string[],
+    is_active: true,
   });
 
-  const handleOpen = () => setOpen(true);
-  const handleClose = () => setOpen(false);
+  const handleOpen = (user: User | null = null) => {
+    if (user) {
+      setEditingUser(user);
+      setNewUser({
+        username: user.username,
+        email: user.email,
+        password: "",
+        roles: user.roles.map((r) => r.name),
+        is_active: user.is_active,
+      });
+    } else {
+      setEditingUser(null);
+      setNewUser({
+        username: "",
+        email: "",
+        password: "",
+        roles: [],
+        is_active: true,
+      });
+    }
+    setOpen(true);
+  };
+
+  const handleClose = () => {
+    setOpen(false);
+    setEditingUser(null);
+  };
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -83,13 +115,30 @@ const UserManagement: React.FC = () => {
     }
   };
 
-  const handleCreateUser = async () => {
+  const handleSaveUser = async () => {
+    const roles = newUser.roles.map((r) => r.trim()).filter((r) => r);
     try {
-      await createUser(newUser);
+      if (editingUser) {
+        await updateUser(editingUser.id, {
+          email: newUser.email,
+          is_active: newUser.is_active,
+          roles: roles,
+        });
+      } else {
+        await createUser({
+          ...newUser,
+          roles: roles,
+        });
+      }
       fetchUsers();
       handleClose();
     } catch (err: any) {
-      setError(err?.response?.data?.detail || "사용자 생성에 실패했습니다.");
+      setError(
+        err?.response?.data?.detail ||
+          (editingUser
+            ? "사용자 수정에 실패했습니다."
+            : "사용자 생성에 실패했습니다.")
+      );
     }
   };
 
@@ -99,7 +148,7 @@ const UserManagement: React.FC = () => {
         <Typography variant="h5" gutterBottom>
           사용자 관리
         </Typography>
-        <Button variant="contained" onClick={handleOpen}>
+        <Button variant="contained" onClick={() => handleOpen()}>
           신규 사용자 추가
         </Button>
       </Box>
@@ -108,17 +157,18 @@ const UserManagement: React.FC = () => {
         open={open}
         onClose={handleClose}
         aria-labelledby="modal-modal-title"
-        aria-describedby="modal-modal-description"
       >
         <Box sx={style}>
           <Typography id="modal-modal-title" variant="h6" component="h2">
-            신규 사용자 정보
+            {editingUser ? "사용자 정보 수정" : "신규 사용자 정보"}
           </Typography>
           <TextField
             margin="normal"
             required
             fullWidth
             label="사용자명"
+            value={newUser.username}
+            disabled={!!editingUser}
             onChange={(e) =>
               setNewUser({ ...newUser, username: e.target.value })
             }
@@ -128,23 +178,70 @@ const UserManagement: React.FC = () => {
             required
             fullWidth
             label="이메일"
+            value={newUser.email}
             onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
           />
-          <TextField
-            margin="normal"
-            required
-            fullWidth
-            label="비밀번호"
-            type="password"
-            onChange={(e) =>
-              setNewUser({ ...newUser, password: e.target.value })
-            }
-          />
+          {!editingUser && (
+            <TextField
+              margin="normal"
+              required
+              fullWidth
+              label="비밀번호"
+              type="password"
+              onChange={(e) =>
+                setNewUser({ ...newUser, password: e.target.value })
+              }
+            />
+          )}
+          <FormGroup sx={{ mt: 2 }}>
+            <Typography variant="subtitle1">역할</Typography>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={newUser.roles.includes("admin")}
+                  onChange={(e) => {
+                    const newRoles = e.target.checked
+                      ? [...newUser.roles, "admin"]
+                      : newUser.roles.filter((r) => r !== "admin");
+                    setNewUser({ ...newUser, roles: newRoles });
+                  }}
+                />
+              }
+              label="Admin"
+            />
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={newUser.roles.includes("user")}
+                  onChange={(e) => {
+                    const newRoles = e.target.checked
+                      ? [...newUser.roles, "user"]
+                      : newUser.roles.filter((r) => r !== "user");
+                    setNewUser({ ...newUser, roles: newRoles });
+                  }}
+                />
+              }
+              label="User"
+            />
+          </FormGroup>
+          {editingUser && (
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={newUser.is_active}
+                  onChange={(e) =>
+                    setNewUser({ ...newUser, is_active: e.target.checked })
+                  }
+                />
+              }
+              label="활성 상태"
+            />
+          )}
           <Button
             fullWidth
             variant="contained"
             sx={{ mt: 3, mb: 2 }}
-            onClick={handleCreateUser}
+            onClick={handleSaveUser}
           >
             저장
           </Button>
@@ -180,7 +277,12 @@ const UserManagement: React.FC = () => {
                   {new Date(user.created_at).toLocaleString()}
                 </TableCell>
                 <TableCell>
-                  <Button size="small" variant="outlined" sx={{ mr: 1 }}>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    sx={{ mr: 1 }}
+                    onClick={() => handleOpen(user)}
+                  >
                     수정
                   </Button>
                   <Button

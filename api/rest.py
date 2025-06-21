@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.db import get_db, Base, get_engine, init_engine
 from models.user import User
 from schemas.user import UserCreate, UserRead, UserLogin, UserUpdate
+from schemas.role import RoleRead
 from utils.jwt import create_access_token
 from api.auth import verify_password, get_current_user, has_role
 from utils.security import hash_password, validate_password_policy
@@ -39,7 +40,11 @@ from io import StringIO
 import shutil
 import subprocess
 from sqlalchemy import text
-from datetime import datetime
+from datetime import datetime, timezone
+import pathlib
+
+# 프로젝트 루트 경로
+ROOT_DIR = pathlib.Path(__file__).resolve().parent.parent
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Operato Runner", description="Python module execution platform")
@@ -96,6 +101,17 @@ def create_app() -> FastAPI:
         return request.app.state.executor_manager
 
     # 라우트
+    @app.get("/api/templates/module", response_class=FileResponse)
+    async def download_module_template():
+        template_path = ROOT_DIR / "templates" / "module_template.zip"
+        if not template_path.exists():
+            raise HTTPException(status_code=404, detail="Template file not found.")
+        return FileResponse(
+            path=str(template_path),
+            media_type="application/zip",
+            filename="module_template.zip",
+        )
+
     @app.get("/api/modules", response_model=List[ModuleResponse])
     async def list_modules(module_registry: ModuleRegistry = Depends(get_module_registry), db: AsyncSession = Depends(get_db)):
         modules = await module_registry.list_modules()
@@ -115,11 +131,19 @@ def create_app() -> FastAPI:
                 active_version = v_result.scalars().first()
                 if active_version:
                     description = active_version.description
+            
+            created_at_iso = None
+            if m.created_at:
+                dt = m.created_at
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                created_at_iso = dt.isoformat()
+
             result.append({
                 "name": m.name,
                 "env": m.env,
                 "version": m.version,
-                "created_at": m.created_at.isoformat() if m.created_at else None,
+                "created_at": created_at_iso,
                 "tags": m.tags.split(",") if isinstance(m.tags, str) else (m.tags if m.tags else []),
                 "isDeployed": is_deployed(m),
                 "description": description,
@@ -158,11 +182,19 @@ def create_app() -> FastAPI:
             latest_version = v_result.scalars().first()
             if latest_version:
                 current_version = latest_version.version
+        
+        created_at_iso = None
+        if module.created_at:
+            dt = module.created_at
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            created_at_iso = dt.isoformat()
+            
         return {
             "name": module.name,
             "env": module.env,
             "version": current_version,
-            "created_at": module.created_at.isoformat() if module.created_at else None,
+            "created_at": created_at_iso,
             "tags": module.tags.split(",") if isinstance(module.tags, str) else (module.tags if module.tags else []),
             "isDeployed": is_deployed(module),
             "current_version": current_version,
@@ -576,7 +608,23 @@ def create_app() -> FastAPI:
     ):
         result = await db.execute(select(User).options(selectinload(User.roles)))
         users = result.scalars().all()
-        return [UserRead.from_orm_safe(u) for u in users]
+        
+        # Manually construct the response to avoid lazy loading issues
+        response_users = []
+        for user in users:
+            response_users.append(
+                UserRead(
+                    id=user.id,
+                    username=user.username,
+                    email=user.email,
+                    created_at=user.created_at,
+                    roles=[
+                        RoleRead(id=role.id, name=role.name, description=role.description) 
+                        for role in user.roles
+                    ]
+                )
+            )
+        return response_users
 
     @app.post("/api/users", response_model=UserRead, status_code=201)
     async def create_user(
@@ -629,11 +677,38 @@ def create_app() -> FastAPI:
         if "is_active" in update_data:
             user.is_active = update_data["is_active"]
         
-        # TODO: Role handling logic
+        if "roles" in update_data and update_data["roles"] is not None:
+            role_names = update_data["roles"]
+            # 기존 role을 모두 지우고 시작
+            user.roles.clear()
+            if role_names:
+                # DB에서 Role 객체들을 조회
+                roles_result = await db.execute(
+                    select(Role).where(Role.name.in_(role_names))
+                )
+                roles = roles_result.scalars().all()
+                
+                # 조회된 Role 객체들을 user.roles에 추가
+                for role in roles:
+                    user.roles.append(role)
         
         await db.commit()
         await db.refresh(user)
-        return UserRead.from_orm_safe(user)
+        
+        # Manually construct response to ensure roles are loaded
+        await db.refresh(user, attribute_names=['roles'])
+        
+        response = UserRead(
+            id=user.id,
+            username=user.username,
+            email=user.email,
+            created_at=user.created_at,
+            roles=[
+                RoleRead(id=role.id, name=role.name, description=role.description)
+                for role in user.roles
+            ]
+        )
+        return response
 
     @app.delete("/api/users/{user_id}", status_code=204)
     async def delete_user(
@@ -664,15 +739,14 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail="Module not found")
         if description is not None:
             module.description = description
-            # 인라인 타입이면 활성화된 버전의 description도 같이 수정
-            if module.env == "inline":
-                v_result = await db.execute(
-                    select(Version).join(Deployment, Deployment.version_id == Version.id)
-                    .where(Version.module_id == module.id, Deployment.status == "active")
-                )
-                active_version = v_result.scalars().first()
-                if active_version:
-                    active_version.description = description
+            # 활성화된 버전의 description도 같이 수정
+            v_result = await db.execute(
+                select(Version).join(Deployment, Deployment.version_id == Version.id)
+                .where(Version.module_id == module.id, Deployment.status == "active")
+            )
+            active_version = v_result.scalars().first()
+            if active_version:
+                active_version.description = description
         if tags is not None:
             module.tags = tags
         await db.commit()

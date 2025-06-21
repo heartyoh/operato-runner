@@ -1,18 +1,18 @@
 import React from "react";
-import { BrowserRouter as Router } from "react-router-dom";
-import AppRouter from "./AppRouter";
+import { BrowserRouter } from "react-router-dom";
 import { CssBaseline } from "@mui/material";
+import AppRouter from "./router";
 import { ErrorProvider } from "./contexts/ErrorContext";
 
-const App: React.FC = () => {
+function App() {
   return (
-    <ErrorProvider>
-      <Router>
+    <BrowserRouter>
+      <ErrorProvider>
         <CssBaseline />
         <AppRouter />
-      </Router>
-    </ErrorProvider>
+      </ErrorProvider>
+    </BrowserRouter>
   );
-};
+}
 
 export default App;
