@@ -821,6 +821,280 @@ def create_app() -> FastAPI:
             await conn.run_sync(Base.metadata.create_all)
         return {"status": "ok"}
 
+    @app.post("/api/modules/{name}/activate")
+    async def activate_module_version(
+        name: str,
+        version: str = Form(...),
+        db: AsyncSession = Depends(get_db),
+        current_user: User = Depends(get_current_user)
+    ):
+        """특정 버전을 활성화합니다."""
+        # 1. 모듈 존재 확인
+        result = await db.execute(select(Module).where(Module.name == name))
+        module = result.scalars().first()
+        if not module:
+            raise HTTPException(status_code=404, detail=f"Module '{name}' not found")
+        
+        # 2. 버전 존재 확인
+        version_result = await db.execute(
+            select(Version).where(Version.module_id == module.id, Version.version == version)
+        )
+        version_obj = version_result.scalars().first()
+        if not version_obj:
+            raise HTTPException(status_code=404, detail=f"Version '{version}' not found for module '{name}'")
+        
+        # 3. 기존 활성 배포를 비활성화
+        deployments = await db.execute(select(Deployment).where(Deployment.module_id == module.id))
+        for d in deployments.scalars().all():
+            d.status = "inactive"
+        
+        # 4. 새 버전을 활성화
+        deployment_obj = Deployment(module_id=module.id, version_id=version_obj.id, status="active")
+        db.add(deployment_obj)
+        
+        # 5. Module.version 필드도 갱신
+        module.version = version
+        await db.commit()
+        
+        # 6. 히스토리 기록
+        history = ModuleHistory(
+            module_id=module.id,
+            version_id=version_obj.id,
+            action="activate",
+            operator=current_user.username,
+        )
+        db.add(history)
+        await db.commit()
+        
+        return {"detail": f"모듈 '{name}' 버전 '{version}'이 활성화되었습니다."}
+
+    @app.post("/api/modules/{name}/deactivate")
+    async def deactivate_module_version(
+        name: str,
+        db: AsyncSession = Depends(get_db),
+        current_user: User = Depends(get_current_user)
+    ):
+        """모든 버전을 비활성화합니다."""
+        # 1. 모듈 존재 확인
+        result = await db.execute(select(Module).where(Module.name == name))
+        module = result.scalars().first()
+        if not module:
+            raise HTTPException(status_code=404, detail=f"Module '{name}' not found")
+        
+        # 2. 모든 활성 배포를 비활성화
+        deployments = await db.execute(select(Deployment).where(Deployment.module_id == module.id))
+        deactivated_count = 0
+        for d in deployments.scalars().all():
+            if d.status == "active":
+                d.status = "inactive"
+                deactivated_count += 1
+        
+        await db.commit()
+        
+        # 3. 히스토리 기록
+        if deactivated_count > 0:
+            # 현재 활성 버전의 ID를 가져와서 히스토리에 기록
+            current_deployment_result = await db.execute(
+                select(Deployment).where(Deployment.module_id == module.id, Deployment.status == "inactive")
+            )
+            current_deployment = current_deployment_result.scalars().first()
+            version_id = current_deployment.version_id if current_deployment else None
+            
+            if version_id:
+                history = ModuleHistory(
+                    module_id=module.id,
+                    version_id=version_id,
+                    action="deactivate",
+                    operator=current_user.username,
+                )
+                db.add(history)
+                await db.commit()
+        
+        return {"detail": f"모듈 '{name}'의 모든 버전이 비활성화되었습니다."}
+
+    @app.post("/api/modules/{name}/rollback")
+    async def rollback_module_version(
+        name: str,
+        target_version: str = Form(...),
+        db: AsyncSession = Depends(get_db),
+        current_user: User = Depends(get_current_user)
+    ):
+        """특정 버전으로 롤백합니다."""
+        # 1. 모듈 존재 확인
+        result = await db.execute(select(Module).where(Module.name == name))
+        module = result.scalars().first()
+        if not module:
+            raise HTTPException(status_code=404, detail=f"Module '{name}' not found")
+        
+        # 2. 롤백 대상 버전 존재 확인
+        target_version_result = await db.execute(
+            select(Version).where(Version.module_id == module.id, Version.version == target_version)
+        )
+        target_version_obj = target_version_result.scalars().first()
+        if not target_version_obj:
+            raise HTTPException(status_code=404, detail=f"Target version '{target_version}' not found for module '{name}'")
+        
+        # 3. 현재 활성 버전 확인
+        current_deployment_result = await db.execute(
+            select(Deployment).where(Deployment.module_id == module.id, Deployment.status == "active")
+        )
+        current_deployment = current_deployment_result.scalars().first()
+        current_version = "unknown"
+        if current_deployment:
+            current_version_result = await db.execute(
+                select(Version).where(Version.id == current_deployment.version_id)
+            )
+            current_version_obj = current_version_result.scalars().first()
+            if current_version_obj:
+                current_version = current_version_obj.version
+        
+        # 4. 기존 활성 배포를 비활성화
+        deployments = await db.execute(select(Deployment).where(Deployment.module_id == module.id))
+        for d in deployments.scalars().all():
+            d.status = "inactive"
+        
+        # 5. 롤백 대상 버전을 활성화
+        deployment_obj = Deployment(module_id=module.id, version_id=target_version_obj.id, status="active")
+        db.add(deployment_obj)
+        
+        # 6. Module.version 필드도 갱신
+        module.version = target_version
+        await db.commit()
+        
+        # 7. 히스토리 기록
+        history = ModuleHistory(
+            module_id=module.id,
+            version_id=target_version_obj.id,
+            action="rollback",
+            operator=current_user.username,
+        )
+        db.add(history)
+        await db.commit()
+        
+        return {"detail": f"모듈 '{name}'이 버전 '{target_version}'으로 롤백되었습니다."}
+
+    @app.post("/api/modules/{name}/versions")
+    async def upload_module_version(
+        name: str, 
+        file: UploadFile = File(...), 
+        version: str = Form(...),
+        description: str = Form(""),
+        db: AsyncSession = Depends(get_db),
+        current_user: User = Depends(get_current_user)
+    ):
+        """모듈 이름으로 새 버전을 업로드합니다."""
+        # 1. 모듈 존재 확인
+        result = await db.execute(select(Module).where(Module.name == name))
+        module = result.scalars().first()
+        if not module:
+            raise HTTPException(status_code=404, detail=f"Module '{name}' not found")
+        
+        # 2. 중복 버전 체크
+        version_result = await db.execute(
+            select(Version).where(Version.module_id == module.id, Version.version == version)
+        )
+        if version_result.scalars().first():
+            raise HTTPException(status_code=400, detail=f"이미 존재하는 버전입니다: {name} v{version}")
+        
+        # 3. 임시 디렉토리 생성 및 파일 저장
+        with tempfile.TemporaryDirectory() as tmpdir:
+            zip_path = os.path.join(tmpdir, file.filename)
+            with open(zip_path, "wb") as f:
+                content = await file.read()
+                f.write(content)
+            
+            # 4. 압축 해제
+            try:
+                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                    zip_ref.extractall(tmpdir)
+            except zipfile.BadZipFile:
+                raise HTTPException(status_code=400, detail="업로드 파일이 올바른 zip 압축파일이 아닙니다.")
+            
+            # 5. 필수 파일 검사
+            required_files = ["handler.py", "requirements.txt"]
+            found = {f: False for f in required_files}
+            handler_path = None
+            requirements_path = None
+            
+            for root, dirs, files in os.walk(tmpdir):
+                for fname in files:
+                    for req in required_files:
+                        if fname.lower() == req.lower():
+                            found[req] = True
+                    if fname.lower() == "handler.py":
+                        handler_path = os.path.join(root, fname)
+                    if fname.lower() == "requirements.txt":
+                        requirements_path = os.path.join(root, fname)
+            
+            missing = [f for f, ok in found.items() if not ok]
+            if missing:
+                raise HTTPException(status_code=400, detail=f"필수 파일 누락: {', '.join(missing)}")
+            
+            # 6. handler.py 내부에 handler 함수 존재 여부 검사
+            if handler_path:
+                with open(handler_path, "r", encoding="utf-8") as f:
+                    handler_code = f.read()
+                if "def handler(" not in handler_code:
+                    raise HTTPException(status_code=400, detail="handler.py에 'def handler' 함수가 정의되어 있지 않습니다.")
+            
+            # 7. 모듈 파일을 modules/{name}/{version}/에 저장
+            modules_dir = os.path.join("modules", name, version)
+            if os.path.exists(modules_dir):
+                shutil.rmtree(modules_dir)
+            os.makedirs(modules_dir, exist_ok=True)
+            
+            # 압축 해제된 실제 소스 루트 찾기
+            items = [item for item in os.listdir(tmpdir) if not item.startswith('.') and item != file.filename]
+            if len(items) == 1 and os.path.isdir(os.path.join(tmpdir, items[0])):
+                root_dir = os.path.join(tmpdir, items[0])
+            else:
+                root_dir = tmpdir
+            
+            # 소스 전체를 modules/{name}/{version}/로 복사
+            for item in os.listdir(root_dir):
+                s = os.path.join(root_dir, item)
+                d = os.path.join(modules_dir, item)
+                if os.path.isdir(s):
+                    shutil.copytree(s, d, dirs_exist_ok=True)
+                elif os.path.isfile(s):
+                    shutil.copy2(s, d)
+            
+            # 8. Version 테이블에 새 버전 추가
+            version_obj = Version(
+                module_id=module.id,
+                version=version,
+                code=None,  # 파일 기반 모듈이므로 code는 None
+                description=description,
+                changelog=None,
+            )
+            db.add(version_obj)
+            await db.commit()
+            await db.refresh(version_obj)
+            
+            # 9. 기존 활성 배포를 비활성화하고 새 버전을 활성화
+            deployments = await db.execute(select(Deployment).where(Deployment.module_id == module.id))
+            for d in deployments.scalars().all():
+                d.status = "inactive"
+            
+            # 새 버전을 활성화
+            deployment_obj = Deployment(module_id=module.id, version_id=version_obj.id, status="active")
+            db.add(deployment_obj)
+            
+            # Module.version 필드도 갱신
+            module.version = version
+            await db.commit()
+            
+            # 10. 성공 로그 기록
+            log = ModuleValidationLog(filename=file.filename, status="success", message=f"버전 업로드 성공: {name} v{version}")
+            db.add(log)
+            await db.commit()
+            
+            return {
+                "detail": f"모듈 버전 업로드 성공: {name} v{version}",
+                "version": version,
+                "description": description
+            }
+
     @app.post("/api/modules/{module_id}/upload")
     async def upload_module_for_id(module_id: int, file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
         # 1. 모듈 존재 확인
@@ -1051,6 +1325,103 @@ def create_app() -> FastAPI:
             await db.commit()
             return {"detail": f"구조/필수 파일 및 handler 함수 검증 통과, {env_type} 환경 생성 및 의존성 설치, 모듈 정보 갱신 완료"}
 
+    @app.post("/api/modules/{name}/deploy")
+    async def deploy_module(name: str, db: AsyncSession = Depends(get_db)):
+        """미전개 상태의 모듈을 배포(가상환경 생성 및 의존성 설치)합니다."""
+        result = await db.execute(select(Module).where(Module.name == name))
+        module = result.scalars().first()
+        if not module:
+            raise HTTPException(status_code=404, detail=f"Module {name} not found")
+
+        version_result = await db.execute(
+            select(Version).where(Version.module_id == module.id).order_by(Version.created_at.desc())
+        )
+        latest_version = version_result.scalars().first()
+        if not latest_version:
+            raise HTTPException(status_code=404, detail=f"No versions found for module {name}")
+
+        env_type = module.env.lower() if module.env else "venv"
+        src_dir = os.path.join("modules", module.name, latest_version.version)
+        dst_dir = os.path.join("module_envs", module.name)
+
+        if not os.path.exists(src_dir):
+            raise HTTPException(status_code=400, detail="영구 저장소에 모듈 파일이 존재하지 않습니다.")
+
+        os.makedirs(dst_dir, exist_ok=True)
+
+        try:
+            if env_type == "venv":
+                req_dir = _find_requirements_dir(src_dir)
+                _prepare_env_dir(dst_dir, "venv")
+                _copy_src_to_env_dir(req_dir, dst_dir)
+                
+                venv_dir = os.path.join(dst_dir, "venv")
+                if not os.path.exists(os.path.join(venv_dir, "bin", "activate")):
+                    subprocess.run(["python3", "-m", "venv", venv_dir], check=True, capture_output=True, text=True)
+
+                venv_python = os.path.join(venv_dir, "bin", "python")
+                requirements_path = os.path.join(dst_dir, "requirements.txt")
+                if os.path.exists(requirements_path):
+                    subprocess.run(
+                        [venv_python, "-m", "pip", "install", "--upgrade", "pip"],
+                        check=True, capture_output=True, text=True
+                    )
+                    subprocess.run(
+                        [venv_python, "-m", "pip", "install", "-r", requirements_path],
+                        check=True, capture_output=True, text=True
+                    )
+
+            elif env_type == "uv":
+                req_dir = _find_requirements_dir(src_dir)
+                _prepare_env_dir(dst_dir, "uv")
+                _copy_src_to_env_dir(req_dir, dst_dir)
+                
+                uv_dir = os.path.join(dst_dir, "uv")
+                if not os.path.exists(os.path.join(uv_dir, "bin", "python")):
+                    subprocess.run(["uv", "venv", uv_dir, "--python", "3.9"], check=True, capture_output=True, text=True)
+
+                requirements_path = os.path.join(dst_dir, "requirements.txt")
+                if os.path.exists(requirements_path):
+                    subprocess.run(["uv", "pip", "install", "-r", requirements_path], check=True, cwd=dst_dir, capture_output=True, text=True)
+            
+            elif env_type == "docker":
+                docker_tag = f"mod_{module.name}:{latest_version.version}"
+                dockerfile_path = os.path.join(src_dir, "Dockerfile")
+                if not os.path.exists(dockerfile_path):
+                    raise HTTPException(status_code=400, detail="Dockerfile이 존재하지 않습니다.")
+                
+                proc = subprocess.run(
+                    ["docker", "build", "-t", docker_tag, src_dir],
+                    capture_output=True, text=True, check=False
+                )
+                if proc.returncode != 0:
+                    raise subprocess.CalledProcessError(proc.returncode, proc.args, stderr=proc.stderr)
+            
+            else:
+                raise HTTPException(status_code=400, detail=f"지원하지 않는 환경 타입입니다: {env_type}")
+            
+            log_module_action(module.name, latest_version.version, "deploy", f"{env_type} 환경 배포 성공")
+            log = ModuleValidationLog(filename=module.name, status="success", message=f"{env_type} 환경 배포 성공")
+            db.add(log)
+            await db.commit()
+
+        except subprocess.CalledProcessError as e:
+            error_message = f"{env_type} 환경 배포 실패: {e.stderr}"
+            log_module_action(module.name, latest_version.version, "deploy", error_message)
+            log = ModuleValidationLog(filename=module.name, status="fail", message=error_message)
+            db.add(log)
+            await db.commit()
+            raise HTTPException(status_code=500, detail=error_message)
+        except Exception as e:
+            error_message = f"배포 중 알 수 없는 예외 발생: {str(e)}"
+            log_module_action(module.name, latest_version.version, "deploy", error_message)
+            log = ModuleValidationLog(filename=module.name, status="fail", message=error_message)
+            db.add(log)
+            await db.commit()
+            raise HTTPException(status_code=500, detail=error_message)
+
+        return {"detail": f"{env_type} 환경에서 모듈 배포가 완료되었습니다."}
+
     @app.delete("/api/modules/{name}/deploy")
     async def undeploy_module(name: str):
         module_env_dir = os.path.abspath(os.path.join("module_envs", name))
@@ -1132,5 +1503,30 @@ def install_requirements(venv_python, requirements_path):
 
 def log_module_action(module_name, version, action, message):
     logging.info(f"[{module_name}][v{version}][{action}] {message}")
+
+def _find_requirements_dir(base_dir):
+    for root, dirs, files in os.walk(base_dir):
+        if "requirements.txt" in files:
+            return root
+    return base_dir
+
+def _prepare_env_dir(dst_dir, keep_dir_name):
+    for item in os.listdir(dst_dir):
+        if item == keep_dir_name:
+            continue
+        item_path = os.path.join(dst_dir, item)
+        if os.path.isdir(item_path):
+            shutil.rmtree(item_path)
+        else:
+            os.remove(item_path)
+
+def _copy_src_to_env_dir(src_dir, dst_dir):
+    for item in os.listdir(src_dir):
+        s = os.path.join(src_dir, item)
+        d = os.path.join(dst_dir, item)
+        if os.path.isdir(s):
+            shutil.copytree(s, d, dirs_exist_ok=True)
+        elif os.path.isfile(s):
+            shutil.copy2(s, d)
 
 app = create_app() 

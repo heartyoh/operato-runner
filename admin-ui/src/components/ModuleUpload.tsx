@@ -80,7 +80,20 @@ const ModuleUpload: React.FC<Props> = ({ onUploadSuccess }) => {
       setArtifactUri("");
       if (onUploadSuccess) onUploadSuccess();
     } catch (err: any) {
-      setError(err?.response?.data?.detail || err.message);
+      const detail = err?.response?.data?.detail;
+      let errorMessage = err.message;
+
+      if (typeof detail === "string") {
+        errorMessage = detail;
+      } else if (detail && typeof detail === "object") {
+        try {
+          errorMessage = JSON.stringify(detail);
+        } catch {
+          errorMessage = "서버에서 오류 응답을 받았습니다.";
+        }
+      }
+
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -117,7 +130,20 @@ const ModuleUpload: React.FC<Props> = ({ onUploadSuccess }) => {
 }`);
       if (onUploadSuccess) onUploadSuccess();
     } catch (err: any) {
-      setInlineError(err?.response?.data?.detail || err.message);
+      const detail = err?.response?.data?.detail;
+      let errorMessage = err.message;
+
+      if (typeof detail === "string") {
+        errorMessage = detail;
+      } else if (detail && typeof detail === "object") {
+        try {
+          errorMessage = JSON.stringify(detail);
+        } catch {
+          errorMessage = "서버에서 오류 응답을 받았습니다.";
+        }
+      }
+
+      setInlineError(errorMessage);
     } finally {
       setInlineLoading(false);
     }

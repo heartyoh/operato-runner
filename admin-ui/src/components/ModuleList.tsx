@@ -55,7 +55,22 @@ const ModuleList: React.FC = () => {
     api
       .fetchModules()
       .then((data) => setModules(data))
-      .catch((err: any) => setError(err?.response?.data?.detail || err.message))
+      .catch((err: any) => {
+        const detail = err?.response?.data?.detail;
+        let errorMessage = err.message;
+
+        if (typeof detail === "string") {
+          errorMessage = detail;
+        } else if (detail && typeof detail === "object") {
+          try {
+            errorMessage = JSON.stringify(detail);
+          } catch {
+            errorMessage = "서버에서 오류 응답을 받았습니다.";
+          }
+        }
+
+        setError(errorMessage);
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -72,9 +87,22 @@ const ModuleList: React.FC = () => {
       const data = await api.fetchModules();
       setModules(data);
     } catch (err: any) {
+      const detail = err?.response?.data?.detail;
+      let errorMessage = err.message;
+
+      if (typeof detail === "string") {
+        errorMessage = detail;
+      } else if (detail && typeof detail === "object") {
+        try {
+          errorMessage = JSON.stringify(detail);
+        } catch {
+          errorMessage = "서버에서 오류 응답을 받았습니다.";
+        }
+      }
+
       setDeployError((prev) => ({
         ...prev,
-        [name]: err?.response?.data?.detail || err.message,
+        [name]: errorMessage,
       }));
     } finally {
       setDeploying(null);
@@ -94,9 +122,22 @@ const ModuleList: React.FC = () => {
       const data = await api.fetchModules();
       setModules(data);
     } catch (err: any) {
+      const detail = err?.response?.data?.detail;
+      let errorMessage = err.message;
+
+      if (typeof detail === "string") {
+        errorMessage = detail;
+      } else if (detail && typeof detail === "object") {
+        try {
+          errorMessage = JSON.stringify(detail);
+        } catch {
+          errorMessage = "서버에서 오류 응답을 받았습니다.";
+        }
+      }
+
       setUndeployError((prev) => ({
         ...prev,
-        [name]: err?.response?.data?.detail || err.message,
+        [name]: errorMessage,
       }));
     } finally {
       setUndeploying(null);
@@ -113,7 +154,20 @@ const ModuleList: React.FC = () => {
       setModules(data);
       setDeleteTarget(null);
     } catch (err: any) {
-      setDeleteError(err?.response?.data?.detail || err.message);
+      const detail = err?.response?.data?.detail;
+      let errorMessage = err.message;
+
+      if (typeof detail === "string") {
+        errorMessage = detail;
+      } else if (detail && typeof detail === "object") {
+        try {
+          errorMessage = JSON.stringify(detail);
+        } catch {
+          errorMessage = "서버에서 오류 응답을 받았습니다.";
+        }
+      }
+
+      setDeleteError(errorMessage);
     } finally {
       setDeleteLoading(false);
     }

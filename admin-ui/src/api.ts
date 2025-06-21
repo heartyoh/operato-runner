@@ -57,17 +57,21 @@ export async function fetchModuleVersions(name: string) {
 }
 
 export async function rollbackModule(name: string, version: string) {
-  const res = await axios.post(`/api/modules/${name}/rollback`, { version });
+  const formData = new FormData();
+  formData.append("target_version", version);
+  const res = await axios.post(`/api/modules/${name}/rollback`, formData);
   return res.data;
 }
 
 export async function activateModuleVersion(name: string, version: string) {
-  const res = await axios.post(`/api/modules/${name}/activate`, { version });
+  const formData = new FormData();
+  formData.append("version", version);
+  const res = await axios.post(`/api/modules/${name}/activate`, formData);
   return res.data;
 }
 
 export async function deactivateModuleVersion(name: string, version: string) {
-  const res = await axios.post(`/api/modules/${name}/deactivate`, { version });
+  const res = await axios.post(`/api/modules/${name}/deactivate`);
   return res.data;
 }
 

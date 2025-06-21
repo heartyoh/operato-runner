@@ -78,7 +78,22 @@ const ModuleDetail: React.FC = () => {
         setVersions(versions);
         setHistory(history);
       })
-      .catch((err) => setError(err?.response?.data?.detail || err.message))
+      .catch((err) => {
+        const detail = err?.response?.data?.detail;
+        let errorMessage = err.message;
+
+        if (typeof detail === "string") {
+          errorMessage = detail;
+        } else if (detail && typeof detail === "object") {
+          try {
+            errorMessage = JSON.stringify(detail);
+          } catch {
+            errorMessage = "서버에서 오류 응답을 받았습니다.";
+          }
+        }
+
+        setError(errorMessage);
+      })
       .finally(() => setLoading(false));
   }, [name]);
 

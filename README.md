@@ -183,6 +183,75 @@ def run():
 
 if __name__ == '__main__':
     run()
+
+## Python 패키지 요구사항
+
+`operato-runner`에서 실행할 Python 패키지는 다음 최소 요구사항을 충족해야 합니다:
+
+### 필수 파일
+
+1. **`handler.py`** - 엔트리 포인트 역할
+   - `operato-runner`가 실행할 메인 함수가 포함되어야 함
+   - 함수는 입력 파라미터를 받아 결과를 반환하는 형태여야 함
+
+2. **`requirements.txt`** - 의존성 설치
+   - 패키지 실행에 필요한 Python 라이브러리 목록
+
+### 패키지 업로드
+
+각 Python 프로젝트는 **zip 파일로 업로드**할 수 있으며, 관련 템플릿은 새 모듈 업로드 화면에서 다운로드 받을 수 있습니다.
+
+### 예제 구조
+
+```
+
+my-python-package/
+├── handler.py # 필수: 엔트리 포인트
+├── requirements.txt # 필수: 의존성 목록
+└── etc...
+
+````
+
+### handler.py 예제
+
+```python
+def handler(input):
+    """
+    operato-runner에서 호출되는 메인 함수
+
+    Args:
+        input (dict): 입력 데이터 (dictionary 타입)
+            - 파라미터들은 input 딕셔너리의 키-값 쌍으로 전달됨
+            - 예: input.get('text', ''), input.get('limit', 10) 등
+
+    Returns:
+        dict: 실행 결과 (dictionary 타입)
+            - 결과 데이터를 딕셔너리 형태로 반환해야 함
+    """
+    # 입력 데이터 추출
+    text = input.get('text', '')
+    limit = input.get('limit', 10)
+
+    # 여기에 실제 로직 구현
+    result = process_input(text, limit)
+
+    return {
+        "result": result,
+        "status": "success",
+        "input_received": input  # 디버깅용
+    }
+
+def process_input(text, limit):
+    # 실제 처리 로직
+    return f"Processed: {text[:limit]}"
+````
+
+### requirements.txt 예제
+
+```
+numpy>=1.21.0
+pandas>=1.3.0
+requests>=2.25.0
 ```
 
 ## 프로젝트 구조

@@ -116,6 +116,13 @@ const Dashboard: React.FC = () => {
             errorMessage = detail
               .map((d) => `${d.loc.join(".")} - ${d.msg}`)
               .join("; ");
+          } else if (detail && typeof detail === "object") {
+            // 객체인 경우 JSON 문자열로 변환하거나 기본 메시지 사용
+            try {
+              errorMessage = JSON.stringify(detail);
+            } catch {
+              errorMessage = "서버에서 오류 응답을 받았습니다.";
+            }
           } else if (err.message) {
             errorMessage = err.message;
           }
