@@ -7,7 +7,7 @@ from executor_manager import ExecutorManager
 from sqlalchemy.ext.asyncio import AsyncSession
 from core.db import get_db, Base, get_engine, init_engine
 from models.user import User
-from schemas.user import UserCreate, UserRead, UserLogin
+from schemas.user import UserCreate, UserRead, UserLogin, UserUpdate
 from utils.jwt import create_access_token
 from api.auth import verify_password, get_current_user, has_role
 from utils.security import hash_password, validate_password_policy
@@ -17,7 +17,7 @@ from models.audit_log import AuditLog
 from schemas.audit_log import AuditLogRead
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
-from models import ExecRequest
+from models import ExecRequest, Role
 import tempfile
 import zipfile
 import os
@@ -39,6 +39,7 @@ from io import StringIO
 import shutil
 import subprocess
 from sqlalchemy import text
+from datetime import datetime
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Operato Runner", description="Python module execution platform")
@@ -64,6 +65,18 @@ def create_app() -> FastAPI:
         tags: List[str] = []
         isDeployed: bool
         description: Optional[str] = ""
+
+    class VersionResponse(BaseModel):
+        version: str
+        description: Optional[str] = None
+        created_at: datetime
+        is_active: bool
+
+    class HistoryResponse(BaseModel):
+        version: str
+        description: Optional[str] = None
+        created_at: datetime
+        action: str
 
     class RunRequest(BaseModel):
         input: Dict[str, Any]
@@ -114,7 +127,7 @@ def create_app() -> FastAPI:
         return result
 
     @app.get("/api/modules/{name}")
-    async def get_module_detail(name: str, db: AsyncSession = Depends(get_db), current_user: UserRead = Depends(get_current_user)):
+    async def get_module_detail(name: str, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
         def is_deployed(m):
             if m.env == "inline":
                 return True
@@ -158,6 +171,44 @@ def create_app() -> FastAPI:
             "description": description,  # 활성화된 버전 설명(인라인)
         }
 
+    @app.get("/api/modules/{name}/versions", response_model=List[VersionResponse])
+    async def get_module_versions(name: str, db: AsyncSession = Depends(get_db)):
+        result = await db.execute(select(Module).where(Module.name == name))
+        module = result.scalars().first()
+        if not module:
+            raise HTTPException(status_code=404, detail="Module not found")
+
+        versions_result = await db.execute(
+            select(Version, Deployment.status)
+            .outerjoin(Deployment, and_(Deployment.version_id == Version.id, Deployment.status == "active"))
+            .where(Version.module_id == module.id)
+            .order_by(Version.created_at.desc())
+        )
+        
+        return [
+            VersionResponse(
+                version=v.version,
+                description=v.description,
+                created_at=v.created_at,
+                is_active=d_status == "active"
+            )
+            for v, d_status in versions_result.all()
+        ]
+
+    @app.get("/api/modules/{name}/history", response_model=List[ModuleHistoryRead])
+    async def get_module_history(name: str, db: AsyncSession = Depends(get_db)):
+        result = await db.execute(select(Module).where(Module.name == name))
+        module = result.scalars().first()
+        if not module:
+            raise HTTPException(status_code=404, detail="Module not found")
+        
+        history_result = await db.execute(
+            select(ModuleHistory)
+            .where(ModuleHistory.module_id == module.id)
+            .order_by(ModuleHistory.timestamp.desc())
+        )
+        return history_result.scalars().all()
+
     @app.post("/api/modules", response_model=ModuleResponse, status_code=201)
     async def create_module(
         name: str = Form(...),
@@ -172,7 +223,7 @@ def create_app() -> FastAPI:
         input: str = Form(""),
         module_registry: ModuleRegistry = Depends(get_module_registry),
         db: AsyncSession = Depends(get_db),
-        current_user: UserRead = Depends(get_current_user)
+        current_user: User = Depends(get_current_user)
     ):
         name = name.strip()
         # input 파싱
@@ -447,6 +498,11 @@ def create_app() -> FastAPI:
     async def register(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
         print("[register] db session id:", id(db))
         print("[register] db.bind(engine) id:", id(getattr(db, 'bind', None)))
+        
+        # Check if any user exists
+        user_count_result = await db.execute(select(User))
+        is_first_user = len(user_count_result.scalars().all()) == 0
+        
         # 이미 존재하는 사용자 체크
         result = await db.execute(
             User.__table__.select().where(User.username == user_in.username)
@@ -454,16 +510,30 @@ def create_app() -> FastAPI:
         existing = result.first()
         if existing:
             raise HTTPException(status_code=400, detail="Username already registered")
+        
         try:
             validate_password_policy(user_in.password)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
+        
         hashed_pw = hash_password(user_in.password)
         print("[register] input:", user_in.password, "hash:", hashed_pw)
+        
         user = User(username=user_in.username, email=user_in.email, hashed_password=hashed_pw)
+        
+        if is_first_user:
+            # Find or create admin role
+            admin_role_result = await db.execute(select(Role).where(Role.name == "admin"))
+            admin_role = admin_role_result.scalars().first()
+            if not admin_role:
+                admin_role = Role(name="admin", description="Administrator")
+                db.add(admin_role)
+            user.roles.append(admin_role)
+
         db.add(user)
         await db.commit()
         await db.refresh(user)
+        
         # 관계 미리 로드
         result = await db.execute(
             select(User).options(selectinload(User.roles)).where(User.id == user.id)
@@ -489,13 +559,96 @@ def create_app() -> FastAPI:
         print("[login] input:", form.password, "db hash:", user.hashed_password, "verify:", verify)
         if not verify:
             raise HTTPException(status_code=401, detail="Incorrect username or password")
-        access_token = create_access_token({"sub": user.username, "scopes": []})
+
+        scopes = [role.name for role in user.roles]
+        access_token = create_access_token({"sub": user.username, "scopes": scopes})
+
         await log_audit_event(db, action="login", detail=f"User {user.username} logged in", user_id=user.id)
         return {"access_token": access_token, "token_type": "bearer"}
 
-    @app.get("/users/me", response_model=UserRead)
-    async def get_profile(current_user: UserRead = Depends(get_current_user)):
+    @app.get("/api/users/me", response_model=UserRead)
+    async def get_profile(current_user: User = Depends(get_current_user)):
         return current_user
+
+    @app.get("/api/users", response_model=List[UserRead])
+    async def list_users(
+        db: AsyncSession = Depends(get_db), current_user: User = Depends(has_role("admin"))
+    ):
+        result = await db.execute(select(User).options(selectinload(User.roles)))
+        users = result.scalars().all()
+        return [UserRead.from_orm_safe(u) for u in users]
+
+    @app.post("/api/users", response_model=UserRead, status_code=201)
+    async def create_user(
+        user_in: UserCreate,
+        db: AsyncSession = Depends(get_db),
+        current_user: User = Depends(has_role("admin")),
+    ):
+        result = await db.execute(select(User).where(User.username == user_in.username))
+        if result.scalars().first():
+            raise HTTPException(status_code=400, detail="Username already registered")
+        
+        try:
+            validate_password_policy(user_in.password)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+            
+        hashed_pw = hash_password(user_in.password)
+        user = User(username=user_in.username, email=user_in.email, hashed_password=hashed_pw)
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+        
+        # TODO: Role assignment logic
+        
+        # Eagerly load roles to prevent lazy loading issues in async context
+        result = await db.execute(
+            select(User).options(selectinload(User.roles)).where(User.id == user.id)
+        )
+        refreshed_user = result.scalar_one()
+        
+        return UserRead.from_orm_safe(refreshed_user)
+
+    @app.patch("/api/users/{user_id}", response_model=UserRead)
+    async def update_user(
+        user_id: int,
+        user_in: UserUpdate,
+        db: AsyncSession = Depends(get_db),
+        current_user: User = Depends(has_role("admin")),
+    ):
+        result = await db.execute(
+            select(User).options(selectinload(User.roles)).where(User.id == user_id)
+        )
+        user = result.scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        update_data = user_in.model_dump(exclude_unset=True)
+        if "email" in update_data:
+            user.email = update_data["email"]
+        if "is_active" in update_data:
+            user.is_active = update_data["is_active"]
+        
+        # TODO: Role handling logic
+        
+        await db.commit()
+        await db.refresh(user)
+        return UserRead.from_orm_safe(user)
+
+    @app.delete("/api/users/{user_id}", status_code=204)
+    async def delete_user(
+        user_id: int,
+        db: AsyncSession = Depends(get_db),
+        current_user: User = Depends(has_role("admin")),
+    ):
+        result = await db.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        await db.delete(user)
+        await db.commit()
+        return None
 
     @app.patch("/api/modules/{name}")
     async def update_module_info(
@@ -503,7 +656,7 @@ def create_app() -> FastAPI:
         description: str = Form(None),
         tags: str = Form(None),
         db: AsyncSession = Depends(get_db),
-        current_user: UserRead = Depends(get_current_user)
+        current_user: User = Depends(get_current_user)
     ):
         result = await db.execute(select(Module).where(Module.name == name))
         module = result.scalars().first()
@@ -536,65 +689,32 @@ def create_app() -> FastAPI:
         logs = result.fetchall()
         return [AuditLogRead.from_orm(row if not isinstance(row, tuple) else row[0]) for row in logs]
 
+    @app.get("/api/logs/errors", response_model=List[ErrorLogRead])
+    async def get_error_logs(
+        from_date: Optional[datetime] = None,
+        to_date: Optional[datetime] = None,
+        limit: int = 100,
+        db: AsyncSession = Depends(get_db),
+        current_user: User = Depends(has_role("admin"))
+    ):
+        query = select(ErrorLog)
+        if from_date:
+            query = query.where(ErrorLog.created_at >= from_date)
+        if to_date:
+            query = query.where(ErrorLog.created_at <= to_date)
+        
+        query = query.order_by(ErrorLog.created_at.desc()).limit(limit)
+        
+        result = await db.execute(query)
+        logs = result.scalars().all()
+        return logs
+
     @app.post("/test-init-db")
     async def test_init_db():
         engine = get_engine()
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         return {"status": "ok"}
-
-    # @app.post("/api/modules/upload")
-    # async def upload_module(file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
-    #     # 1. 임시 디렉토리 생성 및 파일 저장
-    #     with tempfile.TemporaryDirectory() as tmpdir:
-    #         zip_path = os.path.join(tmpdir, file.filename)
-    #         with open(zip_path, "wb") as f:
-    #             content = await file.read()
-    #             f.write(content)
-    #         # 2. 압축 해제
-    #         try:
-    #             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-    #                 zip_ref.extractall(tmpdir)
-    #         except zipfile.BadZipFile:
-    #             log = ModuleValidationLog(filename=file.filename, status="fail", message="압축 해제 실패: 올바른 zip 파일이 아님")
-    #             db.add(log)
-    #             await db.commit()
-    #             return JSONResponse(status_code=400, content={"detail": "업로드 파일이 올바른 zip 압축파일이 아닙니다."})
-    #         # 3. 필수 파일 검사
-    #         required_files = ["handler.py", "requirements.txt", "README", "README.md"]
-    #         found = {f: False for f in required_files}
-    #         handler_path = None
-    #         for root, dirs, files in os.walk(tmpdir):
-    #             for fname in files:
-    #                 for req in required_files:
-    #                     if fname.lower() == req.lower():
-    #                         found[req] = True
-    #                 if fname.lower() == "handler.py":
-    #                     handler_path = os.path.join(root, fname)
-    #         missing = [f for f, ok in found.items() if not ok and not (f.startswith("README") and (found["README"] or found["README.md"]))]
-    #         if missing:
-    #             log = ModuleValidationLog(filename=file.filename, status="fail", message=f"필수 파일 누락: {', '.join(missing)}")
-    #             db.add(log)
-    #             await db.commit()
-    #             return JSONResponse(status_code=400, content={"detail": f"필수 파일 누락: {', '.join(missing)}"})
-    #         # 4. handler.py 내부에 handler 함수 존재 여부 검사
-    #         if handler_path:
-    #             with open(handler_path, "r", encoding="utf-8") as f:
-    #                 handler_code = f.read()
-    #             if "def handler(" not in handler_code:
-    #                 log = ModuleValidationLog(filename=file.filename, status="fail", message="handler.py에 'def handler' 함수가 없음")
-    #                 db.add(log)
-    #                 await db.commit()
-    #                 return JSONResponse(status_code=400, content={"detail": "handler.py에 'def handler' 함수가 정의되어 있지 않습니다."})
-    #         else:
-    #             log = ModuleValidationLog(filename=file.filename, status="fail", message="handler.py 파일 없음")
-    #             db.add(log)
-    #             await db.commit()
-    #             return JSONResponse(status_code=400, content={"detail": "handler.py 파일을 찾을 수 없습니다."})
-    #         # 성공 기록
-    #         log = ModuleValidationLog(filename="deploy", status="success", message="검증 통과 및 환경 생성/설치/모듈 정보 갱신")
-    #         db.add(log)
-    #         return {"detail": "구조/필수 파일 및 handler 함수 검증 통과, venv 환경 생성 및 의존성 설치, 모듈 정보 갱신 완료"}
 
     @app.post("/api/modules/{module_id}/upload")
     async def upload_module_for_id(module_id: int, file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
@@ -825,584 +945,6 @@ def create_app() -> FastAPI:
             module.path = zip_path  # 실제 운영시에는 영구 저장소로 이동 필요
             await db.commit()
             return {"detail": f"구조/필수 파일 및 handler 함수 검증 통과, {env_type} 환경 생성 및 의존성 설치, 모듈 정보 갱신 완료"}
-
-    # @app.post("/modules/{module_id}/activate")
-    # async def activate_module(id: int, db: AsyncSession = Depends(get_db), current_user: UserRead = Depends(get_current_user)):
-    #     result = await db.execute(select(Module).where(Module.id == id))
-    #     module = result.scalars().first()
-    #     if not module:
-    #         raise HTTPException(status_code=404, detail="Module not found")
-    #     if getattr(module, 'status', None) == 'active':
-    #         raise HTTPException(status_code=400, detail="이미 활성화된 모듈입니다.")
-    #     # handler 정상 동작 확인 (간단히 import 및 함수 존재만 체크)
-    #     try:
-    #         env_type = module.env.lower() if module.env else "venv"
-    #         if env_type == "venv":
-    #             handler_path = os.path.abspath(os.path.join("module_envs", module.name, "venv", "handler.py"))
-    #         elif env_type == "conda":
-    #             handler_path = os.path.join("modules", str(id), "handler.py")
-    #         elif env_type == "docker":
-    #             handler_path = None  # docker는 별도 실행 필요
-    #         elif env_type == "uv":
-    #             handler_path = None  # uv는 별도 실행 필요
-    #         else:
-    #             handler_path = None
-    #         if handler_path and os.path.exists(handler_path):
-    #             with open(handler_path, "r", encoding="utf-8") as f:
-    #                 code = f.read()
-    #             if "def handler(" not in code:
-    #                 raise Exception("handler 함수가 없습니다.")
-    #         # docker는 실제 컨테이너 실행 등 추가 구현 필요
-    #     except Exception as e:
-    #         await log_audit_event(db, action="module_activate_fail", detail=f"Module {module.name} activate fail: {str(e)}", user_id=current_user.id)
-    #         raise HTTPException(status_code=400, detail=f"핸들러 동작 확인 실패: {str(e)}")
-    #     module.status = 'active'
-    #     await db.commit()
-    #     await log_audit_event(db, action="module_activate", detail=f"Module {module.name} activated", user_id=current_user.id)
-    #     return {"detail": "모듈이 활성화되었습니다."}
-
-    # @app.post("/modules/{module_id}/deactivate")
-    # async def deactivate_module(id: int, db: AsyncSession = Depends(get_db), current_user: UserRead = Depends(get_current_user)):
-    #     result = await db.execute(select(Module).where(Module.id == id))
-    #     module = result.scalars().first()
-    #     if not module:
-    #         raise HTTPException(status_code=404, detail="Module not found")
-    #     if getattr(module, 'status', None) == 'inactive':
-    #         raise HTTPException(status_code=400, detail="이미 비활성화된 모듈입니다.")
-    #     module.status = 'inactive'
-    #     await db.commit()
-    #     await log_audit_event(db, action="module_deactivate", detail=f"Module {module.name} deactivated", user_id=current_user.id)
-    #     return {"detail": "모듈이 비활성화되었습니다."}
-
-    @app.delete("/modules/{id}/delete")
-    async def delete_module_api(id: int, db: AsyncSession = Depends(get_db), current_user: UserRead = Depends(get_current_user)):
-        result = await db.execute(select(Module).where(Module.id == id))
-        module = result.scalars().first()
-        if not module:
-            raise HTTPException(status_code=404, detail="Module not found")
-        if getattr(module, 'status', None) == 'deleted':
-            raise HTTPException(status_code=400, detail="이미 삭제된 모듈입니다.")
-        module.status = 'deleted'
-        await db.commit()
-        await log_audit_event(db, action="module_delete", detail=f"Module {module.name} deleted", user_id=current_user.id)
-        # 환경/파일 정리
-        # venv 환경 삭제
-        if os.path.exists(os.path.join("module_envs", module.name, "venv")):
-            try:
-                shutil.rmtree(os.path.join("module_envs", module.name, "venv"))
-            except Exception:
-                pass
-        # conda 환경 삭제
-        if os.path.exists(os.path.join("module_envs", module.name, "conda_env")):
-            import subprocess
-            try:
-                subprocess.run(["conda", "remove", "-y", "-p", os.path.join("module_envs", module.name, "conda_env"), "--all"], check=False)
-            except Exception:
-                pass
-            try:
-                if os.path.exists(os.path.join("module_envs", module.name, "conda_env")):
-                    shutil.rmtree(os.path.join("module_envs", module.name, "conda_env"))
-            except Exception:
-                pass
-        # docker 환경 삭제
-        if module.env == "docker":
-            try:
-                docker_tag = f"mod_{module.name}:{module.version}"
-                subprocess.run(["docker", "rmi", "-f", docker_tag], check=False)
-            except Exception:
-                pass
-        # uv 환경 삭제
-        if os.path.exists(os.path.join("module_envs", module.name, "uv")):
-            try:
-                shutil.rmtree(os.path.join("module_envs", module.name, "uv"))
-            except Exception:
-                pass
-        # 실행환경 폴더 전체 삭제
-        if os.path.exists(os.path.join("module_envs", module.name)):
-            try:
-                shutil.rmtree(os.path.join("module_envs", module.name))
-            except Exception:
-                pass
-        # 소스 폴더 삭제
-        if os.path.exists(os.path.join("modules", module.name)):
-            try:
-                shutil.rmtree(os.path.join("modules", module.name))
-            except Exception:
-                pass
-        return {"success": True, "log": "전개 환경이 제거되었습니다."}
-
-    # @app.get("/modules/{id}/history")
-    # async def get_module_history(id: int, db: AsyncSession = Depends(get_db), current_user: UserRead = Depends(get_current_user)):
-    #     # AuditLog에서 해당 모듈 관련 이력 반환(간단히 action/detail에 모듈명 포함된 것)
-    #     from models.audit_log import AuditLog
-    #     result = await db.execute(AuditLog.__table__.select().where(AuditLog.detail.contains(str(id))).order_by(AuditLog.created_at.desc()))
-    #     logs = result.fetchall()
-    #     return [dict(row) if not isinstance(row, tuple) else dict(row[0]) for row in logs]
-
-    @app.get("/api/modules/{name}/versions")
-    async def get_module_versions(name: str, db: AsyncSession = Depends(get_db)):
-        # 해당 모듈의 모든 버전 및 상태 조회
-        result = await db.execute(select(Module).where(Module.name == name))
-        module = result.scalars().first()
-        if not module:
-            raise CustomException(
-                code="MODULE_NOT_FOUND",
-                message="모듈을 찾을 수 없습니다.",
-                dev_message=f"Module(name={name}) not found in modules table",
-                status_code=404
-            )
-        versions = await db.execute(select(Version).where(Version.module_id == module.id))
-        version_list = versions.scalars().all()
-        deployments = await db.execute(select(Deployment).where(Deployment.module_id == module.id))
-        deployment_list = deployments.scalars().all()
-        # 버전별 상태 매핑
-        version_status = {d.version_id: d.status for d in deployment_list}
-        return [
-            {
-                "id": v.id,
-                "version": v.version,
-                "created_at": v.created_at,
-                "status": version_status.get(v.id, "inactive")
-            } for v in version_list
-        ]
-
-    @app.post("/api/modules/{name}/versions", status_code=201)
-    async def upload_module_version(
-        name: str,
-        env: str = Form(...),
-        version: str = Form("0.1.0"),
-        code: str = Form(None),
-        description: str = Form(""),
-        tags: str = Form(""),
-        file: UploadFile = File(None),
-        input: str = Form(""),
-        db: AsyncSession = Depends(get_db),
-        current_user: UserRead = Depends(get_current_user)
-    ):
-        # name+version 중복 체크 (versions 테이블 기준)
-        result = await db.execute(
-            select(Module).where(Module.name == name)
-        )
-        module = result.scalars().first()
-        if not module:
-            raise HTTPException(status_code=404, detail=f"Module not found: {name}")
-        v_result = await db.execute(
-            select(Version).where(Version.module_id == module.id, Version.version == version)
-        )
-        dup = v_result.scalars().first()
-        if dup:
-            raise HTTPException(status_code=400, detail=f"이미 등록된 모듈 버전입니다: {name} v{version}")
-        # 태그 파싱
-        tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
-        # input 파싱 (사용하지 않으면 생략)
-        if file:
-            # 1. 모듈명 중복 체크
-            result = await db.execute(select(Module).where(Module.name == name))
-            if result.scalars().first():
-                raise HTTPException(status_code=400, detail=f"이미 등록된 모듈명입니다: {name}")
-            with tempfile.TemporaryDirectory() as tmpdir:
-                zip_path = os.path.join(tmpdir, file.filename)
-                with open(zip_path, "wb") as f:
-                    content = await file.read()
-                    f.write(content)
-                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                    zip_ref.extractall(tmpdir)
-                items = [item for item in os.listdir(tmpdir) if not item.startswith('.') and item != file.filename]
-                if len(items) == 1 and os.path.isdir(os.path.join(tmpdir, items[0])):
-                    root_dir = os.path.join(tmpdir, items[0])
-                else:
-                    root_dir = tmpdir
-                modules_dir = os.path.join("modules", name, version)
-                if os.path.exists(modules_dir):
-                    shutil.rmtree(modules_dir)
-                os.makedirs(modules_dir, exist_ok=True)
-                for item in os.listdir(root_dir):
-                    s = os.path.join(root_dir, item)
-                    d = os.path.join(modules_dir, item)
-                    if os.path.isdir(s):
-                        shutil.copytree(s, d, dirs_exist_ok=True)
-                    elif os.path.isfile(s):
-                        shutil.copy2(s, d)
-                # requirements.txt가 있는 폴더만 module_envs/{name}/로 복사 (deploy에서만 필요, 여기선 생략 가능)
-                # 2. versions/deployments에만 추가
-                version_obj = Version(
-                    module_id=module.id,
-                    version=version,
-                    code=None,
-                    description=description,
-                    changelog=None,
-                )
-                db.add(version_obj)
-                await db.commit()
-                await db.refresh(version_obj)
-                # 기존 Deployment 모두 inactive로
-                deployments = await db.execute(select(Deployment).where(Deployment.module_id == module.id))
-                for d in deployments.scalars().all():
-                    d.status = "inactive"
-                # 새 버전만 active
-                deployment_obj = Deployment(module_id=module.id, version_id=version_obj.id, status="active")
-                db.add(deployment_obj)
-                # Module.version 필드도 갱신
-                module.version = version
-                await db.commit()
-                return {"detail": f"새 버전 업로드 완료: {name} v{version}"}
-        elif code:
-            # 인라인 코드 업로드 (code, description 등 저장)
-            result = await db.execute(select(Module).where(Module.name == name))
-            module = result.scalars().first()
-            if not module:
-                raise HTTPException(status_code=404, detail=f"Module not found: {name}")
-            v_result = await db.execute(
-                select(Version).where(Version.module_id == module.id, Version.version == version)
-            )
-            dup = v_result.scalars().first()
-            if dup:
-                raise HTTPException(status_code=400, detail=f"이미 등록된 모듈 버전입니다: {name} v{version}")
-            version_obj = Version(
-                module_id=module.id,
-                version=version,
-                code=code,
-                description=description,
-                changelog=None,
-            )
-            db.add(version_obj)
-            await db.commit()
-            await db.refresh(version_obj)
-            # 기존 Deployment 모두 inactive로
-            deployments = await db.execute(select(Deployment).where(Deployment.module_id == module.id))
-            for d in deployments.scalars().all():
-                d.status = "inactive"
-            # 새 버전만 active
-            deployment_obj = Deployment(module_id=module.id, version_id=version_obj.id, status="active")
-            db.add(deployment_obj)
-            # Module.version 필드도 갱신
-            module.version = version
-            await db.commit()
-            return {"detail": f"인라인 코드 새 버전 업로드 완료: {name} v{version}"}
-        else:
-            raise HTTPException(status_code=400, detail="파일 또는 코드가 필요합니다.")
-
-    @app.post("/api/modules/{name}/rollback")
-    async def rollback_module(name: str, version: str = Body(..., embed=True), db: AsyncSession = Depends(get_db), current_user: UserRead = Depends(get_current_user)):
-        # 롤백: 해당 모듈의 지정 버전을 활성화, 나머지는 비활성화
-        result = await db.execute(select(Module).where(Module.name == name))
-        module = result.scalars().first()
-        if not module:
-            raise CustomException(
-                code="MODULE_NOT_FOUND",
-                message="모듈을 찾을 수 없습니다.",
-                dev_message=f"Module(name={name}) not found in modules table",
-                status_code=404
-            )
-        v_result = await db.execute(select(Version).where(Version.module_id == module.id, Version.version == version))
-        version_obj = v_result.scalars().first()
-        if not version_obj:
-            raise CustomException(
-                code="VERSION_NOT_FOUND",
-                message="지정한 버전을 찾을 수 없습니다.",
-                dev_message=f"Version({version}) not found for module_id={module.id}",
-                status_code=404
-            )
-        # deployments: 해당 버전만 active, 나머지는 inactive
-        deployment = await db.execute(
-            select(Deployment).where(Deployment.module_id == module.id, Deployment.version_id == version_obj.id)
-        )
-        deployment_obj = deployment.scalars().first()
-        if not deployment_obj:
-            deployment_obj = Deployment(module_id=module.id, version_id=version_obj.id, status="active")
-            db.add(deployment_obj)
-        else:
-            deployment_obj.status = "active"
-        module.version = version
-        module.is_active = 1
-        await db.commit()
-        history = ModuleHistory(module_id=module.id, version_id=version_obj.id, action="rollback", operator=current_user.username)
-        db.add(history)
-        await db.commit()
-        return {"detail": f"롤백 완료: {name} v{version}"}
-
-    @app.post("/api/modules/{name}/activate")
-    async def activate_module_version(name: str, version: str = Body(..., embed=True), db: AsyncSession = Depends(get_db), current_user: UserRead = Depends(get_current_user)):
-        result = await db.execute(select(Module).where(Module.name == name))
-        module = result.scalars().first()
-        if not module:
-            raise CustomException(
-                code="MODULE_NOT_FOUND",
-                message="모듈을 찾을 수 없습니다.",
-                dev_message=f"Module(name={name}) not found in modules table",
-                status_code=404
-            )
-        v_result = await db.execute(select(Version).where(Version.module_id == module.id, Version.version == version))
-        version_obj = v_result.scalars().first()
-        if not version_obj:
-            raise CustomException(
-                code="VERSION_NOT_FOUND",
-                message="지정한 버전을 찾을 수 없습니다.",
-                dev_message=f"Version({version}) not found for module_id={module.id}",
-                status_code=404
-            )
-        # deployments: 해당 버전만 active, 나머지는 inactive
-        deployment = await db.execute(
-            select(Deployment).where(Deployment.module_id == module.id, Deployment.version_id == version_obj.id)
-        )
-        deployment_obj = deployment.scalars().first()
-        if not deployment_obj:
-            deployment_obj = Deployment(module_id=module.id, version_id=version_obj.id, status="active")
-            db.add(deployment_obj)
-        # 나머지 버전은 inactive로
-        other_deployments = await db.execute(
-            select(Deployment).where(Deployment.module_id == module.id, Deployment.version_id != version_obj.id)
-        )
-        for d in other_deployments.scalars().all():
-            d.status = "inactive"
-        # Module.version 필드도 갱신
-        module.version = version
-        module.is_active = 1
-        await db.commit()
-        history = ModuleHistory(module_id=module.id, version_id=version_obj.id, action="activate", operator=current_user.username)
-        db.add(history)
-        await db.commit()
-        return {"detail": f"활성화 완료: {name} v{version}"}
-
-    @app.post("/api/modules/{name}/deactivate")
-    async def deactivate_module_version(name: str, version: str = Body(..., embed=True), db: AsyncSession = Depends(get_db), current_user: UserRead = Depends(get_current_user)):
-        result = await db.execute(select(Module).where(Module.name == name))
-        module = result.scalars().first()
-        if not module:
-            raise CustomException(
-                code="MODULE_NOT_FOUND",
-                message="모듈을 찾을 수 없습니다.",
-                dev_message=f"Module(name={name}) not found in modules table",
-                status_code=404
-            )
-        v_result = await db.execute(select(Version).where(Version.module_id == module.id, Version.version == version))
-        version_obj = v_result.scalars().first()
-        if not version_obj:
-            raise CustomException(
-                code="VERSION_NOT_FOUND",
-                message="지정한 버전을 찾을 수 없습니다.",
-                dev_message=f"Version({version}) not found for module_id={module.id}",
-                status_code=404
-            )
-        deployments = await db.execute(select(Deployment).where(Deployment.module_id == module.id, Deployment.version_id == version_obj.id))
-        for d in deployments.scalars().all():
-            d.status = "inactive"
-        await db.commit()
-        history = ModuleHistory(module_id=module.id, version_id=version_obj.id, action="deactivate", operator=current_user.username)
-        db.add(history)
-        await db.commit()
-        return {"detail": f"비활성화 완료: {name} v{version}"}
-
-    @app.get("/api/modules/{name}/history", response_model=List[ModuleHistoryRead])
-    async def get_module_history(name: str, db: AsyncSession = Depends(get_db)):
-        result = await db.execute(select(Module).where(Module.name == name))
-        module = result.scalars().first()
-        if not module:
-            raise HTTPException(status_code=404, detail="Module not found")
-        history_result = await db.execute(select(ModuleHistory).where(ModuleHistory.module_id == module.id).order_by(ModuleHistory.timestamp.desc()))
-        return history_result.scalars().all()
-
-    @app.get("/api/logs/errors", response_model=list[ErrorLogRead])
-    async def get_error_logs(
-        code: str = None,
-        user: str = None,
-        from_: str = None,
-        to: str = None,
-        keyword: str = None,
-        limit: int = 100,
-        offset: int = 0,
-        db: AsyncSession = Depends(get_db)
-    ):
-        from models.error_log import ErrorLog
-        filters = []
-        if code:
-            filters.append(ErrorLog.code == code)
-        if user:
-            filters.append(ErrorLog.user == user)
-        if from_:
-            filters.append(ErrorLog.created_at >= from_)
-        if to:
-            filters.append(ErrorLog.created_at <= to)
-        if keyword:
-            kw = f"%{keyword}%"
-            filters.append(or_(ErrorLog.message.like(kw), ErrorLog.dev_message.like(kw), ErrorLog.stack.like(kw)))
-        q = select(ErrorLog).where(and_(*filters)) if filters else select(ErrorLog)
-        q = q.order_by(ErrorLog.created_at.desc()).offset(offset).limit(limit)
-        result = await db.execute(q)
-        logs = result.scalars().all()
-        return logs
-
-    @app.get("/api/logs/errors/download")
-    async def download_error_logs(
-        code: str = None,
-        user: str = None,
-        from_: str = None,
-        to: str = None,
-        keyword: str = None,
-        db: AsyncSession = Depends(get_db)
-    ):
-        from models.error_log import ErrorLog
-        filters = []
-        if code:
-            filters.append(ErrorLog.code == code)
-        if user:
-            filters.append(ErrorLog.user == user)
-        if from_:
-            filters.append(ErrorLog.created_at >= from_)
-        if to:
-            filters.append(ErrorLog.created_at <= to)
-        if keyword:
-            kw = f"%{keyword}%"
-            filters.append(or_(ErrorLog.message.like(kw), ErrorLog.dev_message.like(kw), ErrorLog.stack.like(kw)))
-        q = select(ErrorLog).where(and_(*filters)) if filters else select(ErrorLog)
-        q = q.order_by(ErrorLog.created_at.desc())
-        result = await db.execute(q)
-        logs = result.scalars().all()
-        # CSV 변환
-        output = StringIO()
-        writer = csv.writer(output)
-        writer.writerow(["id", "code", "message", "dev_message", "url", "stack", "user", "created_at"])
-        for l in logs:
-            writer.writerow([
-                l.id, l.code, l.message, l.dev_message, l.url, l.stack, l.user, l.created_at
-            ])
-        output.seek(0)
-        return StreamingResponse(output, media_type="text/csv", headers={"Content-Disposition": "attachment; filename=error_logs.csv"})
-
-    @app.get("/api/templates/module")
-    async def download_module_template():
-        return FileResponse(
-            "templates/module_template.zip",
-            media_type="application/zip",
-            filename="module_template.zip"
-        )
-
-    @app.post("/api/modules/{name}/deploy")
-    async def deploy_module(name: str, db: AsyncSession = Depends(get_db)):
-        # 1. 모듈 정보 조회
-        result = await db.execute(select(Module).where(Module.name == name))
-        module = result.scalars().first()
-        if not module:
-            raise HTTPException(status_code=404, detail="Module not found")
-        # --- git artifact 분기 ---
-        if module.env == "venv" and getattr(module, "artifact_type", None) == "git" and getattr(module, "artifact_uri", None):
-            # 1. git clone (module_envs/{name}/src)
-            dst_dir = os.path.join("module_envs", module.name)
-            src_dir = os.path.join(dst_dir, "src")
-            if os.path.exists(src_dir):
-                shutil.rmtree(src_dir)
-            try:
-                subprocess.run(["git", "clone", module.artifact_uri, src_dir], check=True)
-            except Exception as e:
-                log_module_action(module.name, getattr(module, 'version', 'unknown'), "git", f"git clone 실패: {str(e)}")
-                return JSONResponse(status_code=500, content={"detail": f"git clone 실패: {str(e)}"})
-            # requirements.txt가 있는 폴더 찾기
-            def find_requirements_dir(base_dir):
-                for root, dirs, files in os.walk(base_dir):
-                    if "requirements.txt" in files:
-                        return root
-                return base_dir
-            req_dir = find_requirements_dir(src_dir)
-            # dst_dir 비우기(venv 폴더만 남기고 src만 유지)
-            for item in os.listdir(dst_dir):
-                if item in ["venv", "src"]:
-                    continue
-                item_path = os.path.join(dst_dir, item)
-                if os.path.isdir(item_path):
-                    shutil.rmtree(item_path)
-                else:
-                    os.remove(item_path)
-            # req_dir의 파일/폴더만 dst_dir로 복사 (venv, src 폴더에는 복사하지 않음)
-            for item in os.listdir(req_dir):
-                s = os.path.join(req_dir, item)
-                d = os.path.join(dst_dir, item)
-                if item in ["venv", "src"]:
-                    continue
-                if os.path.isdir(s):
-                    shutil.copytree(s, d, dirs_exist_ok=True)
-                elif os.path.isfile(s):
-                    shutil.copy2(s, d)
-            # venv 생성 (venv 폴더에는 아무것도 복사하지 않음)
-            venv_dir = os.path.join(dst_dir, "venv")
-            if not os.path.exists(os.path.join(venv_dir, "bin", "activate")):
-                try:
-                    subprocess.run(["python3", "-m", "venv", venv_dir], check=True)
-                    venv_python = os.path.join(venv_dir, "bin", "python")
-                    upgrade_pip(venv_python)
-                    log_module_action(module.name, getattr(module, 'version', 'unknown'), "venv", "venv 및 pip 업그레이드 성공")
-                except Exception as e:
-                    log_module_action(module.name, getattr(module, 'version', 'unknown'), "venv", f"venv 생성 실패: {str(e)}")
-                    log = ModuleValidationLog(filename=module.name, status="fail", message=f"venv 생성 실패: {str(e)}")
-                    db.add(log)
-                    await db.commit()
-                    return JSONResponse(status_code=500, content={"detail": f"venv 생성 실패: {str(e)}"})
-                return {"detail": f"git clone 및 venv 환경 생성/의존성 설치 완료"}
-        # --- 기존 venv zip 업로드 방식 ---
-        if module.env != "venv":
-            raise HTTPException(status_code=400, detail="현재는 venv 환경만 지원합니다.")
-        # 1-1. 활성화된 버전 조회
-        active_version_result = await db.execute(
-            select(Version).join(Deployment, Deployment.version_id == Version.id)
-            .where(Version.module_id == module.id, Deployment.status == "active")
-        )
-        active_version = active_version_result.scalars().first()
-        if not active_version:
-            raise HTTPException(status_code=400, detail="활성화된 버전이 없습니다. 먼저 버전을 활성화하세요.")
-        # 2. 소스 복사 경로 (module_envs/{module_name}/)
-        src_dir = os.path.join("modules", module.name, active_version.version)
-        dst_dir = os.path.join("module_envs", module.name)
-        if not os.path.exists(src_dir):
-            raise HTTPException(status_code=400, detail="영구 저장소에 모듈 파일이 존재하지 않습니다.")
-        os.makedirs(dst_dir, exist_ok=True)
-        # requirements.txt가 있는 폴더 찾기
-        def find_requirements_dir(base_dir):
-            for root, dirs, files in os.walk(base_dir):
-                if "requirements.txt" in files:
-                    return root
-            return base_dir
-        req_dir = find_requirements_dir(src_dir)
-        # dst_dir 비우기(venv 폴더만 남기고)
-        for item in os.listdir(dst_dir):
-            if item == "venv":
-                continue
-            item_path = os.path.join(dst_dir, item)
-            if os.path.isdir(item_path):
-                shutil.rmtree(item_path)
-            else:
-                os.remove(item_path)
-        # req_dir의 파일/폴더만 dst_dir로 복사 (venv 폴더에는 복사하지 않음)
-        for item in os.listdir(req_dir):
-            s = os.path.join(req_dir, item)
-            d = os.path.join(dst_dir, item)
-            if os.path.isdir(s):
-                shutil.copytree(s, d, dirs_exist_ok=True)
-            elif os.path.isfile(s):
-                shutil.copy2(s, d)
-        # 5. venv 생성 (venv 폴더에는 아무것도 복사하지 않음)
-        if not os.path.exists(os.path.join(dst_dir, "venv", "bin", "activate")):
-            venv_dir = os.path.join(dst_dir, "venv")
-            try:
-                subprocess.run(["python3", "-m", "venv", venv_dir], check=True)
-                venv_python = os.path.join(venv_dir, "bin", "python")
-                upgrade_pip(venv_python)
-                log_module_action(module.name, getattr(module, 'version', 'unknown'), "venv", "venv 및 pip 업그레이드 성공")
-            except Exception as e:
-                log_module_action(module.name, getattr(module, 'version', 'unknown'), "venv", f"venv 생성 실패: {str(e)}")
-                log = ModuleValidationLog(filename=module.name, status="fail", message=f"venv 생성 실패: {str(e)}")
-                db.add(log)
-                await db.commit()
-                return JSONResponse(status_code=500, content={"detail": f"venv 생성 실패: {str(e)}"})
-        # 6. requirements.txt 의존성 설치 (venv 폴더에 복사하지 않고, 경로만 지정)
-        requirements_path = os.path.join(dst_dir, "requirements.txt")
-        if os.path.exists(requirements_path):
-            venv_python = os.path.join(dst_dir, "venv", "bin", "python")
-            try:
-                install_requirements(venv_python, requirements_path)
-                log_module_action(module.name, getattr(module, 'version', 'unknown'), "requirements", "requirements.txt 의존성 설치 성공")
-            except Exception as e:
-                log_module_action(module.name, getattr(module, 'version', 'unknown'), "requirements", f"requirements.txt 설치 중 예외: {str(e)}")
-                return JSONResponse(status_code=500, content={"detail": f"venv 내 requirements.txt 설치 중 예외: {str(e)}"})
-            return {"detail": f"소스 복사 및 venv 환경 생성/의존성 설치 완료"}
 
     @app.delete("/api/modules/{name}/deploy")
     async def undeploy_module(name: str):

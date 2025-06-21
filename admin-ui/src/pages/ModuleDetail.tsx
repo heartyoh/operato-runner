@@ -28,8 +28,12 @@ import {
   updateModuleInfo,
 } from "../api";
 
-const formatDate = (iso: string) =>
-  iso ? iso.replace("T", " ").slice(0, 19) : "";
+const formatDate = (isoString?: string | null) => {
+  if (!isoString) {
+    return "";
+  }
+  return new Date(isoString).toLocaleString();
+};
 
 const ModuleDetail: React.FC = () => {
   const { name } = useParams();

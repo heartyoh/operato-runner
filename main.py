@@ -1,5 +1,11 @@
 import asyncio
 import argparse
+import os
+import sys
+
+# 프로젝트 루트를 Python 경로에 추가
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+
 from core.db import init_engine, get_sessionmaker
 from sqlalchemy.ext.asyncio import AsyncSession
 from module_registry import ModuleRegistry

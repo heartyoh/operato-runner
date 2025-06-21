@@ -42,4 +42,9 @@ class UserRead(UserBase):
 
 class UserLogin(BaseModel):
     username: str
-    password: str 
+    password: str
+
+class UserUpdate(BaseModel):
+    email: Optional[str] = None
+    is_active: Optional[bool] = None
+    roles: Optional[List[str]] = None 

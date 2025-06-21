@@ -1,10 +1,5 @@
 import React, { useEffect, useState } from "react";
-import {
-  fetchModules,
-  deployModule,
-  undeployModule,
-  deleteModule,
-} from "../api";
+import { api } from "../api";
 import {
   Typography,
   Paper,
@@ -23,7 +18,7 @@ import {
   DialogContentText,
   DialogActions,
 } from "@mui/material";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 
 interface Module {
   id: string;
@@ -57,11 +52,72 @@ const ModuleList: React.FC = () => {
 
   useEffect(() => {
     setLoading(true);
-    fetchModules()
+    api
+      .fetchModules()
       .then((data) => setModules(data))
-      .catch((err) => setError(err?.response?.data?.detail || err.message))
+      .catch((err: any) => setError(err?.response?.data?.detail || err.message))
       .finally(() => setLoading(false));
   }, []);
+
+  const handleDeploy = async (name: string) => {
+    setDeploying(name);
+    setDeployError((prev) => ({ ...prev, [name]: "" }));
+    setDeployLog((prev) => ({ ...prev, [name]: "" }));
+    try {
+      const res = await api.deployModule(name);
+      setDeployLog((prev) => ({
+        ...prev,
+        [name]: res?.detail || "배포 완료",
+      }));
+      const data = await api.fetchModules();
+      setModules(data);
+    } catch (err: any) {
+      setDeployError((prev) => ({
+        ...prev,
+        [name]: err?.response?.data?.detail || err.message,
+      }));
+    } finally {
+      setDeploying(null);
+    }
+  };
+
+  const handleUndeploy = async (name: string) => {
+    setUndeploying(name);
+    setUndeployError((prev) => ({ ...prev, [name]: "" }));
+    setUndeployLog((prev) => ({ ...prev, [name]: "" }));
+    try {
+      const res = await api.undeployModule(name);
+      setUndeployLog((prev) => ({
+        ...prev,
+        [name]: res?.log || "전개 해제 완료",
+      }));
+      const data = await api.fetchModules();
+      setModules(data);
+    } catch (err: any) {
+      setUndeployError((prev) => ({
+        ...prev,
+        [name]: err?.response?.data?.detail || err.message,
+      }));
+    } finally {
+      setUndeploying(null);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleteLoading(true);
+    setDeleteError(null);
+    try {
+      await api.deleteModule(deleteTarget.name);
+      const data = await api.fetchModules();
+      setModules(data);
+      setDeleteTarget(null);
+    } catch (err: any) {
+      setDeleteError(err?.response?.data?.detail || err.message);
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
 
   return (
     <div
@@ -190,7 +246,8 @@ const ModuleList: React.FC = () => {
                     >
                       <Button
                         size="small"
-                        onClick={() => navigate(`/dashboard/modules/${m.name}`)}
+                        component={Link}
+                        to={`/admin/modules/${m.name}`}
                       >
                         상세
                       </Button>
@@ -204,35 +261,7 @@ const ModuleList: React.FC = () => {
                               color="error"
                               sx={{ ml: 1 }}
                               disabled={undeploying === m.name}
-                              onClick={async () => {
-                                setUndeploying(m.name);
-                                setUndeployError((prev) => ({
-                                  ...prev,
-                                  [m.name]: "",
-                                }));
-                                setUndeployLog((prev) => ({
-                                  ...prev,
-                                  [m.name]: "",
-                                }));
-                                try {
-                                  const res = await undeployModule(m.name);
-                                  setUndeployLog((prev) => ({
-                                    ...prev,
-                                    [m.name]: res?.log || "전개 해제 완료",
-                                  }));
-                                  const data = await fetchModules();
-                                  setModules(data);
-                                } catch (err: any) {
-                                  setUndeployError((prev) => ({
-                                    ...prev,
-                                    [m.name]:
-                                      err?.response?.data?.detail ||
-                                      err.message,
-                                  }));
-                                } finally {
-                                  setUndeploying(null);
-                                }
-                              }}
+                              onClick={() => handleUndeploy(m.name)}
                             >
                               {undeploying === m.name
                                 ? "전개 해제중..."
@@ -245,35 +274,7 @@ const ModuleList: React.FC = () => {
                               color="secondary"
                               sx={{ ml: 1 }}
                               disabled={deploying === m.name}
-                              onClick={async () => {
-                                setDeploying(m.name);
-                                setDeployError((prev) => ({
-                                  ...prev,
-                                  [m.name]: "",
-                                }));
-                                setDeployLog((prev) => ({
-                                  ...prev,
-                                  [m.name]: "",
-                                }));
-                                try {
-                                  const res = await deployModule(m.name);
-                                  setDeployLog((prev) => ({
-                                    ...prev,
-                                    [m.name]: res?.log || "전개 완료",
-                                  }));
-                                  const data = await fetchModules();
-                                  setModules(data);
-                                } catch (err: any) {
-                                  setDeployError((prev) => ({
-                                    ...prev,
-                                    [m.name]:
-                                      err?.response?.data?.detail ||
-                                      err.message,
-                                  }));
-                                } finally {
-                                  setDeploying(null);
-                                }
-                              }}
+                              onClick={() => handleDeploy(m.name)}
                             >
                               {deploying === m.name ? "전개중..." : "전개"}
                             </Button>
@@ -349,22 +350,7 @@ const ModuleList: React.FC = () => {
               color="error"
               variant="contained"
               disabled={deleteLoading}
-              onClick={async () => {
-                if (!deleteTarget) return;
-                setDeleteLoading(true);
-                setDeleteError(null);
-                try {
-                  await deleteModule(deleteTarget.name);
-                  setModules((prev) =>
-                    prev.filter((mod) => mod.name !== deleteTarget.name)
-                  );
-                  setDeleteTarget(null);
-                } catch (err: any) {
-                  setDeleteError(err?.response?.data?.detail || err.message);
-                } finally {
-                  setDeleteLoading(false);
-                }
-              }}
+              onClick={handleDelete}
             >
               {deleteLoading ? "삭제중..." : "삭제"}
             </Button>

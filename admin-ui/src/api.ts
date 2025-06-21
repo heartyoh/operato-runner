@@ -13,17 +13,40 @@ axios.interceptors.request.use((config) => {
 axios.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (
-      error.response &&
-      (error.response.status === 401 || error.response.status === 403)
-    ) {
+    if (error.response && error.response.status === 401) {
       window.location.href = "/login";
     }
     return Promise.reject(error);
   }
 );
 
-export async function fetchModules() {
+export const api = {
+  fetchModules,
+  fetchModuleVersions,
+  rollbackModule,
+  activateModuleVersion,
+  deactivateModuleVersion,
+  fetchModuleHistory,
+  fetchModuleDetail,
+  createModule,
+  uploadModuleFile,
+  fetchErrorLogs,
+  downloadErrorLogs,
+  login,
+  deployModule,
+  undeployModule,
+  deleteModule,
+  uploadModuleVersion,
+  updateModuleInfo,
+  getAuditLogs,
+  getDbHealth,
+  get: axios.get,
+  post: axios.post,
+  patch: axios.patch,
+  delete: axios.delete,
+};
+
+async function fetchModules() {
   const res = await axios.get("/api/modules");
   return res.data;
 }
@@ -91,6 +114,11 @@ export async function login(username: string, password: string) {
     username,
     password,
   });
+
+  if (res.data.access_token) {
+    localStorage.setItem("access_token", res.data.access_token);
+  }
+
   return res.data;
 }
 
@@ -128,4 +156,35 @@ export async function updateModuleInfo(
   return res.data;
 }
 
-export {};
+export async function getAuditLogs(params: any) {
+  const res = await axios.get("/api/audit/logs", { params });
+  return res.data;
+}
+
+export async function getDbHealth() {
+  const res = await axios.get("/api/health/db");
+  return res.data;
+}
+
+// 사용자 관리 API
+export const listUsers = async () => {
+  const { data } = await api.get("/api/users");
+  return data;
+};
+
+export const createUser = async (userData: any) => {
+  const { data } = await api.post("/api/users", userData);
+  return data;
+};
+
+export const updateUser = async (
+  userId: number,
+  userData: { email?: string; is_active?: boolean; roles?: string[] }
+) => {
+  const { data } = await api.patch(`/api/users/${userId}`, userData);
+  return data;
+};
+
+export const deleteUser = async (userId: number) => {
+  await api.delete(`/api/users/${userId}`);
+};

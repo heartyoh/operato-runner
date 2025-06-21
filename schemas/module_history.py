@@ -1,6 +1,6 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_serializer
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 class ModuleHistoryRead(BaseModel):
     id: int
@@ -10,5 +10,12 @@ class ModuleHistoryRead(BaseModel):
     operator: Optional[str]
     timestamp: datetime
 
-    class Config:
-        orm_mode = True 
+    @field_serializer('timestamp')
+    def serialize_dt(self, dt: datetime, _info):
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=timezone.utc).isoformat()
+        return dt.isoformat()
+
+    model_config = {
+        "from_attributes": True
+    } 

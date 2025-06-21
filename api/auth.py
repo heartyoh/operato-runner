@@ -5,6 +5,7 @@ from typing import Optional, List, Dict, Any
 import os
 from datetime import timedelta
 from sqlalchemy.future import select
+from sqlalchemy.orm import selectinload
 from models.user import User
 from utils.jwt import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, create_access_token, decode_token
 from utils.security import hash_password, verify_password, validate_password_policy
@@ -19,18 +20,14 @@ class TokenData(BaseModel):
     username: Optional[str] = None
     scopes: List[str] = []
 
-class UserOut(BaseModel):
-    id: int
-    username: str
-    disabled: Optional[bool] = None
-    scopes: List[str] = []
-
 # Security
 security = HTTPBearer()
 
 # DB 기반 사용자 조회
 async def get_user_by_username(username: str, db):
-    result = await db.execute(select(User).where(User.username == username))
+    result = await db.execute(
+        select(User).options(selectinload(User.roles)).where(User.username == username)
+    )
     return result.scalars().first()
 
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Security(security), db=Depends(get_db)):
@@ -52,17 +49,17 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Security(
     user = await get_user_by_username(token_data.username, db)
     if user is None:
         raise credentials_exception
-    # scopes/disabled 필드는 User 모델에 맞게 확장 필요
-    return UserOut(id=user.id, username=user.username, disabled=False, scopes=token_data.scopes)
+    
+    # Attach scopes from token to the user object
+    user.scopes = token_data.scopes
+    return user
 
-async def get_current_active_user(current_user: UserOut = Depends(get_current_user)):
-    if current_user.disabled:
-        raise HTTPException(status_code=400, detail="Inactive user")
+async def get_current_active_user(current_user: User = Depends(get_current_user)):
     return current_user
 
 def has_role(required_role: str):
-    async def _has_role(current_user: UserOut = Depends(get_current_active_user)):
-        user_roles = [r.name if hasattr(r, 'name') else r for r in getattr(current_user, 'roles', [])]
+    async def _has_role(current_user: User = Depends(get_current_active_user)):
+        user_roles = [r.name for r in current_user.roles]
         if required_role not in user_roles:
             raise HTTPException(
                 status_code=403,
@@ -72,7 +69,7 @@ def has_role(required_role: str):
     return _has_role
 
 def has_scope(required_scope: str):
-    async def _has_scope(current_user: UserOut = Depends(get_current_active_user)):
+    async def _has_scope(current_user: User = Depends(get_current_active_user)):
         if required_scope not in current_user.scopes:
             raise HTTPException(
                 status_code=403,

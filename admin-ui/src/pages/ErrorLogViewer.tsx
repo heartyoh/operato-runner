@@ -152,9 +152,16 @@ const ErrorLogViewer: React.FC = () => {
                   onClick={() => setSelected(row)}
                   style={{ cursor: "pointer" }}
                 >
-                  {columns.map((col) => (
-                    <TableCell key={col.id}>{row[col.id]}</TableCell>
-                  ))}
+                  {columns.map((col) => {
+                    const value = row[col.id];
+                    return (
+                      <TableCell key={col.id}>
+                        {col.id === "created_at"
+                          ? new Date(value).toLocaleString()
+                          : value}
+                      </TableCell>
+                    );
+                  })}
                 </TableRow>
               ))}
             </TableBody>
@@ -164,13 +171,18 @@ const ErrorLogViewer: React.FC = () => {
           component="div"
           count={-1} // total count 미지원 시 -1
           page={page}
-          onPageChange={(_, newPage) => setPage(newPage)}
+          onPageChange={(
+            event: React.MouseEvent<HTMLButtonElement> | null,
+            newPage: number
+          ) => setPage(newPage)}
           rowsPerPage={rowsPerPage}
-          onRowsPerPageChange={(e) => {
+          onRowsPerPageChange={(e: React.ChangeEvent<HTMLInputElement>) => {
             setRowsPerPage(+e.target.value);
             setPage(0);
           }}
-          labelDisplayedRows={({ from, to }) => `${from}-${to}`}
+          labelDisplayedRows={({ from, to }: { from: number; to: number }) =>
+            `${from}-${to}`
+          }
           rowsPerPageOptions={[10, 20, 50, 100]}
         />
         <Dialog

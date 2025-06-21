@@ -1,6 +1,6 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_serializer
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 class AuditLogRead(BaseModel):
     id: int
@@ -8,5 +8,13 @@ class AuditLogRead(BaseModel):
     action: str
     detail: Optional[str]
     created_at: datetime
-    class Config:
-        orm_mode = True 
+
+    @field_serializer('created_at')
+    def serialize_dt(self, dt: datetime, _info):
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=timezone.utc).isoformat()
+        return dt.isoformat()
+
+    model_config = {
+        "from_attributes": True
+    } 
