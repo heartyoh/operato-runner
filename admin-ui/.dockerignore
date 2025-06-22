@@ -2,6 +2,8 @@ node_modules
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+package-lock.json
+yarn.lock
 .git
 .gitignore
 README.md
@@ -20,4 +22,10 @@ build
 coverage
 .nyc_output
 .cache
-.pytest_cache 
+.pytest_cache
+# 테스트 파일 제외
+**/*.test.*
+**/*.spec.*
+**/__tests__/
+**/test/
+**/tests/ 

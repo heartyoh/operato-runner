@@ -1,10 +1,21 @@
 # Python 3.10 베이스 이미지 사용
 FROM python:3.10-slim
 
+# 버전 정보 설정
+ARG VERSION=1.0.0
+ARG BUILD_DATE
+ARG VCS_REF
+
 # 이미지 메타데이터
 LABEL maintainer="hatiolab"
 LABEL description="Operato Runner Backend Service"
-LABEL version="1.0.0"
+LABEL version="${VERSION}"
+LABEL build-date="${BUILD_DATE}"
+LABEL vcs-ref="${VCS_REF}"
+LABEL org.opencontainers.image.title="Operato Runner Service"
+LABEL org.opencontainers.image.description="Backend service for Operato Runner"
+LABEL org.opencontainers.image.version="${VERSION}"
+LABEL org.opencontainers.image.vendor="hatiolab"
 
 # 작업 디렉토리 설정
 WORKDIR /app
@@ -23,6 +34,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # 애플리케이션 코드 복사
 COPY . .
+
+# 버전 정보를 환경변수로 설정
+ENV APP_VERSION=${VERSION}
+ENV BUILD_DATE=${BUILD_DATE}
 
 # 필요한 디렉토리 생성
 RUN mkdir -p /app/modules /app/module_envs /app/templates

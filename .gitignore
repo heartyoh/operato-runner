@@ -66,3 +66,4 @@ app.db
 # module and module_envs
 modules/
 module_envs/
+admin-ui/package-lock.json
