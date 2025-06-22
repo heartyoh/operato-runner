@@ -43,6 +43,7 @@ from sqlalchemy import text
 from datetime import datetime, timezone
 import pathlib
 from schemas.validation_log import ModuleValidationLogRead
+from utils.redis_client import redis_client
 
 # 프로젝트 루트 경로
 ROOT_DIR = pathlib.Path(__file__).resolve().parent.parent
@@ -526,6 +527,47 @@ def create_app() -> FastAPI:
             return {"status": "ok"}
         except Exception as e:
             return {"status": "error", "detail": str(e)}
+
+    # Redis 연결 상태 확인 엔드포인트
+    @app.get("/api/health/redis")
+    async def redis_health_check():
+        try:
+            is_connected = await redis_client.is_connected()
+            if is_connected:
+                return {"status": "ok", "redis": "connected"}
+            else:
+                return {"status": "error", "redis": "disconnected"}
+        except Exception as e:
+            return {"status": "error", "redis": "error", "detail": str(e)}
+
+    # 전체 헬스체크 엔드포인트
+    @app.get("/api/health")
+    async def full_health_check(db: AsyncSession = Depends(get_db)):
+        health_status = {
+            "status": "ok",
+            "timestamp": datetime.now().isoformat(),
+            "services": {}
+        }
+        
+        # DB 체크
+        try:
+            await db.execute(text("SELECT 1"))
+            health_status["services"]["database"] = "ok"
+        except Exception as e:
+            health_status["services"]["database"] = f"error: {str(e)}"
+            health_status["status"] = "error"
+        
+        # Redis 체크
+        try:
+            is_connected = await redis_client.is_connected()
+            health_status["services"]["redis"] = "ok" if is_connected else "disconnected"
+            if not is_connected:
+                health_status["status"] = "error"
+        except Exception as e:
+            health_status["services"]["redis"] = f"error: {str(e)}"
+            health_status["status"] = "error"
+        
+        return health_status
 
     @app.post("/auth/register", response_model=UserRead, status_code=201)
     async def register(user_in: UserCreate, db: AsyncSession = Depends(get_db)):

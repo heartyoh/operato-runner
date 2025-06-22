@@ -17,6 +17,7 @@ from executors.docker import DockerExecutor
 from executors.uv import UvExecutor
 from api.rest import app as rest_app
 from api.grpc_server import serve as serve_grpc
+from utils.redis_client import redis_client
 import uvicorn
 
 async def main():
@@ -27,11 +28,27 @@ async def main():
     parser.add_argument("--venv-path", default="./module_envs", help="Path to virtual environments")
     parser.add_argument("--no-rest", action="store_true", help="Disable REST API")
     parser.add_argument("--no-grpc", action="store_true", help="Disable gRPC server")
+    parser.add_argument("--no-redis", action="store_true", help="Disable Redis")
     args = parser.parse_args()
+
+    # Redis 비활성화 설정
+    if args.no_redis:
+        os.environ['REDIS_ENABLED'] = 'false'
 
     # DB 엔진 초기화
     init_engine()
     async_session = get_sessionmaker()
+
+    # Redis 연결 초기화 (조건부)
+    if redis_client.enabled:
+        await redis_client.connect()
+        # 연결 상태 확인
+        if await redis_client.is_connected():
+            print("✅ Redis 연결됨")
+        else:
+            print("⚠️  Redis 연결 실패 - 캐싱 기능 사용 불가")
+    else:
+        print("⚠️  Redis 비활성화됨 - 캐싱 기능 사용 불가")
 
     async with async_session() as db:
         module_registry = ModuleRegistry(db)
@@ -76,6 +93,10 @@ async def main():
                 if t is not None and not t.done():
                     t.cancel()
             await asyncio.sleep(0.1)
+        finally:
+            # Redis 연결 해제 (조건부)
+            if redis_client.enabled and await redis_client.is_connected():
+                await redis_client.disconnect()
 
 if __name__ == "__main__":
     asyncio.run(main()) 

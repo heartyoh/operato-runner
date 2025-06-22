@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  # 백엔드 서비스
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: hatiolab/operato-runner-service:latest
+    container_name: operato-backend
+    ports:
+      - "8000:8000"  # REST API
+      - "50051:50051"  # gRPC
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./modules:/app/modules
+      - ./module_envs:/app/module_envs
+      - ./app.db:/app/app.db
+    networks:
+      - operato-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health/db"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # 프론트엔드 서비스
+  frontend:
+    build:
+      context: ./admin-ui
+      dockerfile: Dockerfile
+    image: hatiolab/operato-runner:latest
+    container_name: operato-frontend
+    ports:
+      - "3000:80"  # 웹 UI
+    depends_on:
+      - backend
+    networks:
+      - operato-network
+    restart: unless-stopped
+
+networks:
+  operato-network:
+    driver: bridge 
