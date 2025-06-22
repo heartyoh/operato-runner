@@ -39,7 +39,10 @@ export const api = {
   uploadModuleVersion,
   updateModuleInfo,
   getAuditLogs,
+  downloadAuditLogs,
   getDbHealth,
+  getValidationLogs,
+  downloadValidationLogs,
   get: axios.get,
   post: axios.post,
   patch: axios.patch,
@@ -165,9 +168,39 @@ export async function getAuditLogs(params: any) {
   return res.data;
 }
 
+export async function downloadAuditLogs(params: any) {
+  return axios.get("/api/audit/logs/download", {
+    params,
+    responseType: "blob",
+  });
+}
+
 export async function getDbHealth() {
   const res = await axios.get("/api/health/db");
   return res.data;
+}
+
+export async function getValidationLogs(params: {
+  module_name?: string;
+  status?: string;
+  from_date?: string;
+  to_date?: string;
+  limit?: number;
+}) {
+  const res = await axios.get("/api/logs/validation", { params });
+  return res.data;
+}
+
+export async function downloadValidationLogs(params: {
+  module_name?: string;
+  status?: string;
+  from_date?: string;
+  to_date?: string;
+}) {
+  return axios.get("/api/logs/validation/download", {
+    params,
+    responseType: "blob",
+  });
 }
 
 // 사용자 관리 API

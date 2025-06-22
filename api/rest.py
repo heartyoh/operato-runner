@@ -42,6 +42,7 @@ import subprocess
 from sqlalchemy import text
 from datetime import datetime, timezone
 import pathlib
+from schemas.validation_log import ModuleValidationLogRead
 
 # 프로젝트 루트 경로
 ROOT_DIR = pathlib.Path(__file__).resolve().parent.parent
@@ -790,9 +791,80 @@ def create_app() -> FastAPI:
         return {"detail": "모듈 정보가 수정되었습니다."}
 
     @app.get("/api/audit/logs", response_model=List[AuditLogRead])
-    async def get_audit_logs(db: AsyncSession = Depends(get_db), current_user=Depends(has_role("admin"))):
-        result = await db.execute(select(AuditLog).order_by(AuditLog.created_at.desc()))
+    async def get_audit_logs(
+        action: Optional[str] = None,
+        user_id: Optional[int] = None,
+        from_date: Optional[datetime] = None,
+        to_date: Optional[datetime] = None,
+        limit: int = 100,
+        db: AsyncSession = Depends(get_db), 
+        current_user=Depends(has_role("admin"))
+    ):
+        """감사 로그를 조회합니다."""
+        query = select(AuditLog)
+        
+        # 필터링 조건 추가
+        if action:
+            query = query.where(AuditLog.action.contains(action))
+        if user_id:
+            query = query.where(AuditLog.user_id == user_id)
+        if from_date:
+            query = query.where(AuditLog.created_at >= from_date)
+        if to_date:
+            query = query.where(AuditLog.created_at <= to_date)
+        
+        # 최신순으로 정렬하고 제한
+        query = query.order_by(AuditLog.created_at.desc()).limit(limit)
+        
+        result = await db.execute(query)
         return result.scalars().all()
+
+    @app.get("/api/audit/logs/download")
+    async def download_audit_logs(
+        action: Optional[str] = None,
+        user_id: Optional[int] = None,
+        from_date: Optional[datetime] = None,
+        to_date: Optional[datetime] = None,
+        db: AsyncSession = Depends(get_db),
+        current_user=Depends(has_role("admin"))
+    ):
+        """감사 로그를 CSV로 다운로드합니다."""
+        query = select(AuditLog)
+        
+        # 필터링 조건 추가
+        if action:
+            query = query.where(AuditLog.action.contains(action))
+        if user_id:
+            query = query.where(AuditLog.user_id == user_id)
+        if from_date:
+            query = query.where(AuditLog.created_at >= from_date)
+        if to_date:
+            query = query.where(AuditLog.created_at <= to_date)
+        
+        query = query.order_by(AuditLog.created_at.desc())
+        result = await db.execute(query)
+        logs = result.scalars().all()
+        
+        # CSV 생성
+        output = StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["ID", "Action", "Detail", "User ID", "Created At"])
+        
+        for log in logs:
+            writer.writerow([
+                log.id,
+                log.action,
+                log.detail,
+                log.user_id,
+                log.created_at.isoformat() if log.created_at else ""
+            ])
+        
+        output.seek(0)
+        return StreamingResponse(
+            iter([output.getvalue()]),
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=audit_logs.csv"}
+        )
 
     @app.get("/api/logs/errors", response_model=List[ErrorLogRead])
     async def get_error_logs(
@@ -813,6 +885,83 @@ def create_app() -> FastAPI:
         result = await db.execute(query)
         logs = result.scalars().all()
         return logs
+
+    @app.get("/api/logs/validation", response_model=List[ModuleValidationLogRead])
+    async def get_validation_logs(
+        module_name: Optional[str] = None,
+        status: Optional[str] = None,  # success, fail
+        from_date: Optional[datetime] = None,
+        to_date: Optional[datetime] = None,
+        limit: int = 100,
+        db: AsyncSession = Depends(get_db),
+        current_user: User = Depends(has_role("admin"))
+    ):
+        """모듈 검증 로그를 조회합니다."""
+        query = select(ModuleValidationLog)
+        
+        # 필터링 조건 추가
+        if module_name:
+            query = query.where(ModuleValidationLog.filename.contains(module_name))
+        if status:
+            query = query.where(ModuleValidationLog.status == status)
+        if from_date:
+            query = query.where(ModuleValidationLog.created_at >= from_date)
+        if to_date:
+            query = query.where(ModuleValidationLog.created_at <= to_date)
+        
+        # 최신순으로 정렬하고 제한
+        query = query.order_by(ModuleValidationLog.created_at.desc()).limit(limit)
+        
+        result = await db.execute(query)
+        logs = result.scalars().all()
+        return logs
+
+    @app.get("/api/logs/validation/download")
+    async def download_validation_logs(
+        module_name: Optional[str] = None,
+        status: Optional[str] = None,
+        from_date: Optional[datetime] = None,
+        to_date: Optional[datetime] = None,
+        db: AsyncSession = Depends(get_db),
+        current_user: User = Depends(has_role("admin"))
+    ):
+        """모듈 검증 로그를 CSV로 다운로드합니다."""
+        query = select(ModuleValidationLog)
+        
+        # 필터링 조건 추가
+        if module_name:
+            query = query.where(ModuleValidationLog.filename.contains(module_name))
+        if status:
+            query = query.where(ModuleValidationLog.status == status)
+        if from_date:
+            query = query.where(ModuleValidationLog.created_at >= from_date)
+        if to_date:
+            query = query.where(ModuleValidationLog.created_at <= to_date)
+        
+        query = query.order_by(ModuleValidationLog.created_at.desc())
+        result = await db.execute(query)
+        logs = result.scalars().all()
+        
+        # CSV 생성
+        output = StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["ID", "Filename", "Status", "Message", "Created At"])
+        
+        for log in logs:
+            writer.writerow([
+                log.id,
+                log.filename,
+                log.status,
+                log.message or "",
+                log.created_at.isoformat() if log.created_at else ""
+            ])
+        
+        output.seek(0)
+        return StreamingResponse(
+            iter([output.getvalue()]),
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=validation_logs.csv"}
+        )
 
     @app.post("/test-init-db")
     async def test_init_db():
@@ -1087,8 +1236,8 @@ def create_app() -> FastAPI:
             # 10. 성공 로그 기록
             log = ModuleValidationLog(filename=file.filename, status="success", message=f"버전 업로드 성공: {name} v{version}")
             db.add(log)
+            module.path = zip_path  # 실제 운영시에는 영구 저장소로 이동 필요
             await db.commit()
-            
             return {
                 "detail": f"모듈 버전 업로드 성공: {name} v{version}",
                 "version": version,

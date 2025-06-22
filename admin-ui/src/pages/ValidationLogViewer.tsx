@@ -16,18 +16,19 @@ import {
   DialogTitle,
   DialogContent,
   IconButton,
+  Chip,
 } from "@mui/material";
-import { getAuditLogs, downloadAuditLogs } from "../api";
+import { getValidationLogs, downloadValidationLogs } from "../api";
 import CloseIcon from "@mui/icons-material/Close";
 
 const columns = [
-  { id: "created_at", label: "발생시각", minWidth: 140 },
-  { id: "user_id", label: "사용자 ID", minWidth: 80 },
-  { id: "action", label: "작업", minWidth: 120 },
-  { id: "detail", label: "상세 내용", minWidth: 200 },
+  { id: "created_at", label: "생성시각", minWidth: 140 },
+  { id: "filename", label: "파일명", minWidth: 150 },
+  { id: "status", label: "상태", minWidth: 100 },
+  { id: "message", label: "메시지", minWidth: 200 },
 ];
 
-const AuditLogViewer: React.FC = () => {
+const ValidationLogViewer: React.FC = () => {
   const [logs, setLogs] = useState<any[]>([]);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(20);
@@ -39,7 +40,7 @@ const AuditLogViewer: React.FC = () => {
       ...filters,
       limit: rowsPerPage,
     };
-    const data = await getAuditLogs(params);
+    const data = await getValidationLogs(params);
     setLogs(data);
   };
 
@@ -64,14 +65,18 @@ const AuditLogViewer: React.FC = () => {
 
   const handleDownload = async () => {
     const params = { ...filters };
-    const res = await downloadAuditLogs(params);
+    const res = await downloadValidationLogs(params);
     const url = window.URL.createObjectURL(new Blob([res.data]));
     const link = document.createElement("a");
     link.href = url;
-    link.setAttribute("download", "audit_logs.csv");
+    link.setAttribute("download", "validation_logs.csv");
     document.body.appendChild(link);
     link.click();
     link.parentNode?.removeChild(link);
+  };
+
+  const getStatusColor = (status: string) => {
+    return status === "success" ? "success" : "error";
   };
 
   return (
@@ -93,25 +98,24 @@ const AuditLogViewer: React.FC = () => {
         }}
       >
         <Typography variant="h5" gutterBottom>
-          감사 로그 뷰어
+          모듈 검증 로그 뷰어
         </Typography>
         <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
           <TextField
-            label="작업"
-            name="action"
+            label="모듈명"
+            name="module_name"
             size="small"
-            value={filters.action || ""}
+            value={filters.module_name || ""}
             onChange={handleFilterChange}
-            placeholder="작업명으로 필터링"
+            placeholder="모듈명으로 필터링"
           />
           <TextField
-            label="사용자 ID"
-            name="user_id"
+            label="상태"
+            name="status"
             size="small"
-            type="number"
-            value={filters.user_id || ""}
+            value={filters.status || ""}
             onChange={handleFilterChange}
-            placeholder="사용자 ID"
+            placeholder="success 또는 fail"
           />
           <TextField
             label="시작일"
@@ -160,16 +164,22 @@ const AuditLogViewer: React.FC = () => {
                   onClick={() => setSelected(row)}
                   style={{ cursor: "pointer" }}
                 >
-                  {columns.map((col) => {
-                    const value = row[col.id];
-                    return (
-                      <TableCell key={col.id}>
-                        {col.id === "created_at"
-                          ? new Date(value).toLocaleString()
-                          : value}
-                      </TableCell>
-                    );
-                  })}
+                  <TableCell>
+                    {new Date(row.created_at).toLocaleString()}
+                  </TableCell>
+                  <TableCell>{row.filename}</TableCell>
+                  <TableCell>
+                    <Chip
+                      label={row.status}
+                      color={getStatusColor(row.status) as any}
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    {row.message && row.message.length > 50
+                      ? `${row.message.substring(0, 50)}...`
+                      : row.message}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -200,7 +210,7 @@ const AuditLogViewer: React.FC = () => {
           fullWidth
         >
           <DialogTitle>
-            감사 로그 상세
+            검증 로그 상세
             <IconButton
               onClick={() => setSelected(null)}
               sx={{ position: "absolute", right: 8, top: 8 }}
@@ -215,19 +225,24 @@ const AuditLogViewer: React.FC = () => {
                   <strong>ID:</strong> {selected.id}
                 </div>
                 <div>
-                  <strong>사용자 ID:</strong> {selected.user_id}
+                  <strong>파일명:</strong> {selected.filename}
                 </div>
                 <div>
-                  <strong>작업:</strong> {selected.action}
+                  <strong>상태:</strong>{" "}
+                  <Chip
+                    label={selected.status}
+                    color={getStatusColor(selected.status) as any}
+                    size="small"
+                  />
                 </div>
                 <div>
-                  <strong>발생시각:</strong>{" "}
+                  <strong>생성시각:</strong>{" "}
                   {new Date(selected.created_at).toLocaleString()}
                 </div>
                 <div>
-                  <strong>상세 내용:</strong>
+                  <strong>메시지:</strong>
                   <div style={{ whiteSpace: "pre-wrap", marginTop: 8 }}>
-                    {selected.detail}
+                    {selected.message}
                   </div>
                 </div>
               </Stack>
@@ -239,4 +254,4 @@ const AuditLogViewer: React.FC = () => {
   );
 };
 
-export default AuditLogViewer;
+export default ValidationLogViewer;

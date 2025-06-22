@@ -9,6 +9,7 @@ import ModuleUpload from "../components/ModuleUpload";
 import UserManagement from "../pages/UserManagement";
 import ErrorLogViewer from "../pages/ErrorLogViewer";
 import AuditLogViewer from "../pages/AuditLogViewer";
+import ValidationLogViewer from "../pages/ValidationLogViewer";
 
 const AppRouter: React.FC = () => {
   return (
@@ -26,6 +27,7 @@ const AppRouter: React.FC = () => {
         <Route path="users" element={<UserManagement />} />
         <Route path="error-logs" element={<ErrorLogViewer />} />
         <Route path="audit-logs" element={<AuditLogViewer />} />
+        <Route path="validation-logs" element={<ValidationLogViewer />} />
       </Route>
       <Route path="*" element={<Navigate to="/admin/dashboard" replace />} />
     </Routes>

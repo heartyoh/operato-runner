@@ -21,6 +21,7 @@ import {
   UploadFile as UploadFileIcon,
   ErrorOutline as ErrorOutlineIcon,
   History as HistoryIcon,
+  CheckCircle as CheckCircleIcon,
 } from "@mui/icons-material";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useError } from "../contexts/ErrorContext";
@@ -42,6 +43,11 @@ const menuItems = [
     icon: <ErrorOutlineIcon />,
   },
   { text: "감사 로그", path: "/admin/audit-logs", icon: <HistoryIcon /> },
+  {
+    text: "검증 로그",
+    path: "/admin/validation-logs",
+    icon: <CheckCircleIcon />,
+  },
 ];
 
 const Layout: React.FC = () => {
