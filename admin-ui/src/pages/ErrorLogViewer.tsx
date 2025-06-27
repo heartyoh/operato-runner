@@ -97,12 +97,18 @@ const ErrorLogViewer: React.FC = () => {
             name="code"
             size="small"
             onChange={handleFilterChange}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleSearch();
+            }}
           />
           <TextField
             label="User"
             name="user"
             size="small"
             onChange={handleFilterChange}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleSearch();
+            }}
           />
           <TextField
             label="시작일"
@@ -111,6 +117,9 @@ const ErrorLogViewer: React.FC = () => {
             type="date"
             InputLabelProps={{ shrink: true }}
             onChange={handleFilterChange}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleSearch();
+            }}
           />
           <TextField
             label="종료일"
@@ -119,12 +128,18 @@ const ErrorLogViewer: React.FC = () => {
             type="date"
             InputLabelProps={{ shrink: true }}
             onChange={handleFilterChange}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleSearch();
+            }}
           />
           <TextField
             label="키워드"
             name="keyword"
             size="small"
             onChange={handleFilterChange}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleSearch();
+            }}
           />
           <Button variant="contained" onClick={handleSearch}>
             검색

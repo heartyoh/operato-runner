@@ -4,6 +4,7 @@ import tempfile
 import json
 import time
 import logging
+import importlib.util
 from executors.base import Executor
 from models import ExecRequest, ExecResult
 
@@ -43,11 +44,19 @@ class UvExecutor(Executor):
 import json
 import sys
 import os
+import importlib.util
+
 sys.path.insert(0, '{module_dir}')
-from handler import handler
+
+# 모듈의 __main__.py에서 main 함수 import
+spec = importlib.util.spec_from_file_location("module_main", os.path.join('{module_dir}', '__main__.py'))
+module_main = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module_main)
+main = module_main.main
+
 with open('{input_path}', 'r') as f:
     input_data = json.load(f)
-result = handler(input_data)
+result = main(input_data)
 with open('{output_path}', 'w') as f:
     json.dump(result, f)
 """

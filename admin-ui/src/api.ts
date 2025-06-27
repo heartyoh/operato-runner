@@ -29,7 +29,6 @@ export const api = {
   fetchModuleHistory,
   fetchModuleDetail,
   createModule,
-  uploadModuleFile,
   fetchErrorLogs,
   downloadErrorLogs,
   login,
@@ -94,14 +93,6 @@ export async function createModule(data: {
   version: string;
 }) {
   return axios.post("/api/modules", data);
-}
-
-export async function uploadModuleFile(moduleId: string, file: File) {
-  const formData = new FormData();
-  formData.append("file", file);
-  return axios.post(`/api/modules/${moduleId}/upload`, formData, {
-    headers: { "Content-Type": "multipart/form-data" },
-  });
 }
 
 export async function fetchErrorLogs(params: any) {
@@ -204,8 +195,8 @@ export async function downloadValidationLogs(params: {
 }
 
 // 사용자 관리 API
-export const listUsers = async () => {
-  const { data } = await api.get("/api/users");
+export const listUsers = async (params?: any) => {
+  const { data } = await api.get("/api/users", { params });
   return data;
 };
 

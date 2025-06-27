@@ -17,6 +17,10 @@ import {
   DialogContent,
   IconButton,
   Chip,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
 } from "@mui/material";
 import { getValidationLogs, downloadValidationLogs } from "../api";
 import CloseIcon from "@mui/icons-material/Close";
@@ -48,6 +52,14 @@ const ValidationLogViewer: React.FC = () => {
     fetchData();
     // eslint-disable-next-line
   }, [page, rowsPerPage]);
+
+  // 상태(status) 변경 시 자동 검색
+  useEffect(() => {
+    if (filters.status !== undefined) {
+      handleSearch();
+    }
+    // eslint-disable-next-line
+  }, [filters.status]);
 
   const handleFilterChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFilters({ ...filters, [e.target.name]: e.target.value });
@@ -108,15 +120,26 @@ const ValidationLogViewer: React.FC = () => {
             value={filters.module_name || ""}
             onChange={handleFilterChange}
             placeholder="모듈명으로 필터링"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleSearch();
+            }}
           />
-          <TextField
-            label="상태"
-            name="status"
-            size="small"
-            value={filters.status || ""}
-            onChange={handleFilterChange}
-            placeholder="success 또는 fail"
-          />
+          <FormControl size="small" sx={{ minWidth: 120 }}>
+            <InputLabel id="status-label">상태</InputLabel>
+            <Select
+              labelId="status-label"
+              name="status"
+              value={filters.status || ""}
+              label="상태"
+              onChange={(e) =>
+                setFilters({ ...filters, status: e.target.value })
+              }
+            >
+              <MenuItem value="">전체</MenuItem>
+              <MenuItem value="success">success</MenuItem>
+              <MenuItem value="fail">fail</MenuItem>
+            </Select>
+          </FormControl>
           <TextField
             label="시작일"
             name="from_date"
@@ -125,6 +148,9 @@ const ValidationLogViewer: React.FC = () => {
             InputLabelProps={{ shrink: true }}
             value={filters.from_date || ""}
             onChange={handleFilterChange}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleSearch();
+            }}
           />
           <TextField
             label="종료일"
@@ -134,6 +160,9 @@ const ValidationLogViewer: React.FC = () => {
             InputLabelProps={{ shrink: true }}
             value={filters.to_date || ""}
             onChange={handleFilterChange}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleSearch();
+            }}
           />
           <Button variant="contained" onClick={handleSearch}>
             검색

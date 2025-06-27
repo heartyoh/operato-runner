@@ -52,7 +52,6 @@ Operato Runner의 REST API 문서입니다. 모든 API는 `/api` 접두사를 �
 | ---------------------------- | ------ | -------------- |
 | `/api/modules/{name}/deploy` | POST   | 모듈 배포      |
 | `/api/modules/{name}/deploy` | DELETE | 모듈 배포 해제 |
-| `/api/modules/{name}/upload` | POST   | 모듈 업로드    |
 
 ## 파라미터 설명
 

@@ -22,7 +22,7 @@ import CloseIcon from "@mui/icons-material/Close";
 
 const columns = [
   { id: "created_at", label: "발생시각", minWidth: 140 },
-  { id: "user_id", label: "사용자 ID", minWidth: 80 },
+  { id: "username", label: "사용자명", minWidth: 100 },
   { id: "action", label: "작업", minWidth: 120 },
   { id: "detail", label: "상세 내용", minWidth: 200 },
 ];
@@ -103,15 +103,20 @@ const AuditLogViewer: React.FC = () => {
             value={filters.action || ""}
             onChange={handleFilterChange}
             placeholder="작업명으로 필터링"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleSearch();
+            }}
           />
           <TextField
-            label="사용자 ID"
-            name="user_id"
+            label="사용자명"
+            name="username"
             size="small"
-            type="number"
-            value={filters.user_id || ""}
+            value={filters.username || ""}
             onChange={handleFilterChange}
-            placeholder="사용자 ID"
+            placeholder="사용자명으로 검색"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleSearch();
+            }}
           />
           <TextField
             label="시작일"
@@ -121,6 +126,9 @@ const AuditLogViewer: React.FC = () => {
             InputLabelProps={{ shrink: true }}
             value={filters.from_date || ""}
             onChange={handleFilterChange}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleSearch();
+            }}
           />
           <TextField
             label="종료일"
@@ -130,6 +138,9 @@ const AuditLogViewer: React.FC = () => {
             InputLabelProps={{ shrink: true }}
             value={filters.to_date || ""}
             onChange={handleFilterChange}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleSearch();
+            }}
           />
           <Button variant="contained" onClick={handleSearch}>
             검색
@@ -215,7 +226,7 @@ const AuditLogViewer: React.FC = () => {
                   <strong>ID:</strong> {selected.id}
                 </div>
                 <div>
-                  <strong>사용자 ID:</strong> {selected.user_id}
+                  <strong>사용자 ID:</strong> {selected.username}
                 </div>
                 <div>
                   <strong>작업:</strong> {selected.action}

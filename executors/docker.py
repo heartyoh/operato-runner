@@ -51,11 +51,16 @@ class DockerExecutor(Executor):
         with open(script_path, "w") as f:
             f.write("import json\n")
             f.write("import sys\n")
+            f.write("import importlib.util\n")
             f.write(f"sys.path.insert(0, '{temp_dir}')\n")
-            f.write("from handler import handler\n")
+            f.write("# 모듈의 __main__.py에서 main 함수 import\n")
+            f.write("spec = importlib.util.spec_from_file_location('module_main', '/data/__main__.py')\n")
+            f.write("module_main = importlib.util.module_from_spec(spec)\n")
+            f.write("spec.loader.exec_module(module_main)\n")
+            f.write("main = module_main.main\n")
             f.write("with open('/data/input.json', 'r') as f:\n")
             f.write("    input_data = json.load(f)\n")
-            f.write("result = handler(input_data)\n")
+            f.write("result = main(input_data)\n")
             f.write("with open('/data/output.json', 'w') as f:\n")
             f.write("    json.dump(result, f)\n")
         container = None

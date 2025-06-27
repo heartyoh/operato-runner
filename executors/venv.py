@@ -60,13 +60,17 @@ import os
 # 모듈 디렉토리를 Python 경로에 추가
 sys.path.insert(0, '{module_dir}')
 
-# handler.py에서 handler 함수 import
-from handler import handler
+# 모듈의 __main__.py에서 main 함수 import
+import importlib.util
+spec = importlib.util.spec_from_file_location("module_main", os.path.join('{module_dir}', '__main__.py'))
+module_main = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module_main)
+main = module_main.main
 
 with open('{input_path}', 'r') as f:
     input_data = json.load(f)
 
-result = handler(input_data)
+result = main(input_data)
 
 with open('{output_path}', 'w') as f:
     json.dump(result, f)

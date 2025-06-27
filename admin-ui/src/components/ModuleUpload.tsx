@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { createModule, uploadModuleFile } from "../api";
+import { createModule } from "../api";
 import axios from "axios";
 import {
   Box,

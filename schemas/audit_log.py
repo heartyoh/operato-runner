@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 class AuditLogRead(BaseModel):
     id: int
     user_id: Optional[int]
+    username: Optional[str]
     action: str
     detail: Optional[str]
     created_at: datetime

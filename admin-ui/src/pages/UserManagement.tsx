@@ -48,6 +48,9 @@ const UserManagement: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // 검색 필터 상태
+  const [filters, setFilters] = useState({ username: "", email: "", role: "" });
+
   const [open, setOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [newUser, setNewUser] = useState({
@@ -84,6 +87,30 @@ const UserManagement: React.FC = () => {
   const handleClose = () => {
     setOpen(false);
     setEditingUser(null);
+  };
+
+  // 검색 입력 변경 핸들러
+  const handleFilterChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setFilters({ ...filters, [e.target.name]: e.target.value });
+  };
+
+  // 검색 버튼 클릭 시
+  const handleSearch = async () => {
+    setLoading(true);
+    try {
+      const data = await listUsers({
+        username: filters.username || undefined,
+        email: filters.email || undefined,
+        role: filters.role || undefined,
+      });
+      setUsers(data);
+    } catch (err: any) {
+      setError(
+        err?.response?.data?.detail || "사용자 목록을 불러올 수 없습니다."
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   const fetchUsers = async () => {
@@ -162,6 +189,45 @@ const UserManagement: React.FC = () => {
         </Typography>
         <Button variant="contained" onClick={() => handleOpen()}>
           신규 사용자 추가
+        </Button>
+      </Box>
+      {/* 검색 입력란 */}
+      <Box sx={{ display: "flex", gap: 2, mb: 2 }}>
+        <TextField
+          label="사용자명"
+          name="username"
+          size="small"
+          value={filters.username}
+          onChange={handleFilterChange}
+          placeholder="사용자명 검색"
+          onKeyDown={(e) => {
+            if (e.key === "Enter") handleSearch();
+          }}
+        />
+        <TextField
+          label="이메일"
+          name="email"
+          size="small"
+          value={filters.email}
+          onChange={handleFilterChange}
+          placeholder="이메일 검색"
+          onKeyDown={(e) => {
+            if (e.key === "Enter") handleSearch();
+          }}
+        />
+        <TextField
+          label="역할"
+          name="role"
+          size="small"
+          value={filters.role}
+          onChange={handleFilterChange}
+          placeholder="역할 검색 (예: admin)"
+          onKeyDown={(e) => {
+            if (e.key === "Enter") handleSearch();
+          }}
+        />
+        <Button variant="outlined" onClick={handleSearch}>
+          검색
         </Button>
       </Box>
 

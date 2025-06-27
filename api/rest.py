@@ -657,11 +657,22 @@ def create_app() -> FastAPI:
 
     @app.get("/api/users", response_model=List[UserRead])
     async def list_users(
+        username: Optional[str] = None,
+        email: Optional[str] = None,
+        role: Optional[str] = None,
         db: AsyncSession = Depends(get_db), current_user: User = Depends(has_role("admin"))
     ):
-        result = await db.execute(select(User).options(selectinload(User.roles)))
+        from sqlalchemy.orm import selectinload
+        query = select(User).options(selectinload(User.roles))
+        if username:
+            query = query.where(User.username.contains(username))
+        if email:
+            query = query.where(User.email.contains(email))
+        if role:
+            from models.role import Role
+            query = query.join(User.roles).where(Role.name == role)
+        result = await db.execute(query)
         users = result.scalars().all()
-        
         # Manually construct the response to avoid lazy loading issues
         response_users = []
         for user in users:
@@ -835,31 +846,38 @@ def create_app() -> FastAPI:
     @app.get("/api/audit/logs", response_model=List[AuditLogRead])
     async def get_audit_logs(
         action: Optional[str] = None,
-        user_id: Optional[int] = None,
+        username: Optional[str] = None,
         from_date: Optional[datetime] = None,
         to_date: Optional[datetime] = None,
         limit: int = 100,
         db: AsyncSession = Depends(get_db), 
         current_user=Depends(has_role("admin"))
     ):
-        """감사 로그를 조회합니다."""
-        query = select(AuditLog)
-        
-        # 필터링 조건 추가
+        from models.user import User
+        from sqlalchemy.orm import selectinload
+        query = select(AuditLog).options(selectinload(AuditLog.user))
         if action:
             query = query.where(AuditLog.action.contains(action))
-        if user_id:
-            query = query.where(AuditLog.user_id == user_id)
+        if username:
+            query = query.join(User, AuditLog.user_id == User.id).where(User.username.contains(username))
         if from_date:
             query = query.where(AuditLog.created_at >= from_date)
         if to_date:
             query = query.where(AuditLog.created_at <= to_date)
-        
-        # 최신순으로 정렬하고 제한
         query = query.order_by(AuditLog.created_at.desc()).limit(limit)
-        
         result = await db.execute(query)
-        return result.scalars().all()
+        logs = result.unique().scalars().all()
+        return [
+            {
+                "id": log.id,
+                "user_id": log.user_id,
+                "username": log.user.username if log.user else None,
+                "action": log.action,
+                "detail": log.detail,
+                "created_at": log.created_at,
+            }
+            for log in logs
+        ]
 
     @app.get("/api/audit/logs/download")
     async def download_audit_logs(
@@ -1202,9 +1220,9 @@ def create_app() -> FastAPI:
                 raise HTTPException(status_code=400, detail="업로드 파일이 올바른 zip 압축파일이 아닙니다.")
             
             # 5. 필수 파일 검사
-            required_files = ["handler.py", "requirements.txt"]
+            required_files = ["__main__.py", "requirements.txt"]
             found = {f: False for f in required_files}
-            handler_path = None
+            main_path = None
             requirements_path = None
             
             for root, dirs, files in os.walk(tmpdir):
@@ -1212,8 +1230,8 @@ def create_app() -> FastAPI:
                     for req in required_files:
                         if fname.lower() == req.lower():
                             found[req] = True
-                    if fname.lower() == "handler.py":
-                        handler_path = os.path.join(root, fname)
+                    if fname.lower() == "__main__.py":
+                        main_path = os.path.join(root, fname)
                     if fname.lower() == "requirements.txt":
                         requirements_path = os.path.join(root, fname)
             
@@ -1221,12 +1239,12 @@ def create_app() -> FastAPI:
             if missing:
                 raise HTTPException(status_code=400, detail=f"필수 파일 누락: {', '.join(missing)}")
             
-            # 6. handler.py 내부에 handler 함수 존재 여부 검사
-            if handler_path:
-                with open(handler_path, "r", encoding="utf-8") as f:
-                    handler_code = f.read()
-                if "def handler(" not in handler_code:
-                    raise HTTPException(status_code=400, detail="handler.py에 'def handler' 함수가 정의되어 있지 않습니다.")
+            # 6. __main__.py 내부에 main 함수 존재 여부 검사
+            if main_path:
+                with open(main_path, "r", encoding="utf-8") as f:
+                    main_code = f.read()
+                if "def main(" not in main_code:
+                    raise HTTPException(status_code=400, detail="__main__.py에 'def main' 함수가 정의되어 있지 않습니다.")
             
             # 7. 모듈 파일을 modules/{name}/{version}/에 저장
             modules_dir = os.path.join("modules", name, version)
@@ -1285,236 +1303,6 @@ def create_app() -> FastAPI:
                 "version": version,
                 "description": description
             }
-
-    @app.post("/api/modules/{module_id}/upload")
-    async def upload_module_for_id(module_id: int, file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
-        # 1. 모듈 존재 확인
-        result = await db.execute(select(Module).where(Module.id == module_id))
-        module = result.scalars().first()
-        if not module:
-            return JSONResponse(status_code=404, content={"detail": f"Module id {module_id} not found"})
-        # 1-1. 중복 버전 업로드 방지 (name+version)
-        dup_result = await db.execute(select(Module).where(Module.name == module.name, Module.version == module.version, Module.id != module_id))
-        dup = dup_result.scalars().first()
-        if dup:
-            log = ModuleValidationLog(filename=file.filename, status="fail", message=f"중복 버전 업로드: {module.name} v{module.version}")
-            db.add(log)
-            await db.commit()
-            return JSONResponse(status_code=400, content={"detail": f"이미 등록된 모듈 버전입니다: {module.name} v{module.version}"})
-        # 2. 임시 디렉토리 생성 및 파일 저장
-        with tempfile.TemporaryDirectory() as tmpdir:
-            zip_path = os.path.join(tmpdir, file.filename)
-            with open(zip_path, "wb") as f:
-                content = await file.read()
-                f.write(content)
-            # 3. 압축 해제
-            try:
-                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                    zip_ref.extractall(tmpdir)
-            except zipfile.BadZipFile:
-                log = ModuleValidationLog(filename=file.filename, status="fail", message="압축 해제 실패: 올바른 zip 파일이 아님")
-                db.add(log)
-                await db.commit()
-                return JSONResponse(status_code=400, content={"detail": "업로드 파일이 올바른 zip 압축파일이 아닙니다."})
-            # 4. 필수 파일 검사
-            required_files = ["handler.py", "requirements.txt", "README", "README.md"]
-            found = {f: False for f in required_files}
-            handler_path = None
-            requirements_path = None
-            for root, dirs, files in os.walk(tmpdir):
-                for fname in files:
-                    for req in required_files:
-                        if fname.lower() == req.lower():
-                            found[req] = True
-                    if fname.lower() == "handler.py":
-                        handler_path = os.path.join(root, fname)
-                    if fname.lower() == "requirements.txt":
-                        requirements_path = os.path.join(root, fname)
-            missing = [f for f, ok in found.items() if not ok and not (f.startswith("README") and (found["README"] or found["README.md"]))]
-            if missing:
-                log = ModuleValidationLog(filename=file.filename, status="fail", message=f"필수 파일 누락: {', '.join(missing)}")
-                db.add(log)
-                await db.commit()
-                return JSONResponse(status_code=400, content={"detail": f"필수 파일 누락: {', '.join(missing)}"})
-            # 5. handler.py 내부에 handler 함수 존재 여부 검사
-            if handler_path:
-                with open(handler_path, "r", encoding="utf-8") as f:
-                    handler_code = f.read()
-                if "def handler(" not in handler_code:
-                    log = ModuleValidationLog(filename=file.filename, status="fail", message="handler.py에 'def handler' 함수가 없음")
-                    db.add(log)
-                    await db.commit()
-                    return JSONResponse(status_code=400, content={"detail": "handler.py에 'def handler' 함수가 정의되어 있지 않습니다."})
-            else:
-                log = ModuleValidationLog(filename=file.filename, status="fail", message="handler.py 파일 없음")
-                db.add(log)
-                await db.commit()
-                return JSONResponse(status_code=400, content={"detail": "handler.py 파일을 찾을 수 없습니다."})
-            # 6. 환경별 독립 실행 환경 자동 생성
-            env_type = module.env.lower() if module.env else "venv"
-            if env_type == "venv":
-                # 4. 활성화된 버전 소스 복사 (requirements.txt가 있는 폴더만 복사, venv 폴더에는 복사하지 않음)
-                src_dir = os.path.join("modules", module.name, module.version)
-                dst_dir = os.path.join("module_envs", module.name)
-                if not os.path.exists(src_dir):
-                    raise HTTPException(status_code=400, detail="영구 저장소에 모듈 파일이 존재하지 않습니다.")
-                os.makedirs(dst_dir, exist_ok=True)
-                # requirements.txt가 있는 폴더 찾기
-                def find_requirements_dir(base_dir):
-                    for root, dirs, files in os.walk(base_dir):
-                        if "requirements.txt" in files:
-                            return root
-                    return base_dir
-                req_dir = find_requirements_dir(src_dir)
-                # dst_dir 비우기(venv 폴더만 남기고)
-                for item in os.listdir(dst_dir):
-                    if item == "venv":
-                        continue
-                    item_path = os.path.join(dst_dir, item)
-                    if os.path.isdir(item_path):
-                        shutil.rmtree(item_path)
-                    else:
-                        os.remove(item_path)
-                # req_dir의 파일/폴더만 dst_dir로 복사 (venv 폴더에는 복사하지 않음)
-                for item in os.listdir(req_dir):
-                    s = os.path.join(req_dir, item)
-                    d = os.path.join(dst_dir, item)
-                    if os.path.isdir(s):
-                        shutil.copytree(s, d, dirs_exist_ok=True)
-                    elif os.path.isfile(s):
-                        shutil.copy2(s, d)
-                # 5. venv 생성 (venv 폴더에는 아무것도 복사하지 않음)
-                if not os.path.exists(os.path.join(dst_dir, "venv", "bin", "activate")):
-                    venv_dir = os.path.join(dst_dir, "venv")
-                    try:
-                        subprocess.run(["python3", "-m", "venv", venv_dir], check=True)
-                        venv_python = os.path.join(venv_dir, "bin", "python")
-                        upgrade_pip(venv_python)
-                        log_module_action(module.name, getattr(module, 'version', 'unknown'), "venv", "venv 및 pip 업그레이드 성공")
-                    except Exception as e:
-                        log_module_action(module.name, getattr(module, 'version', 'unknown'), "venv", f"venv 생성 실패: {str(e)}")
-                        log = ModuleValidationLog(filename=module.name, status="fail", message=f"venv 생성 실패: {str(e)}")
-                        db.add(log)
-                        await db.commit()
-                        return JSONResponse(status_code=500, content={"detail": f"venv 생성 실패: {str(e)}"})
-                # 6. requirements.txt 의존성 설치 (venv 폴더에 복사하지 않고, 경로만 지정)
-                requirements_path = os.path.join(dst_dir, "requirements.txt")
-                if os.path.exists(requirements_path):
-                    venv_python = os.path.join(dst_dir, "venv", "bin", "python")
-                    try:
-                        install_requirements(venv_python, requirements_path)
-                        log_module_action(module.name, getattr(module, 'version', 'unknown'), "requirements", "requirements.txt 의존성 설치 성공")
-                        log = ModuleValidationLog(filename="requirements.txt", status="success", message=f"venv 내 requirements.txt 의존성 설치 성공")
-                        db.add(log)
-                    except Exception as e:
-                        log_module_action(module.name, getattr(module, 'version', 'unknown'), "requirements", f"requirements.txt 설치 중 예외: {str(e)}")
-                        log = ModuleValidationLog(filename="requirements.txt", status="fail", message=f"venv 내 requirements.txt 설치 중 예외: {str(e)}")
-                        db.add(log)
-                        await db.commit()
-                        return JSONResponse(status_code=500, content={"detail": f"venv 내 requirements.txt 설치 중 예외: {str(e)}"})
-            elif env_type == "conda":
-                # conda 환경은 업로드/업그레이드 시 환경 생성/설치하지 않음
-                # venv와 동일하게 소스만 modules/{name}/{version}/에 관리
-                pass
-            elif env_type == "docker":
-                # docker 환경 처리
-                src_dir = os.path.join("modules", module.name, module.version)
-                if not os.path.exists(src_dir):
-                    raise HTTPException(status_code=400, detail="영구 저장소에 모듈 파일이 존재하지 않습니다.")
-                docker_tag = f"mod_{module.name}:{module.version}"
-                dockerfile_path = os.path.join(src_dir, "Dockerfile")
-                if not os.path.exists(dockerfile_path):
-                    return JSONResponse(status_code=400, content={"detail": "Dockerfile이 존재하지 않습니다."})
-                try:
-                    proc = subprocess.run([
-                        "docker", "build", "-t", docker_tag, src_dir
-                    ], capture_output=True, text=True, check=False)
-                    if proc.returncode == 0:
-                        log_module_action(module.name, getattr(module, 'version', 'unknown'), "docker", f"docker 이미지 빌드 성공\n{proc.stdout}")
-                        log = ModuleValidationLog(filename="Dockerfile", status="success", message=f"docker 이미지 빌드 성공\n{proc.stdout}")
-                        db.add(log)
-                        await db.commit()
-                        return {"detail": f"docker 이미지 빌드 성공: {docker_tag}"}
-                    else:
-                        log_module_action(module.name, getattr(module, 'version', 'unknown'), "docker", f"docker 이미지 빌드 실패\n{proc.stderr}")
-                        log = ModuleValidationLog(filename="Dockerfile", status="fail", message=f"docker 이미지 빌드 실패\n{proc.stderr}")
-                        db.add(log)
-                        await db.commit()
-                        return JSONResponse(status_code=400, content={"detail": f"docker 이미지 빌드 실패", "error": proc.stderr})
-                except Exception as e:
-                    log_module_action(module.name, getattr(module, 'version', 'unknown'), "docker", f"docker 이미지 빌드 중 예외: {str(e)}")
-                    log = ModuleValidationLog(filename="Dockerfile", status="fail", message=f"docker 이미지 빌드 중 예외: {str(e)}")
-                    db.add(log)
-                    await db.commit()
-                    return JSONResponse(status_code=500, content={"detail": f"docker 이미지 빌드 중 예외: {str(e)}"})
-                module.env = docker_tag
-            elif env_type == "uv":
-                src_dir = os.path.join("modules", module.name, module.version)
-                dst_dir = os.path.join("module_envs", module.name)
-                if not os.path.exists(src_dir):
-                    raise HTTPException(status_code=400, detail="영구 저장소에 모듈 파일이 존재하지 않습니다.")
-                os.makedirs(dst_dir, exist_ok=True)
-                # requirements.txt가 있는 폴더 찾기
-                def find_requirements_dir(base_dir):
-                    for root, dirs, files in os.walk(base_dir):
-                        if "requirements.txt" in files:
-                            return root
-                    return base_dir
-                req_dir = find_requirements_dir(src_dir)
-                # dst_dir 비우기(uv 폴더만 남기고)
-                for item in os.listdir(dst_dir):
-                    if item == "uv":
-                        continue
-                    item_path = os.path.join(dst_dir, item)
-                    if os.path.isdir(item_path):
-                        shutil.rmtree(item_path)
-                    else:
-                        os.remove(item_path)
-                # req_dir의 파일/폴더만 dst_dir로 복사 (uv 폴더에는 복사하지 않음)
-                for item in os.listdir(req_dir):
-                    s = os.path.join(req_dir, item)
-                    d = os.path.join(dst_dir, item)
-                    if os.path.isdir(s):
-                        shutil.copytree(s, d, dirs_exist_ok=True)
-                    elif os.path.isfile(s):
-                        shutil.copy2(s, d)
-                # uv 가상환경 생성
-                uv_dir = os.path.join(dst_dir, "uv")
-                if not os.path.exists(os.path.join(uv_dir, "bin", "python")):
-                    try:
-                        subprocess.run(["uv", "venv", uv_dir], check=True)
-                        log_module_action(module.name, getattr(module, 'version', 'unknown'), "uv", "uv 가상환경 생성 성공")
-                    except Exception as e:
-                        log_module_action(module.name, getattr(module, 'version', 'unknown'), "uv", f"uv 가상환경 생성 실패: {str(e)}")
-                        log = ModuleValidationLog(filename=module.name, status="fail", message=f"uv 가상환경 생성 실패: {str(e)}")
-                        db.add(log)
-                        await db.commit()
-                        return JSONResponse(status_code=500, content={"detail": f"uv 가상환경 생성 실패: {str(e)}"})
-                # requirements.txt 의존성 설치
-                requirements_path = os.path.join(dst_dir, "requirements.txt")
-                if os.path.exists(requirements_path):
-                    try:
-                        subprocess.run(["uv", "pip", "install", "-r", requirements_path], check=True, cwd=uv_dir)
-                        log_module_action(module.name, getattr(module, 'version', 'unknown'), "requirements", "uv 환경 requirements.txt 의존성 설치 성공")
-                        log = ModuleValidationLog(filename="requirements.txt", status="success", message=f"uv 내 requirements.txt 의존성 설치 성공")
-                        db.add(log)
-                    except Exception as e:
-                        log_module_action(module.name, getattr(module, 'version', 'unknown'), "requirements", f"uv 환경 requirements.txt 설치 중 예외: {str(e)}")
-                        log = ModuleValidationLog(filename="requirements.txt", status="fail", message=f"uv 내 requirements.txt 설치 중 예외: {str(e)}")
-                        db.add(log)
-                        await db.commit()
-                        return JSONResponse(status_code=500, content={"detail": f"uv 내 requirements.txt 설치 중 예외: {str(e)}"})
-            else:
-                log = ModuleValidationLog(filename=file.filename, status="fail", message=f"알 수 없는 env 타입: {env_type}")
-                db.add(log)
-                await db.commit()
-                return JSONResponse(status_code=400, content={"detail": f"알 수 없는 env 타입: {env_type}"})
-            # 7. 성공 기록 및 모듈 정보 갱신
-            log = ModuleValidationLog(filename="deploy", status="success", message="검증 통과 및 환경 생성/설치/모듈 정보 갱신")
-            db.add(log)
-            module.path = zip_path  # 실제 운영시에는 영구 저장소로 이동 필요
-            await db.commit()
-            return {"detail": f"구조/필수 파일 및 handler 함수 검증 통과, {env_type} 환경 생성 및 의존성 설치, 모듈 정보 갱신 완료"}
 
     @app.post("/api/modules/{name}/deploy")
     async def deploy_module(name: str, db: AsyncSession = Depends(get_db)):

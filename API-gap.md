@@ -112,7 +112,6 @@
 | `/api/modules/{name}/deactivate` (POST)  | 모듈 비활성화             | **O**        | Done |
 | `/modules/{module_id}/deactivate` (POST) | 모듈 비활성화 (중복)      | X            |
 | `/api/modules/upload` (POST)             | 모듈 업로드               | X            |
-| `/api/modules/{module_id}/upload` (POST) | 모듈 업로드 (중복)        | **O**        | Done |
 
 ### 2) 실행/환경 관련 중복 엔드포인트
 

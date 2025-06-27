@@ -51,9 +51,14 @@ class CondaExecutor(Executor):
         cmd = [
             "conda", "run", "-n", module_name,
             "python", "-c",
-            f"import json; import sys; sys.path.append('{os.path.dirname(module_path)}'); from handler import handler; "
+            f"import json; import sys; import importlib.util; "
+            f"sys.path.append('{os.path.dirname(module_path)}'); "
+            f"spec = importlib.util.spec_from_file_location('module_main', '{os.path.join(module_path, '__main__.py')}'); "
+            f"module_main = importlib.util.module_from_spec(spec); "
+            f"spec.loader.exec_module(module_main); "
+            f"main = module_main.main; "
             f"with open('{input_path}', 'r') as f: input_data = json.load(f); "
-            f"result = handler(input_data); "
+            f"result = main(input_data); "
             f"with open('{output_path}', 'w') as f: json.dump(result, f)"
         ]
         try:
