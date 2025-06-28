@@ -44,6 +44,7 @@ from datetime import datetime, timezone
 import pathlib
 from schemas.validation_log import ModuleValidationLogRead
 from utils.redis_client import redis_client
+from models.module import ModuleEnvVar
 
 # 프로젝트 루트 경로
 ROOT_DIR = pathlib.Path(__file__).resolve().parent.parent
@@ -192,6 +193,15 @@ def create_app() -> FastAPI:
                 dt = dt.replace(tzinfo=timezone.utc)
             created_at_iso = dt.isoformat()
             
+        # 환경변수 조회
+        env_vars_result = await db.execute(
+            select(ModuleEnvVar).where(ModuleEnvVar.module_id == module.id)
+        )
+        env_vars = [
+            {"key": ev.key, "value": ev.value}
+            for ev in env_vars_result.scalars().all()
+        ]
+            
         return {
             "name": module.name,
             "env": module.env,
@@ -203,6 +213,7 @@ def create_app() -> FastAPI:
             "latest_version": current_version,
             "code": code,  # 활성화된 버전 코드(인라인)
             "description": description,  # 활성화된 버전 설명(인라인)
+            "env_vars": env_vars,  # 환경변수 목록
         }
 
     @app.get("/api/modules/{name}/versions", response_model=List[VersionResponse])
@@ -457,49 +468,7 @@ def create_app() -> FastAPI:
                 status_code=400,
                 detail="활성화된 버전이 없습니다. 배포/버전 상태를 확인하세요."
             )
-        # 인라인 실행 시 code를 직접 eval/exec로 실행
-        if module_obj.env == "inline":
-            code = version_obj.code
-            if not code:
-                raise HTTPException(
-                    status_code=400,
-                    detail="활성화된 버전의 코드가 비어 있습니다. 배포/버전 상태를 확인하세요."
-                )
-            input_data = request.input
-            if not isinstance(input_data, dict):
-                try:
-                    input_data = dict(input_data)
-                except Exception:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"input 파라미터가 dict 타입이 아닙니다. 실제 타입: {type(request.input)}"
-                    )
-            from io import StringIO
-            import sys
-            user_code = code
-            wrapped_code = "def handler(input):\n"
-            for line in user_code.splitlines():
-                wrapped_code += "    " + line + "\n"
-            local_vars = {}
-            old_stdout = sys.stdout
-            sys.stdout = mystdout = StringIO()
-            try:
-                exec(wrapped_code, {}, local_vars)
-                result_data = local_vars["handler"](input_data)
-                stdout_value = mystdout.getvalue()
-            except Exception as e:
-                sys.stdout = old_stdout
-                raise HTTPException(status_code=500, detail=f"인라인 코드 실행 실패: {str(e)}")
-            finally:
-                sys.stdout = old_stdout
-            return RunResponse(
-                result=result_data,
-                exit_code=0,
-                stderr="",
-                stdout=stdout_value,
-                duration=0.0
-            )
-        # 기존 venv/conda/docker 등은 기존 executor_manager 로직 사용
+        # 모든 모듈을 executor_manager를 통해 실행
         exec_request = ExecRequest(
             module=module,
             input_json=request.input
@@ -1185,9 +1154,10 @@ def create_app() -> FastAPI:
     @app.post("/api/modules/{name}/versions")
     async def upload_module_version(
         name: str, 
-        file: UploadFile = File(...), 
+        file: UploadFile = File(None), 
         version: str = Form(...),
         description: str = Form(""),
+        code: str = Form(None),  # inline 모듈용 코드
         db: AsyncSession = Depends(get_db),
         current_user: User = Depends(get_current_user)
     ):
@@ -1205,21 +1175,66 @@ def create_app() -> FastAPI:
         if version_result.scalars().first():
             raise HTTPException(status_code=400, detail=f"이미 존재하는 버전입니다: {name} v{version}")
         
-        # 3. 임시 디렉토리 생성 및 파일 저장
+        # 3. inline 모듈 처리
+        if module.env == "inline":
+            if not code:
+                raise HTTPException(status_code=400, detail="inline 모듈의 경우 코드가 필요합니다.")
+            
+            # Version 테이블에 새 버전 추가 (코드 포함)
+            version_obj = Version(
+                module_id=module.id,
+                version=version,
+                code=code,  # inline 모듈은 코드 저장
+                description=description,
+                changelog=None,
+            )
+            db.add(version_obj)
+            await db.commit()
+            await db.refresh(version_obj)
+            
+            # 기존 활성 배포를 비활성화하고 새 버전을 활성화
+            deployments = await db.execute(select(Deployment).where(Deployment.module_id == module.id))
+            for d in deployments.scalars().all():
+                d.status = "inactive"
+            
+            # 새 버전을 활성화
+            deployment_obj = Deployment(module_id=module.id, version_id=version_obj.id, status="active")
+            db.add(deployment_obj)
+            
+            # Module.version 필드도 갱신
+            module.version = version
+            await db.commit()
+            
+            # 성공 로그 기록
+            log = ModuleValidationLog(filename=f"{name}_v{version}", status="success", message=f"inline 버전 업로드 성공: {name} v{version}")
+            db.add(log)
+            await db.commit()
+            
+            return {
+                "detail": f"inline 모듈 버전 업로드 성공: {name} v{version}",
+                "version": version,
+                "description": description
+            }
+        
+        # 4. 파일 기반 모듈 처리 (기존 로직)
+        if not file:
+            raise HTTPException(status_code=400, detail="파일 기반 모듈의 경우 파일 업로드가 필요합니다.")
+        
+        # 5. 임시 디렉토리 생성 및 파일 저장
         with tempfile.TemporaryDirectory() as tmpdir:
             zip_path = os.path.join(tmpdir, file.filename)
             with open(zip_path, "wb") as f:
                 content = await file.read()
                 f.write(content)
             
-            # 4. 압축 해제
+            # 6. 압축 해제
             try:
                 with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                     zip_ref.extractall(tmpdir)
             except zipfile.BadZipFile:
                 raise HTTPException(status_code=400, detail="업로드 파일이 올바른 zip 압축파일이 아닙니다.")
             
-            # 5. 필수 파일 검사
+            # 7. 필수 파일 검사
             required_files = ["__main__.py", "requirements.txt"]
             found = {f: False for f in required_files}
             main_path = None
@@ -1239,14 +1254,14 @@ def create_app() -> FastAPI:
             if missing:
                 raise HTTPException(status_code=400, detail=f"필수 파일 누락: {', '.join(missing)}")
             
-            # 6. __main__.py 내부에 main 함수 존재 여부 검사
+            # 8. __main__.py 내부에 main 함수 존재 여부 검사
             if main_path:
                 with open(main_path, "r", encoding="utf-8") as f:
                     main_code = f.read()
                 if "def main(" not in main_code:
                     raise HTTPException(status_code=400, detail="__main__.py에 'def main' 함수가 정의되어 있지 않습니다.")
             
-            # 7. 모듈 파일을 modules/{name}/{version}/에 저장
+            # 9. 모듈 파일을 modules/{name}/{version}/에 저장
             modules_dir = os.path.join("modules", name, version)
             if os.path.exists(modules_dir):
                 shutil.rmtree(modules_dir)
@@ -1268,7 +1283,7 @@ def create_app() -> FastAPI:
                 elif os.path.isfile(s):
                     shutil.copy2(s, d)
             
-            # 8. Version 테이블에 새 버전 추가
+            # 10. Version 테이블에 새 버전 추가
             version_obj = Version(
                 module_id=module.id,
                 version=version,
@@ -1280,7 +1295,7 @@ def create_app() -> FastAPI:
             await db.commit()
             await db.refresh(version_obj)
             
-            # 9. 기존 활성 배포를 비활성화하고 새 버전을 활성화
+            # 11. 기존 활성 배포를 비활성화하고 새 버전을 활성화
             deployments = await db.execute(select(Deployment).where(Deployment.module_id == module.id))
             for d in deployments.scalars().all():
                 d.status = "inactive"
@@ -1293,7 +1308,7 @@ def create_app() -> FastAPI:
             module.version = version
             await db.commit()
             
-            # 10. 성공 로그 기록
+            # 12. 성공 로그 기록
             log = ModuleValidationLog(filename=file.filename, status="success", message=f"버전 업로드 성공: {name} v{version}")
             db.add(log)
             module.path = zip_path  # 실제 운영시에는 영구 저장소로 이동 필요
@@ -1431,6 +1446,118 @@ def create_app() -> FastAPI:
             except Exception:
                 pass
         return {"success": True, "log": "전개 환경이 제거되었습니다."}
+
+    # 환경변수 관리 API
+    @app.get("/api/modules/{name}/env-vars")
+    async def get_module_env_vars(
+        name: str,
+        db: AsyncSession = Depends(get_db),
+        current_user: User = Depends(get_current_user)
+    ):
+        """모듈의 환경변수 목록을 조회합니다."""
+        result = await db.execute(select(Module).where(Module.name == name))
+        module = result.scalars().first()
+        if not module:
+            raise HTTPException(status_code=404, detail="Module not found")
+        
+        env_vars_result = await db.execute(
+            select(ModuleEnvVar).where(ModuleEnvVar.module_id == module.id)
+        )
+        return [
+            {"key": ev.key, "value": ev.value}
+            for ev in env_vars_result.scalars().all()
+        ]
+
+    @app.post("/api/modules/{name}/env-vars")
+    async def add_module_env_var(
+        name: str,
+        key: str = Form(...),
+        value: str = Form(...),
+        db: AsyncSession = Depends(get_db),
+        current_user: User = Depends(get_current_user)
+    ):
+        """모듈에 환경변수를 추가합니다."""
+        result = await db.execute(select(Module).where(Module.name == name))
+        module = result.scalars().first()
+        if not module:
+            raise HTTPException(status_code=404, detail="Module not found")
+        
+        # 중복 키 체크
+        existing_result = await db.execute(
+            select(ModuleEnvVar).where(
+                ModuleEnvVar.module_id == module.id,
+                ModuleEnvVar.key == key
+            )
+        )
+        if existing_result.scalars().first():
+            raise HTTPException(status_code=400, detail=f"이미 존재하는 환경변수 키입니다: {key}")
+        
+        env_var = ModuleEnvVar(
+            module_id=module.id,
+            key=key,
+            value=value
+        )
+        db.add(env_var)
+        await db.commit()
+        
+        return {"key": key, "value": value}
+
+    @app.put("/api/modules/{name}/env-vars/{key}")
+    async def update_module_env_var(
+        name: str,
+        key: str,
+        value: str = Form(...),
+        db: AsyncSession = Depends(get_db),
+        current_user: User = Depends(get_current_user)
+    ):
+        """모듈의 환경변수를 수정합니다."""
+        result = await db.execute(select(Module).where(Module.name == name))
+        module = result.scalars().first()
+        if not module:
+            raise HTTPException(status_code=404, detail="Module not found")
+        
+        env_var_result = await db.execute(
+            select(ModuleEnvVar).where(
+                ModuleEnvVar.module_id == module.id,
+                ModuleEnvVar.key == key
+            )
+        )
+        env_var = env_var_result.scalars().first()
+        if not env_var:
+            raise HTTPException(status_code=404, detail=f"환경변수를 찾을 수 없습니다: {key}")
+        
+        env_var.value = value
+        await db.commit()
+        
+        return {"key": key, "value": value}
+
+    @app.delete("/api/modules/{name}/env-vars/{key}")
+    async def delete_module_env_var(
+        name: str,
+        key: str,
+        db: AsyncSession = Depends(get_db),
+        current_user: User = Depends(get_current_user)
+    ):
+        """모듈의 환경변수를 삭제합니다."""
+        result = await db.execute(select(Module).where(Module.name == name))
+        module = result.scalars().first()
+        if not module:
+            raise HTTPException(status_code=404, detail="Module not found")
+        
+        env_var_result = await db.execute(
+            select(ModuleEnvVar).where(
+                ModuleEnvVar.module_id == module.id,
+                ModuleEnvVar.key == key
+            )
+        )
+        env_var = env_var_result.scalars().first()
+        if not env_var:
+            raise HTTPException(status_code=404, detail=f"환경변수를 찾을 수 없습니다: {key}")
+        
+        await db.delete(env_var)
+        await db.commit()
+        
+        return {"message": f"환경변수가 삭제되었습니다: {key}"}
 
     @app.exception_handler(CustomException)
     async def custom_exception_handler(request: Request, exc: CustomException):

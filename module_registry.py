@@ -3,6 +3,7 @@ from models.module import Module
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import update, delete
+from sqlalchemy.orm import selectinload
 import os, shutil
 
 class ModuleRegistry:
@@ -10,7 +11,11 @@ class ModuleRegistry:
         self.db = db
 
     async def get_module(self, name: str) -> Optional[Module]:
-        result = await self.db.execute(select(Module).where(Module.name == name))
+        result = await self.db.execute(
+            select(Module)
+            .options(selectinload(Module.env_vars))  # env_vars를 미리 로드
+            .where(Module.name == name)
+        )
         return result.scalars().first()
 
     async def list_modules(self) -> List[Module]:

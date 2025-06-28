@@ -42,6 +42,11 @@ export const api = {
   getDbHealth,
   getValidationLogs,
   downloadValidationLogs,
+  // 환경변수 관리 API
+  getModuleEnvVars,
+  addModuleEnvVar,
+  updateModuleEnvVar,
+  deleteModuleEnvVar,
   get: axios.get,
   post: axios.post,
   patch: axios.patch,
@@ -192,6 +197,40 @@ export async function downloadValidationLogs(params: {
     params,
     responseType: "blob",
   });
+}
+
+// 환경변수 관리 API
+export async function getModuleEnvVars(name: string) {
+  const res = await axios.get(`/api/modules/${name}/env-vars`);
+  return res.data;
+}
+
+export async function addModuleEnvVar(
+  name: string,
+  key: string,
+  value: string
+) {
+  const formData = new FormData();
+  formData.append("key", key);
+  formData.append("value", value);
+  const res = await axios.post(`/api/modules/${name}/env-vars`, formData);
+  return res.data;
+}
+
+export async function updateModuleEnvVar(
+  name: string,
+  key: string,
+  value: string
+) {
+  const formData = new FormData();
+  formData.append("value", value);
+  const res = await axios.put(`/api/modules/${name}/env-vars/${key}`, formData);
+  return res.data;
+}
+
+export async function deleteModuleEnvVar(name: string, key: string) {
+  const res = await axios.delete(`/api/modules/${name}/env-vars/${key}`);
+  return res.data;
 }
 
 // 사용자 관리 API

@@ -63,9 +63,20 @@ with open('{output_path}', 'w') as f:
             script_file.write(script_content)
             script_path = script_file.name
 
+        # 환경변수 주입 및 .env 파일 생성
+        env = os.environ.copy()
+        env["PIP_DISABLE_PIP_VERSION_CHECK"] = "1"
+        if hasattr(module, 'env_vars') and module.env_vars:
+            env_dict = {e.key: e.value for e in module.env_vars}
+            env.update(env_dict)
+            env_path = os.path.join(module_dir, '.env')
+            with open(env_path, 'w') as f:
+                for k, v in env_dict.items():
+                    f.write(f"{k}={v}\n")
+        else:
+            env_path = None
+
         try:
-            env = os.environ.copy()
-            env["PIP_DISABLE_PIP_VERSION_CHECK"] = "1"
             process = subprocess.run(
                 [python_bin, script_path],
                 capture_output=True,
@@ -101,6 +112,8 @@ with open('{output_path}', 'w') as f:
                 os.unlink(output_path)
             if os.path.exists(script_path):
                 os.unlink(script_path)
+            if env_path and os.path.exists(env_path):
+                os.unlink(env_path)
         
         duration = time.time() - start_time
         return ExecResult(

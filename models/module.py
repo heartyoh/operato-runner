@@ -30,6 +30,16 @@ class ExecResult(BaseModel):
     stdout: Optional[str] = None
     duration: float  # seconds
 
+class ModuleEnvVar(Base):
+    __tablename__ = 'module_env_vars'
+    id = Column(Integer, primary_key=True, index=True)
+    module_id = Column(Integer, ForeignKey('modules.id'), nullable=False)
+    key = Column(String(100), nullable=False)
+    value = Column(String(512), nullable=False)  # 실제 운영에서는 암호화 권장
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    module = relationship('Module', back_populates='env_vars')
+
 class Module(Base):
     __tablename__ = 'modules'
     id = Column(Integer, primary_key=True, index=True)
@@ -49,6 +59,7 @@ class Module(Base):
     deployments = relationship('Deployment', back_populates='module', cascade='all, delete-orphan')
     env = Column(String(20), default="inline", nullable=False)  # 실행 환경 필드 추가
     is_active = Column(Integer, default=1)  # 1: 활성, 0: 비활성
+    env_vars = relationship('ModuleEnvVar', back_populates='module', cascade='all, delete-orphan')
 
     def __repr__(self):
         return f"<Module(id={self.id}, name='{self.name}', owner_id={self.owner_id})>" 

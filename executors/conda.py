@@ -47,27 +47,34 @@ class CondaExecutor(Executor):
             module = await self.module_registry.get_module(module_name)
             if module and module.path:
                 module_path = module.path
-        # 명령어 구성
-        cmd = [
-            "conda", "run", "-n", module_name,
-            "python", "-c",
-            f"import json; import sys; import importlib.util; "
-            f"sys.path.append('{os.path.dirname(module_path)}'); "
-            f"spec = importlib.util.spec_from_file_location('module_main', '{os.path.join(module_path, '__main__.py')}'); "
-            f"module_main = importlib.util.module_from_spec(spec); "
-            f"spec.loader.exec_module(module_main); "
-            f"main = module_main.main; "
-            f"with open('{input_path}', 'r') as f: input_data = json.load(f); "
-            f"result = main(input_data); "
-            f"with open('{output_path}', 'w') as f: json.dump(result, f)"
-        ]
+        # 환경변수 주입 및 .env 파일 생성
+        env = os.environ.copy()
+        if hasattr(module, 'env_vars') and module.env_vars:
+            env_dict = {e.key: e.value for e in module.env_vars}
+            env.update(env_dict)
+            env_path = os.path.join(os.path.dirname(module_path), '.env')
+            with open(env_path, 'w') as f:
+                for k, v in env_dict.items():
+                    f.write(f"{k}={v}\n")
+        else:
+            env_path = None
+
         try:
-            process = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=60
-            )
+            # 명령어 구성
+            cmd = [
+                "conda", "run", "-n", module_name,
+                "python", "-c",
+                f"import json; import sys; import importlib.util; "
+                f"sys.path.append('{os.path.dirname(module_path)}'); "
+                f"spec = importlib.util.spec_from_file_location('module_main', '{os.path.join(module_path, '__main__.py')}'); "
+                f"module_main = importlib.util.module_from_spec(spec); "
+                f"spec.loader.exec_module(module_main); "
+                f"main = module_main.main; "
+                f"with open('{input_path}', 'r') as f: input_data = json.load(f); "
+                f"result = main(input_data); "
+                f"with open('{output_path}', 'w') as f: json.dump(result, f)"
+            ]
+            process = subprocess.run(cmd, capture_output=True, text=True, timeout=60, env=env)
             result_json = {}
             if process.returncode == 0:
                 try:
@@ -97,6 +104,8 @@ class CondaExecutor(Executor):
                     os.unlink(output_path)
             except Exception as e:
                 print(f"Error cleaning up temporary files: {str(e)}")
+            if env_path and os.path.exists(env_path):
+                os.unlink(env_path)
         duration = time.time() - start_time
         return ExecResult(
             result_json=result_json,

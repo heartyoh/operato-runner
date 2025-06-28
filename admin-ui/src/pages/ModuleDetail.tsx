@@ -18,6 +18,16 @@ import {
   Button,
   Grid,
   TextField,
+  IconButton,
+  InputAdornment,
+  Tooltip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Snackbar,
+  Tabs,
+  Tab,
 } from "@mui/material";
 import {
   fetchModuleDetail,
@@ -28,7 +38,13 @@ import {
   fetchModuleHistory,
   uploadModuleVersion,
   updateModuleInfo,
+  getModuleEnvVars,
+  addModuleEnvVar,
+  deleteModuleEnvVar,
+  updateModuleEnvVar,
 } from "../api";
+import Visibility from "@mui/icons-material/Visibility";
+import VisibilityOff from "@mui/icons-material/VisibilityOff";
 
 const formatDate = (isoString?: string | null) => {
   if (!isoString) {
@@ -61,6 +77,12 @@ const ModuleDetail: React.FC = () => {
   const [editMsg, setEditMsg] = useState<string | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
   const [upgradeCode, setUpgradeCode] = useState("");
+  const [envVars, setEnvVars] = useState<{ key: string; value: string }[]>([]);
+  const [showValue, setShowValue] = useState<{ [key: string]: boolean }>({});
+  const [newEnv, setNewEnv] = useState({ key: "", value: "" });
+  const [envSnackbar, setEnvSnackbar] = useState<string | null>(null);
+  const [editKey, setEditKey] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState<string>("");
 
   const fetchData = useCallback(() => {
     if (!name) return;
@@ -69,14 +91,16 @@ const ModuleDetail: React.FC = () => {
       fetchModuleDetail(name),
       fetchModuleVersions(name),
       fetchModuleHistory(name),
+      getModuleEnvVars(name),
     ])
-      .then(([mod, versions, history]) => {
+      .then(([mod, versions, history, envVarsData]) => {
         setModule(mod);
         if (mod.env === "inline") {
           setUpgradeCode(mod.code || "");
         }
         setVersions(versions);
         setHistory(history);
+        setEnvVars(envVarsData || []);
       })
       .catch((err) => {
         const detail = err?.response?.data?.detail;
@@ -127,6 +151,43 @@ const ModuleDetail: React.FC = () => {
     } finally {
       setActionLoading(false);
     }
+  };
+
+  const fetchEnvVars = async () => {
+    // 예시: setEnvVars([{key: 'API_KEY', value: 'secret'}, ...]);
+  };
+  const handleAddEnv = async () => {
+    if (!newEnv.key || !name) return;
+    try {
+      await addModuleEnvVar(name, newEnv.key, newEnv.value);
+      setEnvVars([...envVars, { ...newEnv }]);
+      setNewEnv({ key: "", value: "" });
+      setEnvSnackbar("환경변수 추가됨");
+    } catch (error: any) {
+      setEnvSnackbar(error?.response?.data?.detail || "환경변수 추가 실패");
+    }
+  };
+  const handleDeleteEnv = async (key: string) => {
+    if (!name) return;
+    try {
+      await deleteModuleEnvVar(name, key);
+      setEnvVars(envVars.filter((e) => e.key !== key));
+      setEnvSnackbar("환경변수 삭제됨");
+    } catch (error: any) {
+      setEnvSnackbar(error?.response?.data?.detail || "환경변수 삭제 실패");
+    }
+  };
+  const handleValueChange = async (key: string, value: string) => {
+    if (!name) return;
+    try {
+      await updateModuleEnvVar(name, key, value);
+      setEnvVars(envVars.map((e) => (e.key === key ? { ...e, value } : e)));
+    } catch (error: any) {
+      setEnvSnackbar(error?.response?.data?.detail || "환경변수 수정 실패");
+    }
+  };
+  const handleToggleShow = (key: string) => {
+    setShowValue((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
   return (
@@ -365,10 +426,8 @@ const ModuleDetail: React.FC = () => {
             setUpgradeError(null);
             try {
               const formData = new FormData();
-              formData.append("env", module?.env || "venv");
               formData.append("version", upgradeVersion);
               formData.append("description", upgradeDesc);
-              formData.append("tags", upgradeTags);
               if (module?.env === "inline") {
                 formData.append("code", upgradeCode);
               } else if (
@@ -381,6 +440,7 @@ const ModuleDetail: React.FC = () => {
               await uploadModuleVersion(name, formData);
               setUpgradeMsg("새 버전 업로드 성공");
               setUpgradeVersion("");
+              setUpgradeCode("");
               fetchData();
               setUpgradeTags("");
               setUpgradeFile(null);
@@ -543,6 +603,149 @@ const ModuleDetail: React.FC = () => {
             </TableBody>
           </Table>
         </TableContainer>
+        <Divider sx={{ my: 3 }} />
+        <Typography variant="h6" gutterBottom>
+          환경변수 관리
+        </Typography>
+        <TableContainer>
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell>키</TableCell>
+                <TableCell>값</TableCell>
+                <TableCell>액션</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {envVars.map((env) => (
+                <TableRow key={env.key}>
+                  <TableCell>{env.key}</TableCell>
+                  <TableCell>
+                    <TextField
+                      type={showValue[env.key] ? "text" : "password"}
+                      value={editKey === env.key ? editValue : env.value}
+                      size="small"
+                      onChange={(e) => {
+                        setEditKey(env.key);
+                        setEditValue(e.target.value);
+                      }}
+                      InputProps={{
+                        endAdornment: (
+                          <InputAdornment position="end">
+                            <IconButton
+                              onClick={() =>
+                                setShowValue((prev) => ({
+                                  ...prev,
+                                  [env.key]: !prev[env.key],
+                                }))
+                              }
+                              size="small"
+                            >
+                              {showValue[env.key] ? (
+                                <VisibilityOff />
+                              ) : (
+                                <Visibility />
+                              )}
+                            </IconButton>
+                          </InputAdornment>
+                        ),
+                      }}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    {editKey === env.key ? (
+                      <>
+                        <Button
+                          size="small"
+                          color="primary"
+                          onClick={async () => {
+                            if (!name) return;
+                            await updateModuleEnvVar(name, env.key, editValue);
+                            setEnvVars(
+                              envVars.map((e) =>
+                                e.key === env.key
+                                  ? { ...e, value: editValue }
+                                  : e
+                              )
+                            );
+                            setEditKey(null);
+                            setEditValue("");
+                            setEnvSnackbar("환경변수 수정됨");
+                          }}
+                        >
+                          저장
+                        </Button>
+                        <Button
+                          size="small"
+                          onClick={() => {
+                            setEditKey(null);
+                            setEditValue("");
+                          }}
+                        >
+                          취소
+                        </Button>
+                      </>
+                    ) : null}
+                    <Button
+                      size="small"
+                      color="error"
+                      onClick={() => handleDeleteEnv(env.key)}
+                    >
+                      삭제
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+              <TableRow>
+                <TableCell>
+                  <TextField
+                    size="small"
+                    placeholder="키"
+                    value={newEnv.key}
+                    onChange={(e) =>
+                      setNewEnv((v) => ({ ...v, key: e.target.value }))
+                    }
+                    onKeyPress={(e) => {
+                      if (e.key === "Enter") {
+                        handleAddEnv();
+                      }
+                    }}
+                  />
+                </TableCell>
+                <TableCell>
+                  <TextField
+                    size="small"
+                    placeholder="값"
+                    value={newEnv.value}
+                    onChange={(e) =>
+                      setNewEnv((v) => ({ ...v, value: e.target.value }))
+                    }
+                    onKeyPress={(e) => {
+                      if (e.key === "Enter") {
+                        handleAddEnv();
+                      }
+                    }}
+                  />
+                </TableCell>
+                <TableCell>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={handleAddEnv}
+                  >
+                    추가
+                  </Button>
+                </TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+        </TableContainer>
+        <Snackbar
+          open={!!envSnackbar}
+          autoHideDuration={1500}
+          onClose={() => setEnvSnackbar(null)}
+          message={envSnackbar}
+        />
       </Paper>
     </div>
   );

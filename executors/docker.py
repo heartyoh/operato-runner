@@ -67,15 +67,29 @@ class DockerExecutor(Executor):
         try:
             # 이미지 pull (최초 실행 시)
             self.client.images.pull(image_ref)
+            # 환경변수 주입 및 .env 파일 생성
+            env = os.environ.copy()
+            if hasattr(module, 'env_vars') and module.env_vars:
+                env_dict = {e.key: e.value for e in module.env_vars}
+                env.update(env_dict)
+                env_path = os.path.join(temp_dir, '.env')
+                with open(env_path, 'w') as f:
+                    for k, v in env_dict.items():
+                        f.write(f"{k}={v}\n")
+            else:
+                env_path = None
             container = self.client.containers.run(
                 image_ref,
                 command=["python", "/data/script.py"],
                 volumes={temp_dir: {"bind": "/data", "mode": "rw"}},
+                environment=env,
                 detach=True,
+                remove=True,
+                network_disabled=True,
                 mem_limit="512m",
-                cpu_period=100000,
-                cpu_quota=50000,
-                network_mode="none"
+                stderr=True,
+                stdout=True,
+                user=os.getuid() if hasattr(os, "getuid") else None,
             )
             exit_code = container.wait(timeout=60)["StatusCode"]
             logs = container.logs(stdout=True, stderr=True).decode("utf-8")
@@ -107,6 +121,8 @@ class DockerExecutor(Executor):
                 except Exception:
                     pass
             shutil.rmtree(temp_dir, ignore_errors=True)
+            if env_path and os.path.exists(env_path):
+                os.unlink(env_path)
         duration = time.time() - start_time
         return ExecResult(
             result_json=result_json,
