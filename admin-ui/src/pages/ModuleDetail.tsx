@@ -451,52 +451,79 @@ const ModuleDetail: React.FC = () => {
             }
           }}
         >
-          <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 2 }}>
-            {module?.env === "inline" ? (
-              <textarea
-                placeholder="코드 입력"
+          {module?.env === "inline" ? (
+            <Box sx={{ mb: 3 }}>
+              <Typography
+                variant="subtitle2"
+                color="text.secondary"
+                sx={{ mb: 0.5 }}
+              >
+                코드 *
+              </Typography>
+              <TextField
+                multiline
+                minRows={10}
+                maxRows={30}
+                fullWidth
                 value={upgradeCode}
                 onChange={(e) => setUpgradeCode(e.target.value)}
-                rows={6}
-                style={{ width: 400, fontFamily: "monospace" }}
+                placeholder={`import os\n\nreturn {"message": "기본 동작 테스트", "A": os.environ.get('A', 'NOT_SET')}`}
+                sx={{ fontFamily: "monospace", mb: 1 }}
                 required
               />
-            ) : module?.env === "venv" ||
-              module?.env === "conda" ||
-              module?.env === "uv" ? (
-              <input
-                type="file"
-                accept=".zip"
-                onChange={(e) => setUpgradeFile(e.target.files?.[0] || null)}
-                style={{ display: "inline-block" }}
-              />
-            ) : null}
+              <Typography variant="caption" color="text.secondary">
+                실행 시 input 파라미터로 전달됩니다. 코드에서 input['x'] 등으로
+                바로 사용하세요.
+                <br />
+                환경변수는 <b>os.environ.get('KEY')</b>로 접근할 수 있습니다.
+              </Typography>
+              <Stack
+                direction="row"
+                spacing={2}
+                alignItems="center"
+                sx={{ mt: 2 }}
+              >
+                <input
+                  type="text"
+                  placeholder="버전 (예: 0.2.0)"
+                  value={upgradeVersion}
+                  onChange={(e) => setUpgradeVersion(e.target.value)}
+                  style={{ width: 120 }}
+                  required
+                />
+                <input
+                  type="text"
+                  placeholder="태그(쉼표구분)"
+                  value={upgradeTags}
+                  onChange={(e) => setUpgradeTags(e.target.value)}
+                  style={{ width: 160 }}
+                />
+                <input
+                  type="text"
+                  placeholder="설명"
+                  value={upgradeDesc}
+                  onChange={(e) => setUpgradeDesc(e.target.value)}
+                  style={{ width: 200 }}
+                />
+                <Button
+                  type="submit"
+                  variant="contained"
+                  disabled={upgradeLoading}
+                >
+                  {upgradeLoading ? "업로드중..." : "업그레이드"}
+                </Button>
+              </Stack>
+            </Box>
+          ) : module?.env === "venv" ||
+            module?.env === "conda" ||
+            module?.env === "uv" ? (
             <input
-              type="text"
-              placeholder="버전 (예: 0.2.0)"
-              value={upgradeVersion}
-              onChange={(e) => setUpgradeVersion(e.target.value)}
-              style={{ width: 120 }}
-              required
+              type="file"
+              accept=".zip"
+              onChange={(e) => setUpgradeFile(e.target.files?.[0] || null)}
+              style={{ display: "inline-block" }}
             />
-            <input
-              type="text"
-              placeholder="태그(쉼표구분)"
-              value={upgradeTags}
-              onChange={(e) => setUpgradeTags(e.target.value)}
-              style={{ width: 160 }}
-            />
-            <input
-              type="text"
-              placeholder="설명"
-              value={upgradeDesc}
-              onChange={(e) => setUpgradeDesc(e.target.value)}
-              style={{ width: 200 }}
-            />
-            <Button type="submit" variant="contained" disabled={upgradeLoading}>
-              {upgradeLoading ? "업로드중..." : "업그레이드"}
-            </Button>
-          </Stack>
+          ) : null}
         </Box>
         <Divider sx={{ my: 3 }} />
         <Typography variant="h6" gutterBottom>
