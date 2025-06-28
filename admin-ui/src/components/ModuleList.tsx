@@ -17,7 +17,13 @@ import {
   DialogContent,
   DialogContentText,
   DialogActions,
+  Tabs,
+  Tab,
+  Box,
+  IconButton,
+  Snackbar,
 } from "@mui/material";
+import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import { useNavigate, Link } from "react-router-dom";
 
 interface Module {
@@ -32,6 +38,19 @@ interface Module {
   artifact_type?: string;
   artifact_uri?: string;
 }
+
+const codeTemplates = {
+  curl: (name: string, version: string) =>
+    `curl -X POST http://<서버주소>/api/modules/${name}/run \
+  -H 'Content-Type: application/json' \
+  -d '{"input": {}}'`,
+  python: (name: string, version: string) =>
+    `import requests\nresp = requests.post(\n    \"http://<서버주소>/api/modules/${name}/run\",\n    json={\"input\": {}}\n)\nprint(resp.json())`,
+  node: (name: string, version: string) =>
+    `const axios = require('axios');\naxios.post('http://<서버주소>/api/modules/${name}/run', { input: {} })\n  .then(res => console.log(res.data));`,
+  java: (name: string, version: string) =>
+    `// OkHttp 예시\nOkHttpClient client = new OkHttpClient();\nRequestBody body = RequestBody.create(\n    \"{\\\"input\\\": {}}\", MediaType.parse(\"application/json\"));\nRequest request = new Request.Builder()\n    .url(\"http://<서버주소>/api/modules/${name}/run\")\n    .post(body)\n    .build();\nResponse response = client.newCall(request).execute();\nSystem.out.println(response.body().string());`,
+};
 
 const ModuleList: React.FC = () => {
   const [modules, setModules] = useState<Module[]>([]);
@@ -48,6 +67,10 @@ const ModuleList: React.FC = () => {
   const [deleteTarget, setDeleteTarget] = useState<Module | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [clientCodeOpen, setClientCodeOpen] = useState(false);
+  const [clientCodeTab, setClientCodeTab] = useState(0);
+  const [clientCodeModule, setClientCodeModule] = useState<Module | null>(null);
+  const [copySnackbar, setCopySnackbar] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -171,6 +194,11 @@ const ModuleList: React.FC = () => {
     } finally {
       setDeleteLoading(false);
     }
+  };
+
+  const handleCopy = (code: string) => {
+    navigator.clipboard.writeText(code);
+    setCopySnackbar(true);
   };
 
   return (
@@ -372,6 +400,17 @@ const ModuleList: React.FC = () => {
                           {undeployError[m.name]}
                         </div>
                       )}
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() => {
+                          setClientCodeModule(m);
+                          setClientCodeTab(0);
+                          setClientCodeOpen(true);
+                        }}
+                      >
+                        클라이언트 코드
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -411,6 +450,98 @@ const ModuleList: React.FC = () => {
           </DialogActions>
         </Dialog>
       </Paper>
+      {/* 클라이언트 코드 Dialog */}
+      <Dialog
+        open={clientCodeOpen}
+        onClose={() => setClientCodeOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>클라이언트 코드 예제</DialogTitle>
+        <DialogContent>
+          <Tabs
+            value={clientCodeTab}
+            onChange={(_, v) => setClientCodeTab(v)}
+            sx={{ mb: 2 }}
+          >
+            <Tab label="Node.js" />
+            <Tab label="Python" />
+            <Tab label="Java" />
+            <Tab label="curl" />
+          </Tabs>
+          {clientCodeModule && (
+            <Box sx={{ position: "relative", mb: 2 }}>
+              <IconButton
+                onClick={() => {
+                  const code =
+                    clientCodeTab === 0
+                      ? codeTemplates.node(
+                          clientCodeModule.name,
+                          clientCodeModule.version
+                        )
+                      : clientCodeTab === 1
+                      ? codeTemplates.python(
+                          clientCodeModule.name,
+                          clientCodeModule.version
+                        )
+                      : clientCodeTab === 2
+                      ? codeTemplates.java(
+                          clientCodeModule.name,
+                          clientCodeModule.version
+                        )
+                      : codeTemplates.curl(
+                          clientCodeModule.name,
+                          clientCodeModule.version
+                        );
+                  handleCopy(code);
+                }}
+                sx={{ position: "absolute", top: 0, right: 0 }}
+                size="small"
+              >
+                <ContentCopyIcon />
+              </IconButton>
+              <pre
+                style={{
+                  background: "#f5f5f5",
+                  borderRadius: 4,
+                  padding: 16,
+                  fontSize: 14,
+                  overflowX: "auto",
+                }}
+              >
+                {clientCodeTab === 0
+                  ? codeTemplates.node(
+                      clientCodeModule.name,
+                      clientCodeModule.version
+                    )
+                  : clientCodeTab === 1
+                  ? codeTemplates.python(
+                      clientCodeModule.name,
+                      clientCodeModule.version
+                    )
+                  : clientCodeTab === 2
+                  ? codeTemplates.java(
+                      clientCodeModule.name,
+                      clientCodeModule.version
+                    )
+                  : codeTemplates.curl(
+                      clientCodeModule.name,
+                      clientCodeModule.version
+                    )}
+              </pre>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setClientCodeOpen(false)}>닫기</Button>
+        </DialogActions>
+      </Dialog>
+      <Snackbar
+        open={copySnackbar}
+        autoHideDuration={1500}
+        onClose={() => setCopySnackbar(false)}
+        message="복사됨!"
+      />
     </div>
   );
 };
