@@ -27,6 +27,7 @@ import {
   Search as SearchIcon,
 } from "@mui/icons-material";
 import axios from "axios";
+import { ModuleInfoPopup } from "./ModuleInfoPopup";
 
 interface Module {
   name: string;
@@ -59,7 +60,8 @@ const ExecutableModuleList: React.FC = () => {
   const [visibilityFilter, setVisibilityFilter] = useState<string>("");
 
   // 실행 관련 상태
-  const [selectedModule, setSelectedModule] = useState<Module | null>(null);
+  const [infoModule, setInfoModule] = useState<Module | null>(null);
+  const [executeModule, setExecuteModule] = useState<Module | null>(null);
   const [executionDialogOpen, setExecutionDialogOpen] = useState(false);
   const [executionInput, setExecutionInput] = useState("");
   const [executionResult, setExecutionResult] =
@@ -115,7 +117,7 @@ const ExecutableModuleList: React.FC = () => {
   };
 
   const handleExecute = async () => {
-    if (!selectedModule || !executionInput.trim()) return;
+    if (!executeModule || !executionInput.trim()) return;
 
     try {
       setExecuting(true);
@@ -123,7 +125,7 @@ const ExecutableModuleList: React.FC = () => {
       setExecutionResult(null);
 
       const inputData = JSON.parse(executionInput);
-      const response = await axios.post(`/api/run/${selectedModule.name}`, {
+      const response = await axios.post(`/api/run/${executeModule.name}`, {
         input: inputData,
       });
 
@@ -138,7 +140,7 @@ const ExecutableModuleList: React.FC = () => {
   };
 
   const handleOpenExecutionDialog = (module: Module) => {
-    setSelectedModule(module);
+    setExecuteModule(module);
     setExecutionInput("");
     setExecutionResult(null);
     setExecutionError(null);
@@ -147,7 +149,7 @@ const ExecutableModuleList: React.FC = () => {
 
   const handleCloseExecutionDialog = () => {
     setExecutionDialogOpen(false);
-    setSelectedModule(null);
+    setExecuteModule(null);
     setExecutionInput("");
     setExecutionResult(null);
     setExecutionError(null);
@@ -272,7 +274,10 @@ const ExecutableModuleList: React.FC = () => {
                   </Typography>
                   <Box display="flex" gap={1}>
                     <Tooltip title="모듈 정보">
-                      <IconButton size="small">
+                      <IconButton
+                        size="small"
+                        onClick={() => setInfoModule(module)}
+                      >
                         <InfoIcon />
                       </IconButton>
                     </Tooltip>
@@ -354,7 +359,7 @@ const ExecutableModuleList: React.FC = () => {
         maxWidth="md"
         fullWidth
       >
-        <DialogTitle>모듈 실행 테스트: {selectedModule?.name}</DialogTitle>
+        <DialogTitle>모듈 실행 테스트: {executeModule?.name}</DialogTitle>
         <DialogContent>
           <Box sx={{ mb: 2 }}>
             <Typography variant="body2" color="text.secondary" gutterBottom>
@@ -467,6 +472,13 @@ const ExecutableModuleList: React.FC = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {infoModule && (
+        <ModuleInfoPopup
+          module={infoModule}
+          onClose={() => setInfoModule(null)}
+        />
+      )}
     </Box>
   );
 };
