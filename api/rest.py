@@ -17,7 +17,7 @@ from utils.audit import log_audit_event
 from models.audit_log import AuditLog
 from schemas.audit_log import AuditLogRead
 from sqlalchemy.future import select
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, joinedload
 from models import ExecRequest, Role
 import tempfile
 import zipfile
@@ -46,6 +46,7 @@ from schemas.validation_log import ModuleValidationLogRead
 from utils.redis_client import redis_client
 from models.module import ModuleEnvVar
 import humanize
+import re
 
 # 프로젝트 루트 경로
 ROOT_DIR = pathlib.Path(__file__).resolve().parent.parent
@@ -906,8 +907,8 @@ def create_app() -> FastAPI:
         current_user=Depends(has_role("admin"))
     ):
         from models.user import User
-        from sqlalchemy.orm import selectinload
-        query = select(AuditLog).options(selectinload(AuditLog.user))
+        from sqlalchemy.orm import selectinload, joinedload
+        query = select(AuditLog).options(joinedload(AuditLog.user))
         if action:
             query = query.where(AuditLog.action.contains(action))
         if username:
@@ -941,36 +942,40 @@ def create_app() -> FastAPI:
         current_user=Depends(has_role("admin"))
     ):
         """감사 로그를 CSV로 다운로드합니다."""
-        query = select(AuditLog)
-        
+        from models.user import User
+        stmt = select(
+            AuditLog.id,
+            AuditLog.action,
+            AuditLog.detail,
+            AuditLog.created_at,
+            User.username
+        ).select_from(
+            AuditLog.__table__.outerjoin(User, AuditLog.user_id == User.id)
+        )
         # 필터링 조건 추가
         if action:
-            query = query.where(AuditLog.action.contains(action))
+            stmt = stmt.where(AuditLog.action.contains(action))
         if user_id:
-            query = query.where(AuditLog.user_id == user_id)
+            stmt = stmt.where(AuditLog.user_id == user_id)
         if from_date:
-            query = query.where(AuditLog.created_at >= from_date)
+            stmt = stmt.where(AuditLog.created_at >= from_date)
         if to_date:
-            query = query.where(AuditLog.created_at <= to_date)
-        
-        query = query.order_by(AuditLog.created_at.desc())
-        result = await db.execute(query)
-        logs = result.scalars().all()
-        
+            stmt = stmt.where(AuditLog.created_at <= to_date)
+        stmt = stmt.order_by(AuditLog.created_at.desc())
+        result = await db.execute(stmt)
+        rows = result.all()
         # CSV 생성
         output = StringIO()
         writer = csv.writer(output)
-        writer.writerow(["ID", "Action", "Detail", "User ID", "Created At"])
-        
-        for log in logs:
+        writer.writerow(["ID", "Action", "Detail", "Username", "Created At"])
+        for row in rows:
             writer.writerow([
-                log.id,
-                log.action,
-                log.detail,
-                log.user_id,
-                (log.created_at.replace(tzinfo=timezone.utc).isoformat() if log.created_at and log.created_at.tzinfo is None else log.created_at.isoformat()) if log.created_at else ""
+                row.id,
+                row.action,
+                row.detail,
+                row.username or "",
+                (row.created_at.replace(tzinfo=timezone.utc).isoformat() if row.created_at and row.created_at.tzinfo is None else row.created_at.isoformat()) if row.created_at else ""
             ])
-        
         output.seek(0)
         return StreamingResponse(
             iter([output.getvalue()]),
@@ -1057,12 +1062,19 @@ def create_app() -> FastAPI:
         # CSV 생성
         output = StringIO()
         writer = csv.writer(output)
-        writer.writerow(["ID", "Filename", "Status", "Message", "Created At"])
-        
+        writer.writerow(["ID", "Filename", "Version", "Status", "Message", "Created At"])
+        import re
+        semver_pattern = re.compile(r"[\-_]v?(\d+\.\d+\.\d+)")
         for log in logs:
+            # filename에서 semver 추출
+            version = ""
+            match = semver_pattern.search(log.filename)
+            if match:
+                version = match.group(1)
             writer.writerow([
                 log.id,
                 log.filename,
+                version,
                 log.status,
                 log.message or "",
                 (log.created_at.replace(tzinfo=timezone.utc).isoformat() if log.created_at and log.created_at.tzinfo is None else log.created_at.isoformat()) if log.created_at else ""
@@ -1811,6 +1823,40 @@ def create_app() -> FastAPI:
             "dependencies": dependencies,
             "dependency_count": len(dependencies) if dependencies and "error" not in dependencies[0] else 0
         }
+
+    @app.get("/api/logs/errors/download")
+    async def download_error_logs(
+        from_date: Optional[datetime] = None,
+        to_date: Optional[datetime] = None,
+        limit: int = 100,
+        db: AsyncSession = Depends(get_db),
+        current_user: User = Depends(has_role("admin"))
+    ):
+        query = select(ErrorLog)
+        if from_date:
+            query = query.where(ErrorLog.created_at >= from_date)
+        if to_date:
+            query = query.where(ErrorLog.created_at <= to_date)
+        query = query.order_by(ErrorLog.created_at.desc()).limit(limit)
+        result = await db.execute(query)
+        logs = result.scalars().all()
+        output = StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["ID", "Code", "Message", "User", "Created At"])
+        for log in logs:
+            writer.writerow([
+                log.id,
+                log.code,
+                log.message,
+                log.user or "",
+                (log.created_at.replace(tzinfo=timezone.utc).isoformat() if log.created_at and log.created_at.tzinfo is None else log.created_at.isoformat()) if log.created_at else ""
+            ])
+        output.seek(0)
+        return StreamingResponse(
+            iter([output.getvalue()]),
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=error_logs.csv"}
+        )
 
     return app
 

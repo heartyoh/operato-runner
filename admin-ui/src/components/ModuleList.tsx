@@ -23,6 +23,11 @@ import {
   IconButton,
   Snackbar,
   Chip,
+  TextField,
+  MenuItem,
+  Select,
+  InputLabel,
+  FormControl,
 } from "@mui/material";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import { useNavigate, Link } from "react-router-dom";
@@ -55,6 +60,15 @@ const codeTemplates = {
     `// OkHttp 예시\nOkHttpClient client = new OkHttpClient();\nRequestBody body = RequestBody.create(\n    \"{\\\"input\\\": {}}\", MediaType.parse(\"application/json\"));\nRequest request = new Request.Builder()\n    .url(\"http://<서버주소>/api/modules/${name}/run\")\n    .post(body)\n    .build();\nResponse response = client.newCall(request).execute();\nSystem.out.println(response.body().string());`,
 };
 
+const MODULE_ENVS = [
+  { value: "all", label: "전체" },
+  { value: "inline", label: "inline" },
+  { value: "venv", label: "venv" },
+  { value: "conda", label: "conda" },
+  { value: "uv", label: "uv" },
+  { value: "docker", label: "docker" },
+];
+
 const ModuleList: React.FC = () => {
   const [modules, setModules] = useState<Module[]>([]);
   const [loading, setLoading] = useState(false);
@@ -74,6 +88,9 @@ const ModuleList: React.FC = () => {
   const [clientCodeTab, setClientCodeTab] = useState(0);
   const [clientCodeModule, setClientCodeModule] = useState<Module | null>(null);
   const [copySnackbar, setCopySnackbar] = useState(false);
+  const [searchText, setSearchText] = useState("");
+  const [visibilityFilter, setVisibilityFilter] = useState("all");
+  const [envFilter, setEnvFilter] = useState("all");
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -204,6 +221,24 @@ const ModuleList: React.FC = () => {
     setCopySnackbar(true);
   };
 
+  // 검색어+공개여부+타입 필터링
+  const filteredModules = modules.filter((m) => {
+    const text = searchText.toLowerCase();
+    const matchesText =
+      m.name.toLowerCase().includes(text) ||
+      (m.description && m.description.toLowerCase().includes(text)) ||
+      (Array.isArray(m.tags)
+        ? m.tags.join(",").toLowerCase().includes(text)
+        : (m.tags || "").toLowerCase().includes(text));
+    const matchesVisibility =
+      visibilityFilter === "all" ||
+      (visibilityFilter === "public" && m.visibility === "public") ||
+      (visibilityFilter === "private" && m.visibility !== "public");
+    const matchesEnv =
+      envFilter === "all" || (m.env && m.env.toLowerCase() === envFilter);
+    return matchesText && matchesVisibility && matchesEnv;
+  });
+
   return (
     <div
       style={{
@@ -226,6 +261,50 @@ const ModuleList: React.FC = () => {
         <Typography variant="h6" gutterBottom>
           모듈 목록
         </Typography>
+        <div
+          style={{
+            display: "flex",
+            gap: 16,
+            alignItems: "center",
+            marginBottom: 16,
+          }}
+        >
+          <TextField
+            size="small"
+            placeholder="이름, 태그, 설명 등으로 검색"
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+            sx={{ width: 300 }}
+          />
+          <FormControl size="small" sx={{ minWidth: 120 }}>
+            <InputLabel id="visibility-filter-label">공개여부</InputLabel>
+            <Select
+              labelId="visibility-filter-label"
+              value={visibilityFilter}
+              label="공개여부"
+              onChange={(e) => setVisibilityFilter(e.target.value)}
+            >
+              <MenuItem value="all">전체</MenuItem>
+              <MenuItem value="public">공개</MenuItem>
+              <MenuItem value="private">비공개</MenuItem>
+            </Select>
+          </FormControl>
+          <FormControl size="small" sx={{ minWidth: 120 }}>
+            <InputLabel id="env-filter-label">타입</InputLabel>
+            <Select
+              labelId="env-filter-label"
+              value={envFilter}
+              label="타입"
+              onChange={(e) => setEnvFilter(e.target.value)}
+            >
+              {MODULE_ENVS.map((opt) => (
+                <MenuItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </div>
         {loading && <CircularProgress sx={{ mt: 2 }} />}
         {error && (
           <Alert severity="error" sx={{ mt: 2 }}>
@@ -270,7 +349,7 @@ const ModuleList: React.FC = () => {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {modules.map((m) => (
+                {filteredModules.map((m) => (
                   <TableRow key={m.name} hover>
                     {/* <TableCell>{m.id}</TableCell> */}
                     <TableCell>{m.name}</TableCell>
