@@ -35,7 +35,7 @@ import Stack from "@mui/material/Stack";
 
 const drawerWidth = 240;
 
-const menuItems = [
+const generalMenuItems = [
   { text: "대시보드", path: "/admin", icon: <DashboardIcon /> },
   { text: "모듈 관리", path: "/admin/modules", icon: <ListIcon /> },
   {
@@ -43,7 +43,6 @@ const menuItems = [
     path: "/admin/modules/upload",
     icon: <UploadFileIcon />,
   },
-  { text: "사용자 관리", path: "/admin/users", icon: <PeopleIcon /> },
   {
     text: "에러 로그",
     path: "/admin/error-logs",
@@ -55,6 +54,10 @@ const menuItems = [
     path: "/admin/validation-logs",
     icon: <CheckCircleIcon />,
   },
+];
+
+const adminMenuItems = [
+  { text: "사용자 관리", path: "/admin/users", icon: <PeopleIcon /> },
 ];
 
 const Layout: React.FC = () => {
@@ -149,7 +152,8 @@ const Layout: React.FC = () => {
         <Toolbar />
         <Box sx={{ overflow: "auto" }}>
           <List>
-            {menuItems.map((item) => (
+            {/* 일반 메뉴 */}
+            {generalMenuItems.map((item) => (
               <ListItem key={item.path} disablePadding>
                 <ListItemButton
                   component={Link}
@@ -161,6 +165,32 @@ const Layout: React.FC = () => {
                 </ListItemButton>
               </ListItem>
             ))}
+            {/* 어드민 전용 섹션 */}
+            {user &&
+              user.roles &&
+              user.roles.some((r: any) =>
+                typeof r === "string" ? r === "admin" : r.name === "admin"
+              ) && (
+                <>
+                  <Box sx={{ my: 1, mx: 2 }}>
+                    <Typography variant="caption" color="text.secondary">
+                      관리자 기능
+                    </Typography>
+                  </Box>
+                  {adminMenuItems.map((item) => (
+                    <ListItem key={item.path} disablePadding>
+                      <ListItemButton
+                        component={Link}
+                        to={item.path}
+                        selected={location.pathname === item.path}
+                      >
+                        <ListItemIcon>{item.icon}</ListItemIcon>
+                        <ListItemText primary={item.text} />
+                      </ListItemButton>
+                    </ListItem>
+                  ))}
+                </>
+              )}
           </List>
         </Box>
       </Drawer>
