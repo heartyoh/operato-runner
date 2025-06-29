@@ -22,6 +22,7 @@ import {
   Box,
   IconButton,
   Snackbar,
+  Chip,
 } from "@mui/material";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import { useNavigate, Link } from "react-router-dom";
@@ -37,6 +38,8 @@ interface Module {
   tags?: string[];
   artifact_type?: string;
   artifact_uri?: string;
+  visibility: string;
+  is_public: boolean; // 호환성을 위해 유지 (deprecated)
 }
 
 const codeTemplates = {
@@ -261,6 +264,7 @@ const ModuleList: React.FC = () => {
                   >
                     태그
                   </TableCell>
+                  <TableCell>공개여부</TableCell>
                   <TableCell>상태</TableCell>
                   <TableCell>액션</TableCell>
                 </TableRow>
@@ -306,6 +310,15 @@ const ModuleList: React.FC = () => {
                       }
                     >
                       {Array.isArray(m.tags) ? m.tags.join(", ") : m.tags || ""}
+                    </TableCell>
+                    <TableCell>
+                      <Chip
+                        label={m.visibility === "public" ? "공개" : "비공개"}
+                        color={
+                          m.visibility === "public" ? "primary" : "default"
+                        }
+                        size="small"
+                      />
                     </TableCell>
                     <TableCell>
                       {m.isDeployed ? (

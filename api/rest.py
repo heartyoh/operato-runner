@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, Depends, Body, Request, UploadFile, File, Form
 from typing import Dict, List, Any, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, field_serializer
 from models.module import Module
 from module_registry import ModuleRegistry
 from executor_manager import ExecutorManager
@@ -74,6 +74,8 @@ def create_app() -> FastAPI:
         tags: List[str] = []
         isDeployed: bool
         description: Optional[str] = ""
+        visibility: str = "private"
+        is_public: bool = False  # 호환성을 위해 유지 (deprecated)
 
     class VersionResponse(BaseModel):
         id: int
@@ -81,6 +83,12 @@ def create_app() -> FastAPI:
         description: Optional[str] = None
         created_at: datetime
         is_active: bool
+
+        @field_serializer('created_at')
+        def serialize_dt(self, dt: datetime, _info):
+            if dt.tzinfo is None:
+                return dt.replace(tzinfo=timezone.utc).isoformat()
+            return dt.isoformat()
 
     class HistoryResponse(BaseModel):
         id: int
@@ -90,6 +98,12 @@ def create_app() -> FastAPI:
         action: str
         operator: Optional[str] = None
         timestamp: datetime
+
+        @field_serializer('timestamp')
+        def serialize_dt(self, dt: datetime, _info):
+            if dt.tzinfo is None:
+                return dt.replace(tzinfo=timezone.utc).isoformat()
+            return dt.isoformat()
 
     class RunRequest(BaseModel):
         input: Dict[str, Any]
@@ -155,6 +169,8 @@ def create_app() -> FastAPI:
                 "tags": m.tags.split(",") if isinstance(m.tags, str) else (m.tags if m.tags else []),
                 "isDeployed": is_deployed(m),
                 "description": description,
+                "visibility": m.visibility or "private",
+                "is_public": m.visibility == "public",  # 호환성을 위해 유지
             })
         return result
 
@@ -210,15 +226,14 @@ def create_app() -> FastAPI:
         return {
             "name": module.name,
             "env": module.env,
-            "version": current_version,
+            "version": module.version,
             "created_at": created_at_iso,
             "tags": module.tags.split(",") if isinstance(module.tags, str) else (module.tags if module.tags else []),
             "isDeployed": is_deployed(module),
-            "current_version": current_version,
-            "latest_version": current_version,
-            "code": code,  # 활성화된 버전 코드(인라인)
             "description": description,  # 활성화된 버전 설명(인라인)
             "env_vars": env_vars,  # 환경변수 목록
+            "visibility": module.visibility or "private",
+            "is_public": module.visibility == "public",  # 호환성을 위해 유지
         }
 
     @app.get("/api/modules/{name}/versions", response_model=List[VersionResponse])
@@ -285,6 +300,7 @@ def create_app() -> FastAPI:
         artifact_uri: str = Form(None),
         file: UploadFile = File(None),
         input: str = Form(""),
+        is_public: str = Form("false"),
         module_registry: ModuleRegistry = Depends(get_module_registry),
         db: AsyncSession = Depends(get_db),
         current_user: User = Depends(get_current_user)
@@ -300,6 +316,8 @@ def create_app() -> FastAPI:
                 raise HTTPException(status_code=400, detail="input 필드는 올바른 JSON이어야 합니다.")
         # 태그 파싱
         tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
+        # is_public 파싱
+        is_public_bool = is_public.lower() == 'true'
         # 외부 참조형(docker/git 등) artifact 등록 분기
         if env in ["docker", "git"] and artifact_type and artifact_uri:
             # (여기서 간단한 유효성 검사만, 실제 pull/clone 등은 별도 모듈화 가능)
@@ -311,6 +329,7 @@ def create_app() -> FastAPI:
                 artifact_uri=artifact_uri,
                 description=description,
                 tags=",".join(tag_list),
+                is_public=is_public_bool,
             )
             db.add(module)
             await db.commit()
@@ -318,10 +337,12 @@ def create_app() -> FastAPI:
                 "name": name,
                 "env": env,
                 "version": version,
-                "created_at": module.created_at.isoformat() if module.created_at else None,
+                "created_at": (module.created_at.replace(tzinfo=timezone.utc).isoformat() if module.created_at and module.created_at.tzinfo is None else module.created_at.isoformat()) if module.created_at else None,
                 "tags": tag_list,
                 "isDeployed": False,
                 "description": description,
+                "visibility": "public" if is_public_bool else "private",
+                "is_public": is_public_bool,  # 호환성을 위해 유지
             }
         # 기존 zip 업로드/인라인 분기(venv/conda 등)
         if file:
@@ -365,7 +386,8 @@ def create_app() -> FastAPI:
                     tags=','.join(tag_list),
                     description=description,
                     owner_id=current_user.id,
-                    is_active=1  # 등록과 동시에 활성화
+                    is_active=1,  # 등록과 동시에 활성화
+                    visibility="public" if is_public_bool else "private",
                 )
                 db.add(module)
                 await db.commit()
@@ -391,10 +413,12 @@ def create_app() -> FastAPI:
                     name=module.name,
                     env=module.env,
                     version=module.version,
-                    created_at=module.created_at.isoformat() if module.created_at else None,
+                    created_at=(module.created_at.replace(tzinfo=timezone.utc).isoformat() if module.created_at and module.created_at.tzinfo is None else module.created_at.isoformat()) if module.created_at else None,
                     tags=module.tags.split(",") if module.tags else [],
                     isDeployed=True,
                     description=module.description,
+                    visibility=module.visibility or "private",
+                    is_public=module.visibility == "public",  # 호환성을 위해 유지
                 )
         elif code:
             # 인라인 코드 등록 처리 (기존과 동일)
@@ -407,7 +431,8 @@ def create_app() -> FastAPI:
                 tags=','.join(tag_list),
                 description=description,
                 owner_id=current_user.id,
-                is_active=1  # 등록과 동시에 활성화
+                is_active=1,  # 등록과 동시에 활성화
+                visibility="public" if is_public_bool else "private",
             )
             module.input_example = input_dict if hasattr(module, 'input_example') else None
             db.add(module)
@@ -449,10 +474,12 @@ def create_app() -> FastAPI:
                 name=module.name,
                 env=module.env,
                 version=module.version,
-                created_at=module.created_at.isoformat() if module.created_at else None,
+                created_at=(module.created_at.replace(tzinfo=timezone.utc).isoformat() if module.created_at and module.created_at.tzinfo is None else module.created_at.isoformat()) if module.created_at else None,
                 tags=module.tags if module.tags else [],
                 isDeployed=True,
                 description=module.description,
+                visibility=module.visibility or "private",
+                is_public=module.visibility == "public",  # 호환성을 위해 유지
             )
 
     @app.delete("/api/modules/{name}", status_code=204)
@@ -533,7 +560,7 @@ def create_app() -> FastAPI:
     async def full_health_check(db: AsyncSession = Depends(get_db)):
         health_status = {
             "status": "ok",
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "services": {}
         }
         
@@ -834,6 +861,7 @@ def create_app() -> FastAPI:
         name: str,
         description: str = Form(None),
         tags: str = Form(None),
+        is_public: str = Form(None),
         db: AsyncSession = Depends(get_db),
         current_user: User = Depends(get_current_user)
     ):
@@ -858,6 +886,8 @@ def create_app() -> FastAPI:
         
         if tags is not None:
             update_fields['tags'] = tags
+        if is_public is not None:
+            update_fields['visibility'] = 'public' if is_public.lower() == 'true' else 'private'
 
         if update_fields:
             await db.execute(update(Module).where(Module.name == name).values(**update_fields))
@@ -938,7 +968,7 @@ def create_app() -> FastAPI:
                 log.action,
                 log.detail,
                 log.user_id,
-                log.created_at.isoformat() if log.created_at else ""
+                (log.created_at.replace(tzinfo=timezone.utc).isoformat() if log.created_at and log.created_at.tzinfo is None else log.created_at.isoformat()) if log.created_at else ""
             ])
         
         output.seek(0)
@@ -1035,7 +1065,7 @@ def create_app() -> FastAPI:
                 log.filename,
                 log.status,
                 log.message or "",
-                log.created_at.isoformat() if log.created_at else ""
+                (log.created_at.replace(tzinfo=timezone.utc).isoformat() if log.created_at and log.created_at.tzinfo is None else log.created_at.isoformat()) if log.created_at else ""
             ])
         
         output.seek(0)
@@ -1696,7 +1726,7 @@ def create_app() -> FastAPI:
                         deploy_files.append({
                             "path": os.path.relpath(fp, deploy_base_dir),
                             "size": humanize.naturalsize(stat.st_size),
-                            "modified": stat.st_mtime
+                            "modified": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat()
                         })
                         deploy_total_size += stat.st_size
                     except Exception:
@@ -1714,7 +1744,7 @@ def create_app() -> FastAPI:
                         env_files.append({
                             "path": os.path.relpath(fp, env_base_dir),
                             "size": humanize.naturalsize(stat.st_size),
-                            "modified": stat.st_mtime
+                            "modified": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat()
                         })
                         env_total_size += stat.st_size
                     except Exception:

@@ -149,12 +149,14 @@ export async function uploadModuleVersion(name: string, formData: FormData) {
 
 export async function updateModuleInfo(
   name: string,
-  data: { description?: string; tags?: string }
+  data: { description?: string; tags?: string; is_public?: boolean }
 ) {
   const formData = new FormData();
   if (data.description !== undefined)
     formData.append("description", data.description);
   if (data.tags !== undefined) formData.append("tags", data.tags);
+  if (data.is_public !== undefined)
+    formData.append("is_public", String(data.is_public));
   const res = await axios.patch(`/api/modules/${name}`, formData);
   return res.data;
 }

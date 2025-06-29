@@ -12,6 +12,8 @@ import {
   Alert,
   Tabs,
   Tab,
+  Switch,
+  FormControlLabel,
 } from "@mui/material";
 import FileDownloadIcon from "@mui/icons-material/FileDownload";
 import VersionSelectInput from "./VersionSelectInput";
@@ -32,6 +34,9 @@ const ModuleUpload: React.FC<Props> = ({ onUploadSuccess }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [isPublic, setIsPublic] = useState(false);
+  const [description, setDescription] = useState("");
+  const [tags, setTags] = useState("");
   // 인라인 등록 상태
   const [inlineName, setInlineName] = useState("");
   const [inlineVersion, setInlineVersion] = useState("0.1.0");
@@ -45,6 +50,7 @@ const ModuleUpload: React.FC<Props> = ({ onUploadSuccess }) => {
   "y": 2
 }`);
   const [artifactType, setArtifactType] = useState("");
+  const [inlineIsPublic, setInlineIsPublic] = useState(false);
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -67,6 +73,9 @@ const ModuleUpload: React.FC<Props> = ({ onUploadSuccess }) => {
       formData.append("name", name);
       formData.append("env", env);
       formData.append("version", version);
+      formData.append("is_public", String(isPublic));
+      formData.append("description", description);
+      formData.append("tags", tags);
       if (file) {
         formData.append("file", file);
       } else if (artifactUri) {
@@ -121,6 +130,7 @@ const ModuleUpload: React.FC<Props> = ({ onUploadSuccess }) => {
       formData.append("code", inlineCode);
       formData.append("description", inlineDesc);
       formData.append("input", inlineInput);
+      formData.append("is_public", String(inlineIsPublic));
       // tags 등 추가 필드 필요시 formData.append("tags", ...)
       await axios.post("/api/modules", formData);
       setInlineSuccess(true);
@@ -201,6 +211,17 @@ const ModuleUpload: React.FC<Props> = ({ onUploadSuccess }) => {
       {tab === 0 && (
         <form onSubmit={handleSubmit}>
           <Box display="flex" gap={2} flexWrap="wrap" alignItems="center">
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={isPublic}
+                  onChange={(e) => setIsPublic(e.target.checked)}
+                  color="primary"
+                />
+              }
+              label={isPublic ? "공개 모듈" : "비공개 모듈"}
+              sx={{ mr: 2 }}
+            />
             <TextField
               label="이름"
               value={name}
@@ -219,12 +240,29 @@ const ModuleUpload: React.FC<Props> = ({ onUploadSuccess }) => {
               <MenuItem value="conda">conda</MenuItem>
               <MenuItem value="uv">uv</MenuItem>
             </TextField>
-            <VersionSelectInput
-              currentVersion={"0.1.0"}
+            <TextField
+              label="버전"
               value={version}
-              onChange={setVersion}
+              onChange={(e) => setVersion(e.target.value)}
+              required
+              size="small"
+              sx={{ width: 120 }}
             />
-            {/* zip 파일 업로드 또는 git 링크 중 하나만 입력 */}
+            <TextField
+              label="설명"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              size="small"
+              sx={{ minWidth: 200 }}
+            />
+            <TextField
+              label="태그"
+              value={tags}
+              onChange={(e) => setTags(e.target.value)}
+              size="small"
+              sx={{ minWidth: 160 }}
+              placeholder="쉼표로 구분"
+            />
             <Button
               variant="contained"
               component="label"
@@ -279,6 +317,17 @@ const ModuleUpload: React.FC<Props> = ({ onUploadSuccess }) => {
       {tab === 1 && (
         <form onSubmit={handleInlineSubmit}>
           <Box display="flex" gap={2} flexWrap="wrap" alignItems="center">
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={inlineIsPublic}
+                  onChange={(e) => setInlineIsPublic(e.target.checked)}
+                  color="primary"
+                />
+              }
+              label={inlineIsPublic ? "공개 모듈" : "비공개 모듈"}
+              sx={{ mr: 2 }}
+            />
             <TextField
               label="이름"
               value={inlineName}

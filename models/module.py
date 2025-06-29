@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, func
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, func, Boolean
 from sqlalchemy.orm import relationship
 from .base import Base
 from pydantic import BaseModel, Field, ValidationError, StrictStr
@@ -24,7 +24,7 @@ class ExecRequest(BaseModel):
     input_json: Dict[str, Any]
 
 class ExecResult(BaseModel):
-    result_json: Dict[str, Any]
+    result_json: Any
     exit_code: int
     stderr: Optional[str] = None
     stdout: Optional[str] = None
@@ -60,6 +60,7 @@ class Module(Base):
     env = Column(String(20), default="inline", nullable=False)  # 실행 환경 필드 추가
     is_active = Column(Integer, default=1)  # 1: 활성, 0: 비활성
     env_vars = relationship('ModuleEnvVar', back_populates='module', cascade='all, delete-orphan')
+    visibility = Column(String(32), default="private", nullable=False)  # private, public, organization, project, temporary, restricted
 
     def __repr__(self):
         return f"<Module(id={self.id}, name='{self.name}', owner_id={self.owner_id})>" 

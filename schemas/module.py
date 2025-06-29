@@ -11,6 +11,7 @@ class ModuleBase(BaseModel):
     tags: Optional[List[str]] = []
     owner_id: Optional[int] = None
     is_active: Optional[int] = 1
+    visibility: Optional[str] = "private"
 
 class ModuleCreate(ModuleBase):
     pass
@@ -20,5 +21,6 @@ class ModuleRead(ModuleBase):
     created_at: datetime
     updated_at: datetime
     is_active: int
+    visibility: str
     class Config:
         orm_mode = True 

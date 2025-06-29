@@ -1,7 +1,7 @@
 import os
 import json
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Any, Optional
 from models import ExecResult
 
@@ -32,7 +32,7 @@ class ExecutionHistory:
     def record_execution(self, module_name: str, input_json: Dict[str, Any], result: ExecResult) -> int:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        timestamp = datetime.now().isoformat()
+        timestamp = datetime.now(timezone.utc).isoformat()
         cursor.execute("""
         INSERT INTO executions 
         (module_name, timestamp, duration, exit_code, input_json, result_json, stdout, stderr)

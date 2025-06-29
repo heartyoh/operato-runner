@@ -123,6 +123,14 @@ result = inline_main({repr(input_obj)})
             except Exception as e:
                 print(f"DEBUG: 환경변수 복원 오류: {e}", file=sys.stderr)
         duration = time.time() - start_time
+        
+        # result_json이 dict가 아닌 경우 적절히 변환
+        if not isinstance(result_json, dict):
+            if result_json is None:
+                result_json = {}
+            else:
+                result_json = {"result": result_json}
+        
         return ExecResult(
             result_json=result_json,
             exit_code=exit_code,

@@ -10,6 +10,7 @@ from executor_manager import ExecutorManager
 from api.auth import get_current_user, User, SECRET_KEY, ALGORITHM
 from jose import jwt, JWTError
 import contextvars
+from datetime import datetime, timezone
 
 # --- gRPC JWT 인증 인터셉터 ---
 user_ctx_var = contextvars.ContextVar("grpc_user", default=None)
@@ -134,7 +135,7 @@ class ExecutorServicer(executor_pb2_grpc.ExecutorServicer):
                 name=module.name,
                 env=module.env,
                 version=module.version,
-                created_at=module.created_at.isoformat(),
+                created_at=(module.created_at.replace(tzinfo=timezone.utc).isoformat() if module.created_at and module.created_at.tzinfo is None else module.created_at.isoformat()),
                 tags=module.tags
             )
             response.modules.append(module_info)
@@ -151,7 +152,7 @@ class ExecutorServicer(executor_pb2_grpc.ExecutorServicer):
             name=module.name,
             env=module.env,
             version=module.version,
-            created_at=module.created_at.isoformat(),
+            created_at=(module.created_at.replace(tzinfo=timezone.utc).isoformat() if module.created_at and module.created_at.tzinfo is None else module.created_at.isoformat()),
             tags=module.tags
         )
 
@@ -174,7 +175,7 @@ class ExecutorServicer(executor_pb2_grpc.ExecutorServicer):
             name=module.name,
             env=module.env,
             version=module.version,
-            created_at=module.created_at.isoformat(),
+            created_at=(module.created_at.replace(tzinfo=timezone.utc).isoformat() if module.created_at and module.created_at.tzinfo is None else module.created_at.isoformat()),
             tags=module.tags
         )
 

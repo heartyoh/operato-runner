@@ -28,6 +28,8 @@ import {
   Snackbar,
   Tabs,
   Tab,
+  Switch,
+  FormControlLabel,
 } from "@mui/material";
 import {
   fetchModuleDetail,
@@ -72,6 +74,7 @@ const ModuleDetail: React.FC = () => {
   const [upgradeDesc, setUpgradeDesc] = useState("");
   const [upgradeTags, setUpgradeTags] = useState("");
   const [upgradeFile, setUpgradeFile] = useState<File | null>(null);
+  const [upgradeArtifactUri, setUpgradeArtifactUri] = useState("");
   const [editMode, setEditMode] = useState(false);
   const [editDesc, setEditDesc] = useState("");
   const [editTags, setEditTags] = useState("");
@@ -89,6 +92,7 @@ const ModuleDetail: React.FC = () => {
   const [deployInfo, setDeployInfo] = useState<any>(null);
   const [deployInfoLoading, setDeployInfoLoading] = useState(false);
   const [deployInfoError, setDeployInfoError] = useState<string | null>(null);
+  const [editIsPublic, setEditIsPublic] = useState(false);
 
   const fetchData = useCallback(() => {
     if (!name) return;
@@ -258,6 +262,29 @@ const ModuleDetail: React.FC = () => {
                 {module.current_version || module.version}
               </Typography>
             </Box>
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="subtitle2" color="text.secondary">
+                공개 여부
+              </Typography>
+              {editMode ? (
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={editIsPublic}
+                      onChange={(e) => setEditIsPublic(e.target.checked)}
+                      color="primary"
+                    />
+                  }
+                  label={editIsPublic ? "공개" : "비공개"}
+                />
+              ) : (
+                <Chip
+                  label={module.visibility === "public" ? "공개" : "비공개"}
+                  color={module.visibility === "public" ? "primary" : "default"}
+                  size="small"
+                />
+              )}
+            </Box>
             <Box>
               <Typography variant="subtitle2" color="text.secondary">
                 생성일
@@ -355,6 +382,7 @@ const ModuleDetail: React.FC = () => {
                         await updateModuleInfo(name, {
                           description: editDesc,
                           tags: editTags,
+                          is_public: editIsPublic,
                         });
                         setEditMsg("수정 완료");
                         setEditMode(false);
@@ -389,6 +417,7 @@ const ModuleDetail: React.FC = () => {
                         ? module.tags.join(",")
                         : module.tags || ""
                     );
+                    setEditIsPublic(module.visibility === "public");
                     setEditMsg(null);
                     setEditError(null);
                   }}
@@ -434,6 +463,8 @@ const ModuleDetail: React.FC = () => {
               module?.env === "uv"
             ) {
               if (upgradeFile) formData.append("file", upgradeFile);
+              if (upgradeArtifactUri)
+                formData.append("artifact_uri", upgradeArtifactUri);
             }
             await uploadModuleVersion(name, formData);
             setUpgradeMsg("새 버전 업로드 성공");
@@ -442,6 +473,7 @@ const ModuleDetail: React.FC = () => {
             fetchData();
             setUpgradeTags("");
             setUpgradeFile(null);
+            setUpgradeArtifactUri("");
           } catch (e: any) {
             setUpgradeError(e?.response?.data?.detail || e.message);
           } finally {
@@ -488,19 +520,19 @@ const ModuleDetail: React.FC = () => {
                 value={upgradeVersion}
                 onChange={setUpgradeVersion}
               />
-              <input
-                type="text"
+              <TextField
+                size="small"
                 placeholder="태그(쉼표구분)"
                 value={upgradeTags}
                 onChange={(e) => setUpgradeTags(e.target.value)}
-                style={{ width: 160 }}
+                sx={{ width: 160 }}
               />
-              <input
-                type="text"
+              <TextField
+                size="small"
                 placeholder="설명"
                 value={upgradeDesc}
                 onChange={(e) => setUpgradeDesc(e.target.value)}
-                style={{ width: 200 }}
+                sx={{ width: 200 }}
               />
               <Button
                 type="submit"
@@ -514,12 +546,91 @@ const ModuleDetail: React.FC = () => {
         ) : module?.env === "venv" ||
           module?.env === "conda" ||
           module?.env === "uv" ? (
-          <input
-            type="file"
-            accept=".zip"
-            onChange={(e) => setUpgradeFile(e.target.files?.[0] || null)}
-            style={{ display: "inline-block" }}
-          />
+          <Box sx={{ mb: 3 }}>
+            <Stack
+              direction="row"
+              spacing={2}
+              alignItems="center"
+              sx={{ mb: 2 }}
+            >
+              <VersionSelectInput
+                currentVersion={
+                  module?.current_version || module?.version || "0.1.0"
+                }
+                value={upgradeVersion}
+                onChange={setUpgradeVersion}
+              />
+              <TextField
+                size="small"
+                placeholder="태그(쉼표구분)"
+                value={upgradeTags}
+                onChange={(e) => setUpgradeTags(e.target.value)}
+                sx={{ width: 160 }}
+              />
+              <TextField
+                size="small"
+                placeholder="설명"
+                value={upgradeDesc}
+                onChange={(e) => setUpgradeDesc(e.target.value)}
+                sx={{ width: 200 }}
+              />
+            </Stack>
+            <Box sx={{ mb: 2 }}>
+              <Typography
+                variant="subtitle2"
+                color="text.secondary"
+                sx={{ mb: 1 }}
+              >
+                소스 업로드 방식 선택
+              </Typography>
+              <Stack direction="row" spacing={2} alignItems="center">
+                <Button
+                  variant="contained"
+                  component="label"
+                  disabled={!!upgradeArtifactUri}
+                  size="small"
+                >
+                  파일 선택
+                  <input
+                    type="file"
+                    accept=".zip"
+                    hidden
+                    onChange={(e) => {
+                      setUpgradeFile(e.target.files?.[0] || null);
+                      if (e.target.files?.[0]) setUpgradeArtifactUri("");
+                    }}
+                  />
+                </Button>
+                {upgradeFile && (
+                  <Typography variant="body2" color="text.secondary">
+                    선택된 파일: {upgradeFile.name}
+                  </Typography>
+                )}
+              </Stack>
+              <Typography
+                variant="body2"
+                color="text.secondary"
+                sx={{ mt: 1, mb: 1 }}
+              >
+                또는
+              </Typography>
+              <TextField
+                size="small"
+                label="Git 저장소 링크"
+                value={upgradeArtifactUri}
+                onChange={(e) => {
+                  setUpgradeArtifactUri(e.target.value);
+                  if (e.target.value) setUpgradeFile(null);
+                }}
+                placeholder="https://github.com/username/repo.git"
+                disabled={!!upgradeFile}
+                sx={{ width: 400 }}
+              />
+            </Box>
+            <Button type="submit" variant="contained" disabled={upgradeLoading}>
+              {upgradeLoading ? "업로드중..." : "업그레이드"}
+            </Button>
+          </Box>
         ) : null}
       </Box>
       <Divider sx={{ my: 3 }} />
@@ -830,7 +941,7 @@ const ModuleDetail: React.FC = () => {
                         <TableCell>{f.size}</TableCell>
                         <TableCell>
                           {f.modified
-                            ? new Date(f.modified * 1000).toLocaleString()
+                            ? new Date(f.modified).toLocaleString()
                             : ""}
                         </TableCell>
                       </TableRow>
@@ -925,7 +1036,7 @@ const ModuleDetail: React.FC = () => {
                         <TableCell>{f.size}</TableCell>
                         <TableCell>
                           {f.modified
-                            ? new Date(f.modified * 1000).toLocaleString()
+                            ? new Date(f.modified).toLocaleString()
                             : ""}
                         </TableCell>
                       </TableRow>

@@ -1,5 +1,5 @@
-from pydantic import BaseModel, EmailStr
-from datetime import datetime
+from pydantic import BaseModel, EmailStr, field_serializer
+from datetime import datetime, timezone
 from typing import List, Optional
 
 try:
@@ -19,6 +19,12 @@ class UserRead(UserBase):
     id: int
     created_at: datetime
     roles: Optional[List[RoleRead]] = []
+
+    @field_serializer('created_at')
+    def serialize_dt(self, dt: datetime, _info):
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=timezone.utc).isoformat()
+        return dt.isoformat()
 
     model_config = {
         "from_attributes": True
