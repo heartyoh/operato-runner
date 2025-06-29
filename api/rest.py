@@ -45,6 +45,7 @@ import pathlib
 from schemas.validation_log import ModuleValidationLogRead
 from utils.redis_client import redis_client
 from models.module import ModuleEnvVar
+import humanize
 
 # 프로젝트 루트 경로
 ROOT_DIR = pathlib.Path(__file__).resolve().parent.parent
@@ -1608,6 +1609,144 @@ def create_app() -> FastAPI:
             status_code=exc.status_code,
             content=exc.to_dict()
         )
+
+    @app.get("/api/modules/{name}/deployed-info")
+    async def get_deployed_info(name: str, db: AsyncSession = Depends(get_db)):
+        result = await db.execute(select(Module).where(Module.name == name))
+        module = result.scalars().first()
+        if not module:
+            raise HTTPException(status_code=404, detail="Module not found")
+        if module.env == "inline":
+            return {"message": "이 모듈은 인라인 실행 방식이므로 별도의 배포/전개 정보가 없습니다."}
+        
+        # 활성화된 버전 찾기
+        active_version_result = await db.execute(
+            select(Version).join(Deployment, Deployment.version_id == Version.id)
+            .where(Version.module_id == module.id, Deployment.status == "active")
+        )
+        active_version = active_version_result.scalars().first()
+        
+        # 배포 경로 (modules) - 원본 업로드 파일들
+        deploy_base_dir = None
+        deploy_exists = False
+        if active_version:
+            deploy_base_dir = os.path.join("modules", module.name, active_version.version)
+            deploy_exists = os.path.exists(deploy_base_dir)
+        else:
+            # 활성화된 버전이 없으면 최신 버전 찾기
+            latest_version_result = await db.execute(
+                select(Version).where(Version.module_id == module.id)
+                .order_by(Version.created_at.desc())
+            )
+            latest_version = latest_version_result.scalars().first()
+            if latest_version:
+                deploy_base_dir = os.path.join("modules", module.name, latest_version.version)
+                deploy_exists = os.path.exists(deploy_base_dir)
+        
+        # 전개 경로 (module_envs) - 실제 실행 환경
+        env_base_dir = os.path.join("module_envs", module.name)
+        env_exists = os.path.exists(env_base_dir)
+        
+        if not deploy_exists and not env_exists:
+            return {"message": f"배포 경로와 전개 경로 모두 존재하지 않습니다."}
+        
+        # 배포된 파일 목록 수집
+        deploy_files = []
+        deploy_total_size = 0
+        if deploy_exists and deploy_base_dir:
+            for root, dirs, files in os.walk(deploy_base_dir):
+                for f in files:
+                    fp = os.path.join(root, f)
+                    try:
+                        stat = os.stat(fp)
+                        deploy_files.append({
+                            "path": os.path.relpath(fp, deploy_base_dir),
+                            "size": humanize.naturalsize(stat.st_size),
+                            "modified": stat.st_mtime
+                        })
+                        deploy_total_size += stat.st_size
+                    except Exception:
+                        continue
+        
+        # 전개된 환경 파일 목록 수집
+        env_files = []
+        env_total_size = 0
+        if env_exists:
+            for root, dirs, files in os.walk(env_base_dir):
+                for f in files:
+                    fp = os.path.join(root, f)
+                    try:
+                        stat = os.stat(fp)
+                        env_files.append({
+                            "path": os.path.relpath(fp, env_base_dir),
+                            "size": humanize.naturalsize(stat.st_size),
+                            "modified": stat.st_mtime
+                        })
+                        env_total_size += stat.st_size
+                    except Exception:
+                        continue
+        
+        # 환경별 하위 디렉토리 확인
+        env_subdir = None
+        if module.env == "venv":
+            env_subdir = os.path.join(env_base_dir, "venv")
+        elif module.env == "conda":
+            env_subdir = os.path.join(env_base_dir, "conda")
+        elif module.env == "uv":
+            env_subdir = os.path.join(env_base_dir, "uv")
+        
+        # 실제 설치된 dependencies 정보 수집
+        dependencies = []
+        if module.env in ["venv", "conda", "uv"] and env_subdir and os.path.exists(env_subdir):
+            try:
+                # 환경별 python 경로 찾기
+                if module.env == "venv":
+                    python_path = os.path.join(env_subdir, "bin", "python")
+                elif module.env == "conda":
+                    python_path = os.path.join(env_subdir, "bin", "python")
+                elif module.env == "uv":
+                    python_path = os.path.join(env_subdir, "bin", "python")
+                
+                if os.path.exists(python_path):
+                    # pip list 명령 실행
+                    result = subprocess.run(
+                        [python_path, "-m", "pip", "list", "--format=freeze"],
+                        capture_output=True,
+                        text=True,
+                        timeout=30
+                    )
+                    if result.returncode == 0:
+                        for line in result.stdout.strip().split('\n'):
+                            if line and '==' in line:
+                                package, version = line.split('==', 1)
+                                dependencies.append({
+                                    "package": package,
+                                    "version": version
+                                })
+                        # 패키지 이름으로 정렬
+                        dependencies.sort(key=lambda x: x["package"].lower())
+            except Exception as e:
+                dependencies = [{"error": f"의존성 정보 조회 실패: {str(e)}"}]
+        
+        return {
+            "deploy_path": deploy_base_dir,
+            "deploy_exists": deploy_exists,
+            "deploy_file_count": len(deploy_files),
+            "deploy_total_size": humanize.naturalsize(deploy_total_size),
+            "deploy_files": deploy_files[:30],  # 최대 30개만 반환
+            "active_version": active_version.version if active_version else None,
+            
+            "env_path": env_base_dir,
+            "env_exists": env_exists,
+            "env_type": module.env,
+            "env_subdir": env_subdir,
+            "env_file_count": len(env_files),
+            "env_total_size": humanize.naturalsize(env_total_size),
+            "env_files": env_files[:30],  # 최대 30개만 반환
+            
+            "dependencies": dependencies,
+            "dependency_count": len(dependencies) if dependencies and "error" not in dependencies[0] else 0
+        }
 
     return app
 

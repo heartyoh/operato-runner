@@ -27,6 +27,7 @@ dnspython
 passlib[bcrypt]
 httpx
 python-multipart
+humanize
 
 # --- Redis 캐시 ---
 redis

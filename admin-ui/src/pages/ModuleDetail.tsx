@@ -46,6 +46,7 @@ import {
 import Visibility from "@mui/icons-material/Visibility";
 import VisibilityOff from "@mui/icons-material/VisibilityOff";
 import VersionSelectInput from "../components/VersionSelectInput";
+import axios from "axios";
 
 const formatDate = (isoString?: string | null) => {
   if (!isoString) {
@@ -84,7 +85,10 @@ const ModuleDetail: React.FC = () => {
   const [envSnackbar, setEnvSnackbar] = useState<string | null>(null);
   const [editKey, setEditKey] = useState<string | null>(null);
   const [editValue, setEditValue] = useState<string>("");
-  const [tab, setTab] = useState(0); // 0: 기본정보, 1: 버전관리, 2: 이력, 3: 환경변수
+  const [tab, setTab] = useState(0); // 0: 기본정보, 1: 버전관리, 2: 이력, 3: 환경변수, 4: 실제 전개 정보
+  const [deployInfo, setDeployInfo] = useState<any>(null);
+  const [deployInfoLoading, setDeployInfoLoading] = useState(false);
+  const [deployInfoError, setDeployInfoError] = useState<string | null>(null);
 
   const fetchData = useCallback(() => {
     if (!name) return;
@@ -132,6 +136,21 @@ const ModuleDetail: React.FC = () => {
       fetchData();
     }
   }, [actionMsg, fetchData]);
+
+  // 실제 전개 정보 fetch
+  useEffect(() => {
+    if (!name || tab !== 4) return;
+    setDeployInfo(null);
+    setDeployInfoLoading(true);
+    setDeployInfoError(null);
+    axios
+      .get(`/api/modules/${name}/deployed-info`)
+      .then((res) => setDeployInfo(res.data))
+      .catch((err) =>
+        setDeployInfoError(err?.response?.data?.detail || err.message)
+      )
+      .finally(() => setDeployInfoLoading(false));
+  }, [name, tab]);
 
   const handleAction = async (
     type: "rollback" | "activate" | "deactivate",
@@ -761,6 +780,173 @@ const ModuleDetail: React.FC = () => {
     </>
   );
 
+  const renderDeployedInfo = () => (
+    <>
+      <Typography variant="h6" gutterBottom>
+        실제 전개 정보
+      </Typography>
+      {deployInfoLoading && <CircularProgress sx={{ mt: 2 }} />}
+      {deployInfoError && <Alert severity="error">{deployInfoError}</Alert>}
+      {deployInfo && deployInfo.message && (
+        <Alert severity="info">{deployInfo.message}</Alert>
+      )}
+      {deployInfo && !deployInfo.message && (
+        <>
+          {/* 배포 경로 정보 */}
+          {deployInfo.deploy_exists && (
+            <>
+              <Typography
+                variant="subtitle1"
+                sx={{ mt: 2, mb: 1, fontWeight: "bold" }}
+              >
+                📦 배포 경로 (원본 파일)
+              </Typography>
+              <Box sx={{ mb: 2, p: 2, bgcolor: "grey.50", borderRadius: 1 }}>
+                <b>경로:</b> {deployInfo.deploy_path}
+                <br />
+                <b>활성화된 버전:</b> {deployInfo.active_version || "없음"}
+                <br />
+                <b>파일 개수:</b> {deployInfo.deploy_file_count}
+                <br />
+                <b>디스크 사용량:</b> {deployInfo.deploy_total_size}
+              </Box>
+
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                배포된 파일 목록 (최대 30개)
+              </Typography>
+              <TableContainer sx={{ maxHeight: 200, mb: 3 }}>
+                <Table size="small" stickyHeader>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>경로</TableCell>
+                      <TableCell>크기</TableCell>
+                      <TableCell>수정일</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {deployInfo.deploy_files.map((f: any, idx: number) => (
+                      <TableRow key={`deploy-${idx}`}>
+                        <TableCell>{f.path}</TableCell>
+                        <TableCell>{f.size}</TableCell>
+                        <TableCell>
+                          {f.modified
+                            ? new Date(f.modified * 1000).toLocaleString()
+                            : ""}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </>
+          )}
+
+          {/* 전개 경로 정보 */}
+          {deployInfo.env_exists && (
+            <>
+              <Typography
+                variant="subtitle1"
+                sx={{ mt: 3, mb: 1, fontWeight: "bold" }}
+              >
+                🚀 전개 경로 (실행 환경)
+              </Typography>
+              <Box sx={{ mb: 2, p: 2, bgcolor: "blue.50", borderRadius: 1 }}>
+                <b>경로:</b> {deployInfo.env_path}
+                <br />
+                <b>환경 타입:</b> {deployInfo.env_type}
+                <br />
+                <b>파일 개수:</b> {deployInfo.env_file_count}
+                <br />
+                <b>디스크 사용량:</b> {deployInfo.env_total_size}
+                {deployInfo.dependency_count > 0 && (
+                  <>
+                    <br />
+                    <b>설치된 패키지:</b> {deployInfo.dependency_count}개
+                  </>
+                )}
+              </Box>
+
+              {/* Dependencies 정보 */}
+              {deployInfo.dependencies &&
+                deployInfo.dependencies.length > 0 && (
+                  <>
+                    <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                      설치된 Dependencies ({deployInfo.dependency_count}개)
+                    </Typography>
+                    <TableContainer sx={{ maxHeight: 200, mb: 3 }}>
+                      <Table size="small" stickyHeader>
+                        <TableHead>
+                          <TableRow>
+                            <TableCell>패키지명</TableCell>
+                            <TableCell>버전</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {deployInfo.dependencies.map(
+                            (dep: any, idx: number) => (
+                              <TableRow key={`dep-${idx}`}>
+                                <TableCell>
+                                  {dep.error ? (
+                                    <Alert severity="error" sx={{ py: 0 }}>
+                                      {dep.error}
+                                    </Alert>
+                                  ) : (
+                                    dep.package
+                                  )}
+                                </TableCell>
+                                <TableCell>
+                                  {dep.error ? "" : dep.version}
+                                </TableCell>
+                              </TableRow>
+                            )
+                          )}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  </>
+                )}
+
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                전개된 환경 파일 목록 (최대 30개)
+              </Typography>
+              <TableContainer sx={{ maxHeight: 200 }}>
+                <Table size="small" stickyHeader>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>경로</TableCell>
+                      <TableCell>크기</TableCell>
+                      <TableCell>수정일</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {deployInfo.env_files.map((f: any, idx: number) => (
+                      <TableRow key={`env-${idx}`}>
+                        <TableCell>{f.path}</TableCell>
+                        <TableCell>{f.size}</TableCell>
+                        <TableCell>
+                          {f.modified
+                            ? new Date(f.modified * 1000).toLocaleString()
+                            : ""}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </>
+          )}
+
+          {/* 경로가 존재하지 않는 경우 */}
+          {!deployInfo.deploy_exists && !deployInfo.env_exists && (
+            <Alert severity="warning">
+              배포 경로와 전개 경로 모두 존재하지 않습니다.
+            </Alert>
+          )}
+        </>
+      )}
+    </>
+  );
+
   return (
     <div
       style={{
@@ -785,12 +971,14 @@ const ModuleDetail: React.FC = () => {
           <Tab label="버전 관리" />
           <Tab label="이력" />
           <Tab label="환경변수" />
+          <Tab label="실제 전개 정보" />
         </Tabs>
         <Box sx={{ mt: 2 }}>
           {tab === 0 && renderInfo()}
           {tab === 1 && renderVersion()}
           {tab === 2 && renderHistory()}
           {tab === 3 && renderEnvVars()}
+          {tab === 4 && renderDeployedInfo()}
         </Box>
       </Paper>
     </div>
