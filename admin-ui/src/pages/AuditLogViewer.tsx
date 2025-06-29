@@ -92,8 +92,11 @@ const AuditLogViewer: React.FC = () => {
           boxSizing: "border-box",
         }}
       >
-        <Typography variant="h5" gutterBottom>
-          감사 로그 뷰어
+        <Typography variant="h4" gutterBottom>
+          감사 로그
+        </Typography>
+        <Typography variant="body1" color="textSecondary" gutterBottom>
+          주요 시스템 활동 및 변경 이력을 확인할 수 있습니다.
         </Typography>
         <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
           <TextField

@@ -88,8 +88,11 @@ const ErrorLogViewer: React.FC = () => {
           boxSizing: "border-box",
         }}
       >
-        <Typography variant="h5" gutterBottom>
-          에러 로그 뷰어
+        <Typography variant="h4" gutterBottom>
+          에러 로그
+        </Typography>
+        <Typography variant="body1" color="textSecondary" gutterBottom>
+          시스템에서 발생한 에러 내역을 확인할 수 있습니다.
         </Typography>
         <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
           <TextField

@@ -187,15 +187,19 @@ const ModuleUpload: React.FC<Props> = ({ onUploadSuccess }) => {
 
   return (
     <Paper sx={{ p: 3, mb: 3 }}>
+      <Typography variant="h4" gutterBottom>
+        신규 모듈 업로드
+      </Typography>
+      <Typography variant="body1" color="textSecondary" gutterBottom>
+        새로운 모듈을 업로드하고 버전을 관리하세요.
+      </Typography>
       <Box
         display="flex"
         alignItems="center"
         justifyContent="space-between"
         mb={2}
       >
-        <Typography variant="h6" gutterBottom>
-          모듈 업로드 / 인라인 등록
-        </Typography>
+        <Typography variant="h6" gutterBottom></Typography>
         <Button
           variant="outlined"
           startIcon={<FileDownloadIcon />}

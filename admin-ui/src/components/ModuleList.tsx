@@ -258,8 +258,11 @@ const ModuleList: React.FC = () => {
           boxSizing: "border-box",
         }}
       >
-        <Typography variant="h6" gutterBottom>
-          모듈 목록
+        <Typography variant="h4" gutterBottom>
+          모듈 관리
+        </Typography>
+        <Typography variant="body1" color="textSecondary" gutterBottom>
+          등록된 모든 모듈을 조회, 검색, 관리할 수 있습니다.
         </Typography>
         <div
           style={{

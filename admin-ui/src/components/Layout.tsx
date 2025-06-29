@@ -12,6 +12,7 @@ import {
   Container,
   ListItemButton,
   Alert,
+  Divider,
 } from "@mui/material";
 import {
   Dashboard as DashboardIcon,
@@ -22,7 +23,11 @@ import {
   ErrorOutline as ErrorOutlineIcon,
   History as HistoryIcon,
   CheckCircle as CheckCircleIcon,
+  PlayArrow as PlayArrowIcon,
   AccountCircle,
+  Settings as SettingsIcon,
+  Build as BuildIcon,
+  AdminPanelSettings as AdminIcon,
 } from "@mui/icons-material";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useError } from "../contexts/ErrorContext";
@@ -35,9 +40,9 @@ import Stack from "@mui/material/Stack";
 
 const drawerWidth = 240;
 
-const generalMenuItems = [
-  { text: "대시보드", path: "/admin", icon: <DashboardIcon /> },
-  { text: "모듈 관리", path: "/admin/modules", icon: <ListIcon /> },
+// 모듈 관리 섹션
+const moduleManagementItems = [
+  { text: "모듈 목록", path: "/admin/modules", icon: <ListIcon /> },
   {
     text: "신규 모듈 업로드",
     path: "/admin/modules/upload",
@@ -56,7 +61,17 @@ const generalMenuItems = [
   },
 ];
 
-const adminMenuItems = [
+// 모듈 실행 섹션
+const moduleExecutionItems = [
+  {
+    text: "모듈 실행",
+    path: "/admin/executable",
+    icon: <PlayArrowIcon />,
+  },
+];
+
+// 시스템 어드민 섹션
+const systemAdminItems = [
   { text: "사용자 관리", path: "/admin/users", icon: <PeopleIcon /> },
 ];
 
@@ -152,8 +167,36 @@ const Layout: React.FC = () => {
         <Toolbar />
         <Box sx={{ overflow: "auto" }}>
           <List>
-            {/* 일반 메뉴 */}
-            {generalMenuItems.map((item) => (
+            {/* 대시보드 (탑레벨) */}
+            <ListItem disablePadding>
+              <ListItemButton
+                component={Link}
+                to="/admin"
+                selected={
+                  location.pathname === "/admin" ||
+                  location.pathname === "/admin/dashboard"
+                }
+              >
+                <ListItemIcon>
+                  <DashboardIcon />
+                </ListItemIcon>
+                <ListItemText primary="대시보드" />
+              </ListItemButton>
+            </ListItem>
+
+            <Divider sx={{ my: 1 }} />
+
+            {/* 모듈 관리 섹션 */}
+            <Box sx={{ my: 1, mx: 2 }}>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ fontWeight: "bold" }}
+              >
+                📦 모듈 관리
+              </Typography>
+            </Box>
+            {moduleManagementItems.map((item) => (
               <ListItem key={item.path} disablePadding>
                 <ListItemButton
                   component={Link}
@@ -165,32 +208,56 @@ const Layout: React.FC = () => {
                 </ListItemButton>
               </ListItem>
             ))}
-            {/* 어드민 전용 섹션 */}
-            {user &&
-              user.roles &&
-              user.roles.some((r: any) =>
-                typeof r === "string" ? r === "admin" : r.name === "admin"
-              ) && (
-                <>
-                  <Box sx={{ my: 1, mx: 2 }}>
-                    <Typography variant="caption" color="text.secondary">
-                      관리자 기능
-                    </Typography>
-                  </Box>
-                  {adminMenuItems.map((item) => (
-                    <ListItem key={item.path} disablePadding>
-                      <ListItemButton
-                        component={Link}
-                        to={item.path}
-                        selected={location.pathname === item.path}
-                      >
-                        <ListItemIcon>{item.icon}</ListItemIcon>
-                        <ListItemText primary={item.text} />
-                      </ListItemButton>
-                    </ListItem>
-                  ))}
-                </>
-              )}
+
+            <Divider sx={{ my: 1 }} />
+
+            {/* 모듈 실행 섹션 */}
+            <Box sx={{ my: 1, mx: 2 }}>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ fontWeight: "bold" }}
+              >
+                ▶️ 모듈 실행
+              </Typography>
+            </Box>
+            {moduleExecutionItems.map((item) => (
+              <ListItem key={item.path} disablePadding>
+                <ListItemButton
+                  component={Link}
+                  to={item.path}
+                  selected={location.pathname === item.path}
+                >
+                  <ListItemIcon>{item.icon}</ListItemIcon>
+                  <ListItemText primary={item.text} />
+                </ListItemButton>
+              </ListItem>
+            ))}
+
+            <Divider sx={{ my: 1 }} />
+
+            {/* 시스템 어드민 섹션 */}
+            <Box sx={{ my: 1, mx: 2 }}>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ fontWeight: "bold" }}
+              >
+                ⚙️ 시스템 어드민
+              </Typography>
+            </Box>
+            {systemAdminItems.map((item) => (
+              <ListItem key={item.path} disablePadding>
+                <ListItemButton
+                  component={Link}
+                  to={item.path}
+                  selected={location.pathname === item.path}
+                >
+                  <ListItemIcon>{item.icon}</ListItemIcon>
+                  <ListItemText primary={item.text} />
+                </ListItemButton>
+              </ListItem>
+            ))}
           </List>
         </Box>
       </Drawer>

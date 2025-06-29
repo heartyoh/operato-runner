@@ -183,10 +183,13 @@ const UserManagement: React.FC = () => {
 
   return (
     <Paper sx={{ p: 3, mt: 4 }}>
-      <Box sx={{ display: "flex", justifyContent: "space-between", mb: 2 }}>
-        <Typography variant="h5" gutterBottom>
-          사용자 관리
-        </Typography>
+      <Typography variant="h4" gutterBottom>
+        사용자 관리
+      </Typography>
+      <Typography variant="body1" color="textSecondary" gutterBottom>
+        시스템 사용자 계정과 권한을 관리할 수 있습니다.
+      </Typography>
+      <Box sx={{ display: "flex", justifyContent: "flex-end", mb: 2 }}>
         <Button variant="contained" onClick={() => handleOpen()}>
           신규 사용자 추가
         </Button>

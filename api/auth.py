@@ -106,3 +106,47 @@ def has_role(role_name: str):
 
 # 회원가입/비밀번호 변경 시 validate_password_policy, hash_password 사용
 # 로그인 시 verify_password 사용 
+
+def has_execute_permission():
+    """사용자가 모듈을 실행할 수 있는 권한이 있는지 확인합니다."""
+    async def wrapper(
+        current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+    ):
+        # 로그인한 사용자는 실행 가능 (admin은 모든 권한, 일반 user는 제한적 권한)
+        return current_user
+
+    return wrapper
+
+def can_execute_module(module_name: str):
+    """사용자가 특정 모듈을 실행할 수 있는지 확인합니다."""
+    async def wrapper(
+        current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+    ):
+        from models.module import Module
+        from sqlalchemy import select
+        
+        # admin은 모든 모듈 실행 가능
+        await db.refresh(current_user, attribute_names=["roles"])
+        if any(role.name == "admin" for role in current_user.roles):
+            return current_user
+        
+        # 모듈 조회
+        result = await db.execute(select(Module).where(Module.name == module_name))
+        module = result.scalars().first()
+        
+        if not module:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Module '{module_name}' not found",
+            )
+        
+        # public 모듈이거나 자신이 소유한 모듈이면 실행 가능
+        if module.visibility == "public" or module.owner_id == current_user.id:
+            return current_user
+            
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"User does not have permission to execute module '{module_name}'",
+        )
+
+    return wrapper 

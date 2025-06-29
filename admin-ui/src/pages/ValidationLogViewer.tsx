@@ -109,8 +109,11 @@ const ValidationLogViewer: React.FC = () => {
           boxSizing: "border-box",
         }}
       >
-        <Typography variant="h5" gutterBottom>
-          모듈 검증 로그 뷰어
+        <Typography variant="h4" gutterBottom>
+          검증 로그
+        </Typography>
+        <Typography variant="body1" color="textSecondary" gutterBottom>
+          모듈 검증 및 테스트 결과를 확인할 수 있습니다.
         </Typography>
         <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
           <TextField

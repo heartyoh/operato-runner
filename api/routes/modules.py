@@ -1,0 +1,210 @@
+from fastapi import APIRouter, Depends, HTTPException, status
+from typing import List, Optional, Any, Dict
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+from sqlalchemy import or_
+from models.module import Module
+from module_registry import ModuleRegistry
+from models.user import User
+from api.auth import has_execute_permission, get_current_user
+from core.db import get_db
+from models.version import Version
+from models.deployment import Deployment
+
+# 필요한 Pydantic 모델은 rest.py에서 import
+from pydantic import BaseModel
+from datetime import datetime
+import os
+from datetime import timezone
+
+# --- Pydantic 모델 복사 (간략화) ---
+class ModuleResponse(BaseModel):
+    name: str
+    env: str
+    version: str
+    created_at: Optional[str] = None
+    tags: List[str] = []
+    isDeployed: bool
+    description: Optional[str] = ""
+    visibility: str = "private"
+    is_public: bool = False
+
+class ModuleDetailResponse(BaseModel):
+    name: str
+    env: str
+    version: str
+    description: str
+    tags: List[str]
+    visibility: str
+    isDeployed: bool
+    created_at: Optional[str] = None
+    owner: Optional[str] = None
+    usage_example: Optional[Dict[str, Any]] = None
+    input_schema: Optional[Dict[str, Any]] = None
+    output_schema: Optional[Dict[str, Any]] = None
+
+# --- 의존성 주입 함수들 ---
+async def get_module_registry(db: AsyncSession = Depends(get_db)):
+    return ModuleRegistry(db)
+
+# --- 라우터 정의 ---
+router = APIRouter()
+
+@router.get("/modules/executable", response_model=List[ModuleResponse])
+async def list_executable_modules(
+    search: Optional[str] = None,
+    env: Optional[str] = None,
+    visibility: Optional[str] = None,
+    module_registry: ModuleRegistry = Depends(get_module_registry),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(has_execute_permission())
+):
+    query = select(Module)
+    await db.refresh(current_user, attribute_names=["roles"])
+    is_admin = any(role.name == "admin" for role in current_user.roles)
+    if not is_admin:
+        query = query.where(
+            or_(
+                Module.visibility == "public",
+                Module.owner_id == current_user.id
+            )
+        )
+    if search:
+        search_filter = or_(
+            Module.name.contains(search),
+            Module.description.contains(search),
+            Module.tags.contains(search),
+            Module.env.contains(search)
+        )
+        query = query.where(search_filter)
+    if env:
+        query = query.where(Module.env == env)
+    if visibility:
+        query = query.where(Module.visibility == visibility)
+    query = query.order_by(Module.name)
+    result = await db.execute(query)
+    modules = result.scalars().all()
+    
+    def is_deployed(m):
+        if m.env == "inline":
+            return True
+        venv_dir = os.path.join("module_envs", m.name, "venv")
+        return os.path.exists(venv_dir)
+    
+    return [
+        ModuleResponse(
+            name=m.name,
+            env=m.env,
+            version=m.version,
+            created_at=m.created_at.isoformat() if m.created_at else None,
+            tags=m.tags.split(",") if isinstance(m.tags, str) else (m.tags if m.tags else []),
+            isDeployed=is_deployed(m),
+            description=m.description or "",
+            visibility=m.visibility,
+            is_public=m.visibility == "public"
+        )
+        for m in modules
+    ]
+
+@router.get("/modules", response_model=List[ModuleResponse])
+async def list_modules(
+    module_registry: ModuleRegistry = Depends(get_module_registry),
+    db: AsyncSession = Depends(get_db)
+):
+    modules = await module_registry.list_modules()
+    def is_deployed(m):
+        if m.env == "inline":
+            return True
+        venv_dir = os.path.join("module_envs", m.name, "venv")
+        return os.path.exists(venv_dir)
+    result = []
+    for m in modules:
+        description = m.description
+        if m.env == "inline":
+            v_result = await db.execute(
+                select(Version).join(Deployment, Deployment.version_id == Version.id)
+                .where(Version.module_id == m.id, Deployment.status == "active")
+            )
+            active_version = v_result.scalars().first()
+            if active_version:
+                description = active_version.description
+        created_at_iso = None
+        if m.created_at:
+            dt = m.created_at
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            created_at_iso = dt.isoformat()
+        result.append({
+            "name": m.name,
+            "env": m.env,
+            "version": m.version,
+            "created_at": created_at_iso,
+            "tags": m.tags.split(",") if isinstance(m.tags, str) else (m.tags if m.tags else []),
+            "isDeployed": is_deployed(m),
+            "description": description,
+            "visibility": m.visibility or "private",
+            "is_public": m.visibility == "public",
+        })
+    return result
+
+@router.get("/modules/{name}", response_model=ModuleDetailResponse)
+async def get_module_detail(
+    name: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    module_registry: ModuleRegistry = Depends(get_module_registry)
+):
+    def is_deployed(m):
+        if m.env == "inline":
+            return True
+        venv_dir = os.path.join("module_envs", m.name, "venv")
+        return os.path.exists(venv_dir)
+    result = await db.execute(select(Module).where(Module.name == name))
+    module = result.scalars().first()
+    if not module:
+        raise HTTPException(status_code=404, detail="Module not found")
+    # 권한 체크
+    await db.refresh(current_user, attribute_names=["roles"])
+    is_admin = any(role.name == "admin" for role in current_user.roles)
+    if not is_admin:
+        if module.visibility != "public" and module.owner_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"User does not have permission to access module '{name}'",
+            )
+    # 소유자 정보 조회
+    owner_username = None
+    if module.owner_id:
+        owner_result = await db.execute(select(User).where(User.id == module.owner_id))
+        owner = owner_result.scalars().first()
+        if owner:
+            owner_username = owner.username
+    # 사용법 예시 생성 (기본값)
+    usage_example = {
+        "input": {"example": "input_data"},
+        "description": "모듈 실행을 위한 입력 데이터 예시"
+    }
+    if module.env == "inline" and module.code:
+        try:
+            if "def main(" in module.code:
+                usage_example["input"] = {"data": "example_value"}
+            if "return" in module.code:
+                usage_example["output"] = {"result": "example_output"}
+        except:
+            pass
+    return ModuleDetailResponse(
+        name=module.name,
+        env=module.env,
+        version=module.version,
+        description=module.description or "",
+        tags=module.tags.split(",") if isinstance(module.tags, str) else (module.tags if module.tags else []),
+        visibility=module.visibility,
+        isDeployed=is_deployed(module),
+        created_at=module.created_at.isoformat() if module.created_at else None,
+        owner=owner_username,
+        usage_example=usage_example,
+        input_schema={"type": "object", "properties": {"data": {"type": "string"}}},
+        output_schema={"type": "object", "properties": {"result": {"type": "string"}}}
+    )
+
+# (추가로 /api/modules, /api/modules/{name} 등도 이 파일에 분리 가능) 

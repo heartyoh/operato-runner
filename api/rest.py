@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, Body, Request, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, Depends, Body, Request, UploadFile, File, Form, status
 from typing import Dict, List, Any, Optional
 from pydantic import BaseModel, field_serializer
 from models.module import Module
@@ -10,7 +10,7 @@ from models.user import User
 from schemas.user import UserCreate, UserRead, UserLogin, UserUpdate
 from schemas.role import RoleRead
 from utils.jwt import create_access_token
-from api.auth import verify_password, get_current_user, has_role
+from api.auth import verify_password, get_current_user, has_role, has_execute_permission, can_execute_module
 from utils.security import hash_password, validate_password_policy
 import hashlib
 from utils.audit import log_audit_event
@@ -47,6 +47,7 @@ from utils.redis_client import redis_client
 from models.module import ModuleEnvVar
 import humanize
 import re
+from api.routes import modules
 
 # 프로젝트 루트 경로
 ROOT_DIR = pathlib.Path(__file__).resolve().parent.parent
@@ -116,6 +117,20 @@ def create_app() -> FastAPI:
         stdout: str
         duration: float
 
+    class ModuleDetailResponse(BaseModel):
+        name: str
+        env: str
+        version: str
+        description: str
+        tags: List[str]
+        visibility: str
+        isDeployed: bool
+        created_at: Optional[str] = None
+        owner: Optional[str] = None
+        usage_example: Optional[str] = None
+        input_schema: Optional[Dict[str, Any]] = None
+        output_schema: Optional[Dict[str, Any]] = None
+
     # DI: AsyncSession을 받아서 ModuleRegistry 생성
     async def get_module_registry(db: AsyncSession = Depends(get_db)):
         return ModuleRegistry(db)
@@ -175,67 +190,6 @@ def create_app() -> FastAPI:
             })
         return result
 
-    @app.get("/api/modules/{name}")
-    async def get_module_detail(name: str, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
-        def is_deployed(m):
-            if m.env == "inline":
-                return True
-            venv_dir = os.path.join("module_envs", m.name, "venv")
-            return os.path.exists(venv_dir)
-        result = await db.execute(select(Module).where(Module.name == name))
-        module = result.scalars().first()
-        if not module:
-            raise HTTPException(status_code=404, detail="Module not found")
-        code = None
-        description = module.description
-        current_version = module.version
-        # inline, venv 모두 active deployment 기준으로 current_version 결정
-        v_result = await db.execute(
-            select(Version).join(Deployment, Deployment.version_id == Version.id)
-            .where(Version.module_id == module.id, Deployment.status == "active")
-        )
-        active_version = v_result.scalars().first()
-        if active_version:
-            code = active_version.code
-            description = active_version.description
-            current_version = active_version.version
-        else:
-            # fallback: 최신 업로드 버전
-            v_result = await db.execute(
-                select(Version).where(Version.module_id == module.id).order_by(Version.created_at.desc())
-            )
-            latest_version = v_result.scalars().first()
-            if latest_version:
-                current_version = latest_version.version
-        
-        created_at_iso = None
-        if module.created_at:
-            dt = module.created_at
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            created_at_iso = dt.isoformat()
-            
-        # 환경변수 조회
-        env_vars_result = await db.execute(
-            select(ModuleEnvVar).where(ModuleEnvVar.module_id == module.id)
-        )
-        env_vars = [
-            {"key": ev.key, "value": ev.value}
-            for ev in env_vars_result.scalars().all()
-        ]
-            
-        return {
-            "name": module.name,
-            "env": module.env,
-            "version": module.version,
-            "created_at": created_at_iso,
-            "tags": module.tags.split(",") if isinstance(module.tags, str) else (module.tags if module.tags else []),
-            "isDeployed": is_deployed(module),
-            "description": description,  # 활성화된 버전 설명(인라인)
-            "env_vars": env_vars,  # 환경변수 목록
-            "visibility": module.visibility or "private",
-            "is_public": module.visibility == "public",  # 호환성을 위해 유지
-        }
 
     @app.get("/api/modules/{name}/versions", response_model=List[VersionResponse])
     async def get_module_versions(name: str, db: AsyncSession = Depends(get_db)):
@@ -498,13 +452,27 @@ def create_app() -> FastAPI:
         module: str,
         request: RunRequest = Body(...),
         executor_manager: ExecutorManager = Depends(get_executor_manager),
-        db: AsyncSession = Depends(get_db)
+        db: AsyncSession = Depends(get_db),
+        current_user: User = Depends(get_current_user)
     ):
         # 활성화된 버전의 code를 versions에서 읽어옴
         result = await db.execute(select(Module).where(Module.name == module))
         module_obj = result.scalars().first()
         if not module_obj:
             raise HTTPException(status_code=404, detail="Module not found")
+            
+        # 권한 체크
+        await db.refresh(current_user, attribute_names=["roles"])
+        is_admin = any(role.name == "admin" for role in current_user.roles)
+        
+        if not is_admin:
+            # 일반 사용자는 public 모듈이나 자신이 소유한 모듈만 실행 가능
+            if module_obj.visibility != "public" and module_obj.owner_id != current_user.id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"User does not have permission to execute module '{module}'",
+                )
+                
         active_version_result = await db.execute(
             select(Version).join(Deployment, Deployment.version_id == Version.id)
             .where(Version.module_id == module_obj.id, Deployment.status == "active")
@@ -1857,6 +1825,8 @@ def create_app() -> FastAPI:
             media_type="text/csv",
             headers={"Content-Disposition": "attachment; filename=error_logs.csv"}
         )
+
+    app.include_router(modules.router, prefix="/api", tags=["modules"])
 
     return app
 

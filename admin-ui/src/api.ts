@@ -22,6 +22,7 @@ axios.interceptors.response.use(
 
 export const api = {
   fetchModules,
+  fetchExecutableModules,
   fetchModuleVersions,
   rollbackModule,
   activateModuleVersion,
@@ -55,6 +56,11 @@ export const api = {
 
 async function fetchModules() {
   const res = await axios.get("/api/modules");
+  return res.data;
+}
+
+async function fetchExecutableModules() {
+  const res = await axios.get("/api/modules/executable");
   return res.data;
 }
 

@@ -11,6 +11,7 @@ import ErrorLogViewer from "../pages/ErrorLogViewer";
 import AuditLogViewer from "../pages/AuditLogViewer";
 import ValidationLogViewer from "../pages/ValidationLogViewer";
 import Profile from "../pages/Profile";
+import ExecutableModules from "../pages/ExecutableModules";
 
 const AppRouter: React.FC = () => {
   return (
@@ -25,6 +26,7 @@ const AppRouter: React.FC = () => {
           path="modules/upload"
           element={<ModuleUpload onUploadSuccess={() => {}} />}
         />
+        <Route path="executable" element={<ExecutableModules />} />
         <Route path="users" element={<UserManagement />} />
         <Route path="error-logs" element={<ErrorLogViewer />} />
         <Route path="audit-logs" element={<AuditLogViewer />} />
