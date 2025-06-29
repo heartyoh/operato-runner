@@ -20,7 +20,7 @@ const LoginPage: React.FC = () => {
         return;
       }
       try {
-        await axios.get("/api/users/me", {
+        await axios.get("/api/profile", {
           headers: { Authorization: `Bearer ${token}` },
         });
         setLoggedIn(true);
@@ -44,7 +44,6 @@ const LoginPage: React.FC = () => {
     } catch (err: any) {
       const detail = err?.response?.data?.detail;
       let errorMessage = err.message;
-
       if (typeof detail === "string") {
         errorMessage = detail;
       } else if (detail && typeof detail === "object") {
@@ -54,7 +53,6 @@ const LoginPage: React.FC = () => {
           errorMessage = "서버에서 오류 응답을 받았습니다.";
         }
       }
-
       setError(errorMessage);
     }
   };

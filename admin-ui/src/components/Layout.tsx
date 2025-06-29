@@ -22,9 +22,16 @@ import {
   ErrorOutline as ErrorOutlineIcon,
   History as HistoryIcon,
   CheckCircle as CheckCircleIcon,
+  AccountCircle,
 } from "@mui/icons-material";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useError } from "../contexts/ErrorContext";
+import Menu from "@mui/material/Menu";
+import MenuItem from "@mui/material/MenuItem";
+import Avatar from "@mui/material/Avatar";
+import IconButton from "@mui/material/IconButton";
+import axios from "axios";
+import Stack from "@mui/material/Stack";
 
 const drawerWidth = 240;
 
@@ -55,9 +62,32 @@ const Layout: React.FC = () => {
   const location = useLocation();
   const { error, clearError } = useError();
 
+  // 사용자 정보 상태
+  const [user, setUser] = React.useState<any>(null);
+  const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null);
+  const open = Boolean(anchorEl);
+
+  React.useEffect(() => {
+    axios
+      .get("/api/profile")
+      .then((res) => setUser(res.data))
+      .catch(() => setUser(null));
+  }, []);
+
   const handleLogout = () => {
     localStorage.removeItem("access_token");
     navigate("/login");
+  };
+
+  const handleMenu = (event: React.MouseEvent<HTMLElement>) => {
+    setAnchorEl(event.currentTarget);
+  };
+  const handleClose = () => {
+    setAnchorEl(null);
+  };
+  const handleProfile = () => {
+    handleClose();
+    navigate("/admin/profile"); // 또는 /admin/users/me 등
   };
 
   return (
@@ -67,9 +97,42 @@ const Layout: React.FC = () => {
         sx={{ zIndex: (theme) => theme.zIndex.drawer + 1 }}
       >
         <Toolbar>
-          <Typography variant="h6" noWrap component="div">
+          <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1 }}>
             Operato Runner
           </Typography>
+          {/* 사용자 정보 및 메뉴 */}
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              cursor: "pointer",
+              borderRadius: 2,
+              px: 1.5,
+              py: 0.5,
+              transition: "background 0.2s",
+              "&:hover": { background: "rgba(255,255,255,0.08)" },
+            }}
+            onClick={handleMenu}
+          >
+            <Avatar sx={{ width: 32, height: 32, bgcolor: "#1976d2", mr: 1 }}>
+              {user && user.username ? user.username[0].toUpperCase() : "U"}
+            </Avatar>
+            <Typography variant="body1" sx={{ color: "#fff" }}>
+              {user && user.username ? user.username : "사용자"}
+            </Typography>
+          </Box>
+          <Menu
+            id="menu-appbar"
+            anchorEl={anchorEl}
+            anchorOrigin={{ vertical: "top", horizontal: "right" }}
+            keepMounted
+            transformOrigin={{ vertical: "top", horizontal: "right" }}
+            open={open}
+            onClose={handleClose}
+          >
+            <MenuItem onClick={handleProfile}>내 프로필</MenuItem>
+            <MenuItem onClick={handleLogout}>로그아웃</MenuItem>
+          </Menu>
         </Toolbar>
       </AppBar>
       <Drawer
@@ -98,14 +161,6 @@ const Layout: React.FC = () => {
                 </ListItemButton>
               </ListItem>
             ))}
-            <ListItem disablePadding>
-              <ListItemButton onClick={handleLogout}>
-                <ListItemIcon>
-                  <LogoutIcon />
-                </ListItemIcon>
-                <ListItemText primary="로그아웃" />
-              </ListItemButton>
-            </ListItem>
           </List>
         </Box>
       </Drawer>

@@ -10,6 +10,7 @@ import UserManagement from "../pages/UserManagement";
 import ErrorLogViewer from "../pages/ErrorLogViewer";
 import AuditLogViewer from "../pages/AuditLogViewer";
 import ValidationLogViewer from "../pages/ValidationLogViewer";
+import Profile from "../pages/Profile";
 
 const AppRouter: React.FC = () => {
   return (
@@ -28,6 +29,7 @@ const AppRouter: React.FC = () => {
         <Route path="error-logs" element={<ErrorLogViewer />} />
         <Route path="audit-logs" element={<AuditLogViewer />} />
         <Route path="validation-logs" element={<ValidationLogViewer />} />
+        <Route path="profile" element={<Profile />} />
       </Route>
       <Route path="*" element={<Navigate to="/admin/dashboard" replace />} />
     </Routes>

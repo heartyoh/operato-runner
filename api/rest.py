@@ -639,9 +639,43 @@ def create_app() -> FastAPI:
         await log_audit_event(db, action="login", detail=f"User {user.username} logged in", user_id=user.id)
         return {"access_token": access_token, "token_type": "bearer"}
 
-    @app.get("/api/users/me", response_model=UserRead)
+    @app.get("/api/profile", response_model=UserRead)
     async def get_profile(current_user: User = Depends(get_current_user)):
         return current_user
+
+    @app.patch("/api/profile", response_model=UserRead)
+    async def update_profile(
+        user_in: UserUpdate,
+        db: AsyncSession = Depends(get_db),
+        current_user: User = Depends(get_current_user),
+    ):
+        result = await db.execute(
+            select(User).options(selectinload(User.roles)).where(User.id == current_user.id)
+        )
+        user = result.scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        update_data = user_in.model_dump(exclude_unset=True)
+        if "email" in update_data:
+            user.email = update_data["email"]
+        if "is_active" in update_data:
+            user.is_active = update_data["is_active"]
+        # roles는 일반 사용자가 직접 수정 불가 (필요시 admin만 허용)
+        await db.commit()
+        await db.refresh(user)
+        await db.refresh(user, attribute_names=['roles'])
+        response = UserRead(
+            id=user.id,
+            username=user.username,
+            email=user.email,
+            created_at=user.created_at,
+            roles=[
+                RoleRead(id=role.id, name=role.name, description=role.description)
+                for role in user.roles
+            ]
+        )
+        return response
 
     @app.get("/api/users", response_model=List[UserRead])
     async def list_users(
