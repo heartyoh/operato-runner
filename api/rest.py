@@ -75,16 +75,20 @@ def create_app() -> FastAPI:
         description: Optional[str] = ""
 
     class VersionResponse(BaseModel):
+        id: int
         version: str
         description: Optional[str] = None
         created_at: datetime
         is_active: bool
 
     class HistoryResponse(BaseModel):
-        version: str
-        description: Optional[str] = None
-        created_at: datetime
+        id: int
+        module_id: int
+        version_id: int
+        version: Optional[str] = None
         action: str
+        operator: Optional[str] = None
+        timestamp: datetime
 
     class RunRequest(BaseModel):
         input: Dict[str, Any]
@@ -232,6 +236,7 @@ def create_app() -> FastAPI:
         
         return [
             VersionResponse(
+                id=v.id,
                 version=v.version,
                 description=v.description,
                 created_at=v.created_at,
@@ -240,19 +245,32 @@ def create_app() -> FastAPI:
             for v, d_status in versions_result.all()
         ]
 
-    @app.get("/api/modules/{name}/history", response_model=List[ModuleHistoryRead])
+    @app.get("/api/modules/{name}/history", response_model=List[HistoryResponse])
     async def get_module_history(name: str, db: AsyncSession = Depends(get_db)):
         result = await db.execute(select(Module).where(Module.name == name))
         module = result.scalars().first()
         if not module:
             raise HTTPException(status_code=404, detail="Module not found")
         
+        # history와 version join
         history_result = await db.execute(
-            select(ModuleHistory)
+            select(ModuleHistory, Version.version)
+            .outerjoin(Version, (ModuleHistory.version_id == Version.id) & (Version.module_id == module.id))
             .where(ModuleHistory.module_id == module.id)
             .order_by(ModuleHistory.timestamp.desc())
         )
-        return history_result.scalars().all()
+        return [
+            HistoryResponse(
+                id=h.id,
+                module_id=h.module_id,
+                version_id=h.version_id,
+                version=version,
+                action=h.action,
+                operator=h.operator,
+                timestamp=h.timestamp
+            )
+            for h, version in history_result.all()
+        ]
 
     @app.post("/api/modules", response_model=ModuleResponse, status_code=201)
     async def create_module(

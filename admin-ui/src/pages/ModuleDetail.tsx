@@ -45,6 +45,7 @@ import {
 } from "../api";
 import Visibility from "@mui/icons-material/Visibility";
 import VisibilityOff from "@mui/icons-material/VisibilityOff";
+import VersionSelectInput from "../components/VersionSelectInput";
 
 const formatDate = (isoString?: string | null) => {
   if (!isoString) {
@@ -83,6 +84,7 @@ const ModuleDetail: React.FC = () => {
   const [envSnackbar, setEnvSnackbar] = useState<string | null>(null);
   const [editKey, setEditKey] = useState<string | null>(null);
   const [editValue, setEditValue] = useState<string>("");
+  const [tab, setTab] = useState(0); // 0: 기본정보, 1: 버전관리, 2: 이력, 3: 환경변수
 
   const fetchData = useCallback(() => {
     if (!name) return;
@@ -190,6 +192,575 @@ const ModuleDetail: React.FC = () => {
     setShowValue((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
+  // --- 섹션별 렌더링 함수 ---
+  const renderInfo = () => (
+    <>
+      <Typography variant="h5" gutterBottom>
+        모듈 상세 정보
+      </Typography>
+      <Divider sx={{ mb: 2 }} />
+      {loading && <CircularProgress sx={{ mt: 2 }} />}
+      {error && (
+        <Alert severity="error" sx={{ mt: 2 }}>
+          {error}
+        </Alert>
+      )}
+      {module && (
+        <Grid container spacing={3}>
+          {/* Left Column */}
+          <Grid item xs={12} md={6}>
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="subtitle2" color="text.secondary">
+                이름
+              </Typography>
+              <Typography>{module.name}</Typography>
+            </Box>
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="subtitle2" color="text.secondary">
+                환경
+              </Typography>
+              <Typography>{module.env}</Typography>
+            </Box>
+            {module.artifact_type && module.artifact_uri && (
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="subtitle2" color="text.secondary">
+                  Artifact
+                </Typography>
+                <Typography color="primary" fontWeight={500}>
+                  {module.artifact_type}: {module.artifact_uri}
+                </Typography>
+              </Box>
+            )}
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="subtitle2" color="text.secondary">
+                현재 적용 버전
+              </Typography>
+              <Typography>
+                {module.current_version || module.version}
+              </Typography>
+            </Box>
+            <Box>
+              <Typography variant="subtitle2" color="text.secondary">
+                생성일
+              </Typography>
+              <Typography>{formatDate(module.created_at)}</Typography>
+            </Box>
+          </Grid>
+
+          {/* Right Column */}
+          <Grid item xs={12} md={6}>
+            <Box sx={{ mb: 2 }}>
+              <Typography
+                variant="subtitle2"
+                color="text.secondary"
+                sx={{ mb: 0.5 }}
+              >
+                태그
+              </Typography>
+              {editMode ? (
+                <TextField
+                  fullWidth
+                  size="small"
+                  value={editTags}
+                  onChange={(e) => setEditTags(e.target.value)}
+                  variant="outlined"
+                />
+              ) : (
+                <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                  {module.tags?.length > 0 ? (
+                    module.tags.map((tag: string) => (
+                      <Chip key={tag} label={tag} size="small" />
+                    ))
+                  ) : (
+                    <Typography variant="body2" color="text.secondary">
+                      태그 없음
+                    </Typography>
+                  )}
+                </Stack>
+              )}
+            </Box>
+            <Box sx={{ mb: 2 }}>
+              <Typography
+                variant="subtitle2"
+                color="text.secondary"
+                sx={{ mb: 0.5 }}
+              >
+                설명
+              </Typography>
+              {editMode ? (
+                <TextField
+                  fullWidth
+                  multiline
+                  rows={4}
+                  size="small"
+                  value={editDesc}
+                  onChange={(e) => setEditDesc(e.target.value)}
+                  variant="outlined"
+                />
+              ) : (
+                <Typography
+                  variant="body2"
+                  color={module.description ? "text.primary" : "text.secondary"}
+                  sx={{ whiteSpace: "pre-wrap", minHeight: "22px" }}
+                >
+                  {module.description || "설명 없음"}
+                </Typography>
+              )}
+            </Box>
+
+            {editMsg && (
+              <Alert severity="success" sx={{ mb: 2 }}>
+                {editMsg}
+              </Alert>
+            )}
+            {editError && (
+              <Alert severity="error" sx={{ mb: 2 }}>
+                {editError}
+              </Alert>
+            )}
+
+            <Box>
+              {editMode ? (
+                <>
+                  <Button
+                    size="small"
+                    variant="contained"
+                    color="primary"
+                    disabled={editLoading}
+                    onClick={async () => {
+                      if (!name) return;
+                      setEditLoading(true);
+                      setEditMsg(null);
+                      setEditError(null);
+                      try {
+                        await updateModuleInfo(name, {
+                          description: editDesc,
+                          tags: editTags,
+                        });
+                        setEditMsg("수정 완료");
+                        setEditMode(false);
+                        fetchData();
+                      } catch (e: any) {
+                        setEditError(e?.response?.data?.detail || e.message);
+                      } finally {
+                        setEditLoading(false);
+                      }
+                    }}
+                  >
+                    저장
+                  </Button>
+                  <Button
+                    size="small"
+                    sx={{ ml: 1 }}
+                    onClick={() => setEditMode(false)}
+                    disabled={editLoading}
+                  >
+                    취소
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => {
+                    setEditMode(true);
+                    setEditDesc(module.description || "");
+                    setEditTags(
+                      Array.isArray(module.tags)
+                        ? module.tags.join(",")
+                        : module.tags || ""
+                    );
+                    setEditMsg(null);
+                    setEditError(null);
+                  }}
+                >
+                  수정
+                </Button>
+              )}
+            </Box>
+          </Grid>
+        </Grid>
+      )}
+      {!loading && !error && !module && (
+        <Typography>모듈 정보를 찾을 수 없습니다.</Typography>
+      )}
+    </>
+  );
+
+  const renderVersion = () => (
+    <>
+      <Typography variant="h6" gutterBottom>
+        새 버전 업로드
+      </Typography>
+      {upgradeMsg && <Alert severity="success">{upgradeMsg}</Alert>}
+      {upgradeError && <Alert severity="error">{upgradeError}</Alert>}
+      <Box
+        component="form"
+        sx={{ mb: 3 }}
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (!name) return;
+          setUpgradeLoading(true);
+          setUpgradeMsg(null);
+          setUpgradeError(null);
+          try {
+            const formData = new FormData();
+            formData.append("version", upgradeVersion);
+            formData.append("description", upgradeDesc);
+            if (module?.env === "inline") {
+              formData.append("code", upgradeCode);
+            } else if (
+              module?.env === "venv" ||
+              module?.env === "conda" ||
+              module?.env === "uv"
+            ) {
+              if (upgradeFile) formData.append("file", upgradeFile);
+            }
+            await uploadModuleVersion(name, formData);
+            setUpgradeMsg("새 버전 업로드 성공");
+            setUpgradeVersion("");
+            setUpgradeCode("");
+            fetchData();
+            setUpgradeTags("");
+            setUpgradeFile(null);
+          } catch (e: any) {
+            setUpgradeError(e?.response?.data?.detail || e.message);
+          } finally {
+            setUpgradeLoading(false);
+          }
+        }}
+      >
+        {module?.env === "inline" ? (
+          <Box sx={{ mb: 3 }}>
+            <Typography
+              variant="subtitle2"
+              color="text.secondary"
+              sx={{ mb: 0.5 }}
+            >
+              코드 *
+            </Typography>
+            <TextField
+              multiline
+              minRows={10}
+              maxRows={30}
+              fullWidth
+              value={upgradeCode}
+              onChange={(e) => setUpgradeCode(e.target.value)}
+              placeholder={`import os\n\nreturn {"message": "기본 동작 테스트", "A": os.environ.get('A', 'NOT_SET')}`}
+              sx={{ fontFamily: "monospace", mb: 1 }}
+              required
+            />
+            <Typography variant="caption" color="text.secondary">
+              실행 시 input 파라미터로 전달됩니다. 코드에서 input['x'] 등으로
+              바로 사용하세요.
+              <br />
+              환경변수는 <b>os.environ.get('KEY')</b>로 접근할 수 있습니다.
+            </Typography>
+            <Stack
+              direction="row"
+              spacing={2}
+              alignItems="center"
+              sx={{ mt: 2 }}
+            >
+              <VersionSelectInput
+                currentVersion={
+                  module?.current_version || module?.version || "0.1.0"
+                }
+                value={upgradeVersion}
+                onChange={setUpgradeVersion}
+              />
+              <input
+                type="text"
+                placeholder="태그(쉼표구분)"
+                value={upgradeTags}
+                onChange={(e) => setUpgradeTags(e.target.value)}
+                style={{ width: 160 }}
+              />
+              <input
+                type="text"
+                placeholder="설명"
+                value={upgradeDesc}
+                onChange={(e) => setUpgradeDesc(e.target.value)}
+                style={{ width: 200 }}
+              />
+              <Button
+                type="submit"
+                variant="contained"
+                disabled={upgradeLoading}
+              >
+                {upgradeLoading ? "업로드중..." : "업그레이드"}
+              </Button>
+            </Stack>
+          </Box>
+        ) : module?.env === "venv" ||
+          module?.env === "conda" ||
+          module?.env === "uv" ? (
+          <input
+            type="file"
+            accept=".zip"
+            onChange={(e) => setUpgradeFile(e.target.files?.[0] || null)}
+            style={{ display: "inline-block" }}
+          />
+        ) : null}
+      </Box>
+      <Divider sx={{ my: 3 }} />
+      <Typography variant="h6" gutterBottom>
+        버전 목록
+      </Typography>
+      {actionMsg && <Alert severity="success">{actionMsg}</Alert>}
+      {actionError && <Alert severity="error">{actionError}</Alert>}
+      <TableContainer sx={{ mb: 2 }}>
+        <Table size="small">
+          <TableHead>
+            <TableRow key="version-header">
+              <TableCell>이름</TableCell>
+              <TableCell>환경</TableCell>
+              <TableCell>버전</TableCell>
+              <TableCell>설명</TableCell>
+              <TableCell>태그</TableCell>
+              <TableCell>상태</TableCell>
+              <TableCell>액션</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {versions
+              .sort((a, b) => {
+                // 버전 문자열을 숫자 배열로 변환 (예: "1.2.3" -> [1, 2, 3])
+                const vA = a.version.split(".").map(Number);
+                const vB = b.version.split(".").map(Number);
+
+                // 역순 정렬 (최신 버전이 위로)
+                for (let i = 0; i < Math.max(vA.length, vB.length); i++) {
+                  const numA = vA[i] || 0;
+                  const numB = vB[i] || 0;
+                  if (numA !== numB) return numB - numA;
+                }
+                return 0;
+              })
+              .map((v, index) => (
+                <TableRow key={`${v.id}-${index}`}>
+                  <TableCell>{v.name}</TableCell>
+                  <TableCell>{v.env}</TableCell>
+                  <TableCell>{v.version}</TableCell>
+                  <TableCell>{v.description || ""}</TableCell>
+                  <TableCell>
+                    {Array.isArray(v.tags) ? v.tags.join(", ") : v.tags || ""}
+                  </TableCell>
+                  <TableCell>{v.status}</TableCell>
+                  <TableCell>
+                    <Stack direction="row" spacing={1}>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        disabled={actionLoading || v.status === "active"}
+                        onClick={() => handleAction("rollback", v.version)}
+                      >
+                        롤백
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="contained"
+                        color="success"
+                        disabled={actionLoading || v.status === "active"}
+                        onClick={() => handleAction("activate", v.version)}
+                      >
+                        활성화
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="contained"
+                        color="warning"
+                        disabled={actionLoading || v.status === "inactive"}
+                        onClick={() => handleAction("deactivate", v.version)}
+                      >
+                        비활성화
+                      </Button>
+                    </Stack>
+                  </TableCell>
+                </TableRow>
+              ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
+    </>
+  );
+
+  // version_id → semver 매핑 테이블 생성 (id, version_id 모두 string 변환)
+  const versionIdToSemver = Object.fromEntries(
+    versions.map((v) => [String(v.id), v.version])
+  );
+
+  const renderHistory = () => (
+    <>
+      <Typography variant="h6" gutterBottom>
+        이력
+      </Typography>
+      <TableContainer>
+        <Table size="small">
+          <TableHead>
+            <TableRow key="history-header">
+              <TableCell>액션</TableCell>
+              <TableCell>버전</TableCell>
+              <TableCell>담당자</TableCell>
+              <TableCell>일시</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {history.map((h, index) => (
+              <TableRow key={`${h.id}-${index}`}>
+                <TableCell>{h.action}</TableCell>
+                <TableCell>{h.version || ""}</TableCell>
+                <TableCell>{h.operator}</TableCell>
+                <TableCell>{formatDate(h.timestamp)}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
+    </>
+  );
+
+  const renderEnvVars = () => (
+    <>
+      <Typography variant="h6" gutterBottom>
+        환경변수 관리
+      </Typography>
+      <TableContainer>
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell>키</TableCell>
+              <TableCell>값</TableCell>
+              <TableCell>액션</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {envVars.map((env) => (
+              <TableRow key={env.key}>
+                <TableCell>{env.key}</TableCell>
+                <TableCell>
+                  <TextField
+                    type={showValue[env.key] ? "text" : "password"}
+                    value={editKey === env.key ? editValue : env.value}
+                    size="small"
+                    onChange={(e) => {
+                      setEditKey(env.key);
+                      setEditValue(e.target.value);
+                    }}
+                    InputProps={{
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <IconButton
+                            onClick={() =>
+                              setShowValue((prev) => ({
+                                ...prev,
+                                [env.key]: !prev[env.key],
+                              }))
+                            }
+                            size="small"
+                          >
+                            {showValue[env.key] ? (
+                              <VisibilityOff />
+                            ) : (
+                              <Visibility />
+                            )}
+                          </IconButton>
+                        </InputAdornment>
+                      ),
+                    }}
+                  />
+                </TableCell>
+                <TableCell>
+                  {editKey === env.key ? (
+                    <>
+                      <Button
+                        size="small"
+                        color="primary"
+                        onClick={async () => {
+                          if (!name) return;
+                          await updateModuleEnvVar(name, env.key, editValue);
+                          setEnvVars(
+                            envVars.map((e) =>
+                              e.key === env.key ? { ...e, value: editValue } : e
+                            )
+                          );
+                          setEditKey(null);
+                          setEditValue("");
+                          setEnvSnackbar("환경변수 수정됨");
+                        }}
+                      >
+                        저장
+                      </Button>
+                      <Button
+                        size="small"
+                        onClick={() => {
+                          setEditKey(null);
+                          setEditValue("");
+                        }}
+                      >
+                        취소
+                      </Button>
+                    </>
+                  ) : null}
+                  <Button
+                    size="small"
+                    color="error"
+                    onClick={() => handleDeleteEnv(env.key)}
+                  >
+                    삭제
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+            <TableRow>
+              <TableCell>
+                <TextField
+                  size="small"
+                  placeholder="키"
+                  value={newEnv.key}
+                  onChange={(e) =>
+                    setNewEnv((v) => ({ ...v, key: e.target.value }))
+                  }
+                  onKeyPress={(e) => {
+                    if (e.key === "Enter") {
+                      handleAddEnv();
+                    }
+                  }}
+                />
+              </TableCell>
+              <TableCell>
+                <TextField
+                  size="small"
+                  placeholder="값"
+                  value={newEnv.value}
+                  onChange={(e) =>
+                    setNewEnv((v) => ({ ...v, value: e.target.value }))
+                  }
+                  onKeyPress={(e) => {
+                    if (e.key === "Enter") {
+                      handleAddEnv();
+                    }
+                  }}
+                />
+              </TableCell>
+              <TableCell>
+                <Button size="small" variant="outlined" onClick={handleAddEnv}>
+                  추가
+                </Button>
+              </TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+      </TableContainer>
+      <Snackbar
+        open={!!envSnackbar}
+        autoHideDuration={1500}
+        onClose={() => setEnvSnackbar(null)}
+        message={envSnackbar}
+      />
+    </>
+  );
+
   return (
     <div
       style={{
@@ -209,570 +780,18 @@ const ModuleDetail: React.FC = () => {
           boxSizing: "border-box",
         }}
       >
-        <Typography variant="h5" gutterBottom>
-          모듈 상세 정보
-        </Typography>
-        <Divider sx={{ mb: 2 }} />
-        {loading && <CircularProgress sx={{ mt: 2 }} />}
-        {error && (
-          <Alert severity="error" sx={{ mt: 2 }}>
-            {error}
-          </Alert>
-        )}
-        {module && (
-          <>
-            <Grid container spacing={3}>
-              {/* Left Column */}
-              <Grid item xs={12} md={6}>
-                <Box sx={{ mb: 2 }}>
-                  <Typography variant="subtitle2" color="text.secondary">
-                    이름
-                  </Typography>
-                  <Typography>{module.name}</Typography>
-                </Box>
-                <Box sx={{ mb: 2 }}>
-                  <Typography variant="subtitle2" color="text.secondary">
-                    환경
-                  </Typography>
-                  <Typography>{module.env}</Typography>
-                </Box>
-                {module.artifact_type && module.artifact_uri && (
-                  <Box sx={{ mb: 2 }}>
-                    <Typography variant="subtitle2" color="text.secondary">
-                      Artifact
-                    </Typography>
-                    <Typography color="primary" fontWeight={500}>
-                      {module.artifact_type}: {module.artifact_uri}
-                    </Typography>
-                  </Box>
-                )}
-                <Box sx={{ mb: 2 }}>
-                  <Typography variant="subtitle2" color="text.secondary">
-                    현재 적용 버전
-                  </Typography>
-                  <Typography>
-                    {module.current_version || module.version}
-                  </Typography>
-                </Box>
-                <Box>
-                  <Typography variant="subtitle2" color="text.secondary">
-                    생성일
-                  </Typography>
-                  <Typography>{formatDate(module.created_at)}</Typography>
-                </Box>
-              </Grid>
-
-              {/* Right Column */}
-              <Grid item xs={12} md={6}>
-                <Box sx={{ mb: 2 }}>
-                  <Typography
-                    variant="subtitle2"
-                    color="text.secondary"
-                    sx={{ mb: 0.5 }}
-                  >
-                    태그
-                  </Typography>
-                  {editMode ? (
-                    <TextField
-                      fullWidth
-                      size="small"
-                      value={editTags}
-                      onChange={(e) => setEditTags(e.target.value)}
-                      variant="outlined"
-                    />
-                  ) : (
-                    <Stack
-                      direction="row"
-                      spacing={1}
-                      useFlexGap
-                      flexWrap="wrap"
-                    >
-                      {module.tags?.length > 0 ? (
-                        module.tags.map((tag: string) => (
-                          <Chip key={tag} label={tag} size="small" />
-                        ))
-                      ) : (
-                        <Typography variant="body2" color="text.secondary">
-                          태그 없음
-                        </Typography>
-                      )}
-                    </Stack>
-                  )}
-                </Box>
-                <Box sx={{ mb: 2 }}>
-                  <Typography
-                    variant="subtitle2"
-                    color="text.secondary"
-                    sx={{ mb: 0.5 }}
-                  >
-                    설명
-                  </Typography>
-                  {editMode ? (
-                    <TextField
-                      fullWidth
-                      multiline
-                      rows={4}
-                      size="small"
-                      value={editDesc}
-                      onChange={(e) => setEditDesc(e.target.value)}
-                      variant="outlined"
-                    />
-                  ) : (
-                    <Typography
-                      variant="body2"
-                      color={
-                        module.description ? "text.primary" : "text.secondary"
-                      }
-                      sx={{ whiteSpace: "pre-wrap", minHeight: "22px" }}
-                    >
-                      {module.description || "설명 없음"}
-                    </Typography>
-                  )}
-                </Box>
-
-                {editMsg && (
-                  <Alert severity="success" sx={{ mb: 2 }}>
-                    {editMsg}
-                  </Alert>
-                )}
-                {editError && (
-                  <Alert severity="error" sx={{ mb: 2 }}>
-                    {editError}
-                  </Alert>
-                )}
-
-                <Box>
-                  {editMode ? (
-                    <>
-                      <Button
-                        size="small"
-                        variant="contained"
-                        color="primary"
-                        disabled={editLoading}
-                        onClick={async () => {
-                          if (!name) return;
-                          setEditLoading(true);
-                          setEditMsg(null);
-                          setEditError(null);
-                          try {
-                            await updateModuleInfo(name, {
-                              description: editDesc,
-                              tags: editTags,
-                            });
-                            setEditMsg("수정 완료");
-                            setEditMode(false);
-                            fetchData();
-                          } catch (e: any) {
-                            setEditError(
-                              e?.response?.data?.detail || e.message
-                            );
-                          } finally {
-                            setEditLoading(false);
-                          }
-                        }}
-                      >
-                        저장
-                      </Button>
-                      <Button
-                        size="small"
-                        sx={{ ml: 1 }}
-                        onClick={() => setEditMode(false)}
-                        disabled={editLoading}
-                      >
-                        취소
-                      </Button>
-                    </>
-                  ) : (
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      onClick={() => {
-                        setEditMode(true);
-                        setEditDesc(module.description || "");
-                        setEditTags(
-                          Array.isArray(module.tags)
-                            ? module.tags.join(",")
-                            : module.tags || ""
-                        );
-                        setEditMsg(null);
-                        setEditError(null);
-                      }}
-                    >
-                      수정
-                    </Button>
-                  )}
-                </Box>
-              </Grid>
-            </Grid>
-          </>
-        )}
-        {!loading && !error && !module && (
-          <Typography>모듈 정보를 찾을 수 없습니다.</Typography>
-        )}
-        <Divider sx={{ my: 3 }} />
-        <Typography variant="h6" gutterBottom>
-          새 버전 업로드
-        </Typography>
-        {upgradeMsg && <Alert severity="success">{upgradeMsg}</Alert>}
-        {upgradeError && <Alert severity="error">{upgradeError}</Alert>}
-        <Box
-          component="form"
-          sx={{ mb: 3 }}
-          onSubmit={async (e) => {
-            e.preventDefault();
-            if (!name) return;
-            setUpgradeLoading(true);
-            setUpgradeMsg(null);
-            setUpgradeError(null);
-            try {
-              const formData = new FormData();
-              formData.append("version", upgradeVersion);
-              formData.append("description", upgradeDesc);
-              if (module?.env === "inline") {
-                formData.append("code", upgradeCode);
-              } else if (
-                module?.env === "venv" ||
-                module?.env === "conda" ||
-                module?.env === "uv"
-              ) {
-                if (upgradeFile) formData.append("file", upgradeFile);
-              }
-              await uploadModuleVersion(name, formData);
-              setUpgradeMsg("새 버전 업로드 성공");
-              setUpgradeVersion("");
-              setUpgradeCode("");
-              fetchData();
-              setUpgradeTags("");
-              setUpgradeFile(null);
-            } catch (e: any) {
-              setUpgradeError(e?.response?.data?.detail || e.message);
-            } finally {
-              setUpgradeLoading(false);
-            }
-          }}
-        >
-          {module?.env === "inline" ? (
-            <Box sx={{ mb: 3 }}>
-              <Typography
-                variant="subtitle2"
-                color="text.secondary"
-                sx={{ mb: 0.5 }}
-              >
-                코드 *
-              </Typography>
-              <TextField
-                multiline
-                minRows={10}
-                maxRows={30}
-                fullWidth
-                value={upgradeCode}
-                onChange={(e) => setUpgradeCode(e.target.value)}
-                placeholder={`import os\n\nreturn {"message": "기본 동작 테스트", "A": os.environ.get('A', 'NOT_SET')}`}
-                sx={{ fontFamily: "monospace", mb: 1 }}
-                required
-              />
-              <Typography variant="caption" color="text.secondary">
-                실행 시 input 파라미터로 전달됩니다. 코드에서 input['x'] 등으로
-                바로 사용하세요.
-                <br />
-                환경변수는 <b>os.environ.get('KEY')</b>로 접근할 수 있습니다.
-              </Typography>
-              <Stack
-                direction="row"
-                spacing={2}
-                alignItems="center"
-                sx={{ mt: 2 }}
-              >
-                <input
-                  type="text"
-                  placeholder="버전 (예: 0.2.0)"
-                  value={upgradeVersion}
-                  onChange={(e) => setUpgradeVersion(e.target.value)}
-                  style={{ width: 120 }}
-                  required
-                />
-                <input
-                  type="text"
-                  placeholder="태그(쉼표구분)"
-                  value={upgradeTags}
-                  onChange={(e) => setUpgradeTags(e.target.value)}
-                  style={{ width: 160 }}
-                />
-                <input
-                  type="text"
-                  placeholder="설명"
-                  value={upgradeDesc}
-                  onChange={(e) => setUpgradeDesc(e.target.value)}
-                  style={{ width: 200 }}
-                />
-                <Button
-                  type="submit"
-                  variant="contained"
-                  disabled={upgradeLoading}
-                >
-                  {upgradeLoading ? "업로드중..." : "업그레이드"}
-                </Button>
-              </Stack>
-            </Box>
-          ) : module?.env === "venv" ||
-            module?.env === "conda" ||
-            module?.env === "uv" ? (
-            <input
-              type="file"
-              accept=".zip"
-              onChange={(e) => setUpgradeFile(e.target.files?.[0] || null)}
-              style={{ display: "inline-block" }}
-            />
-          ) : null}
+        <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 3 }}>
+          <Tab label="기본 정보" />
+          <Tab label="버전 관리" />
+          <Tab label="이력" />
+          <Tab label="환경변수" />
+        </Tabs>
+        <Box sx={{ mt: 2 }}>
+          {tab === 0 && renderInfo()}
+          {tab === 1 && renderVersion()}
+          {tab === 2 && renderHistory()}
+          {tab === 3 && renderEnvVars()}
         </Box>
-        <Divider sx={{ my: 3 }} />
-        <Typography variant="h6" gutterBottom>
-          버전 목록
-        </Typography>
-        {actionMsg && <Alert severity="success">{actionMsg}</Alert>}
-        {actionError && <Alert severity="error">{actionError}</Alert>}
-        <TableContainer sx={{ mb: 2 }}>
-          <Table size="small">
-            <TableHead>
-              <TableRow key="version-header">
-                <TableCell>이름</TableCell>
-                <TableCell>환경</TableCell>
-                <TableCell>버전</TableCell>
-                <TableCell>설명</TableCell>
-                <TableCell>태그</TableCell>
-                <TableCell>상태</TableCell>
-                <TableCell>액션</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {versions
-                .sort((a, b) => {
-                  // 버전 문자열을 숫자 배열로 변환 (예: "1.2.3" -> [1, 2, 3])
-                  const vA = a.version.split(".").map(Number);
-                  const vB = b.version.split(".").map(Number);
-
-                  // 역순 정렬 (최신 버전이 위로)
-                  for (let i = 0; i < Math.max(vA.length, vB.length); i++) {
-                    const numA = vA[i] || 0;
-                    const numB = vB[i] || 0;
-                    if (numA !== numB) return numB - numA;
-                  }
-                  return 0;
-                })
-                .map((v, index) => (
-                  <TableRow key={`${v.id}-${index}`}>
-                    <TableCell>{v.name}</TableCell>
-                    <TableCell>{v.env}</TableCell>
-                    <TableCell>{v.version}</TableCell>
-                    <TableCell>{v.description || ""}</TableCell>
-                    <TableCell>
-                      {Array.isArray(v.tags) ? v.tags.join(", ") : v.tags || ""}
-                    </TableCell>
-                    <TableCell>{v.status}</TableCell>
-                    <TableCell>
-                      <Stack direction="row" spacing={1}>
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          disabled={actionLoading || v.status === "active"}
-                          onClick={() => handleAction("rollback", v.version)}
-                        >
-                          롤백
-                        </Button>
-                        <Button
-                          size="small"
-                          variant="contained"
-                          color="success"
-                          disabled={actionLoading || v.status === "active"}
-                          onClick={() => handleAction("activate", v.version)}
-                        >
-                          활성화
-                        </Button>
-                        <Button
-                          size="small"
-                          variant="contained"
-                          color="warning"
-                          disabled={actionLoading || v.status === "inactive"}
-                          onClick={() => handleAction("deactivate", v.version)}
-                        >
-                          비활성화
-                        </Button>
-                      </Stack>
-                    </TableCell>
-                  </TableRow>
-                ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
-        <Divider sx={{ my: 3 }} />
-        <Typography variant="h6" gutterBottom>
-          이력
-        </Typography>
-        <TableContainer>
-          <Table size="small">
-            <TableHead>
-              <TableRow key="history-header">
-                <TableCell>액션</TableCell>
-                <TableCell>버전</TableCell>
-                <TableCell>담당자</TableCell>
-                <TableCell>일시</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {history.map((h, index) => (
-                <TableRow key={`${h.id}-${index}`}>
-                  <TableCell>{h.action}</TableCell>
-                  <TableCell>{h.version_id}</TableCell>
-                  <TableCell>{h.operator}</TableCell>
-                  <TableCell>{formatDate(h.timestamp)}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
-        <Divider sx={{ my: 3 }} />
-        <Typography variant="h6" gutterBottom>
-          환경변수 관리
-        </Typography>
-        <TableContainer>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>키</TableCell>
-                <TableCell>값</TableCell>
-                <TableCell>액션</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {envVars.map((env) => (
-                <TableRow key={env.key}>
-                  <TableCell>{env.key}</TableCell>
-                  <TableCell>
-                    <TextField
-                      type={showValue[env.key] ? "text" : "password"}
-                      value={editKey === env.key ? editValue : env.value}
-                      size="small"
-                      onChange={(e) => {
-                        setEditKey(env.key);
-                        setEditValue(e.target.value);
-                      }}
-                      InputProps={{
-                        endAdornment: (
-                          <InputAdornment position="end">
-                            <IconButton
-                              onClick={() =>
-                                setShowValue((prev) => ({
-                                  ...prev,
-                                  [env.key]: !prev[env.key],
-                                }))
-                              }
-                              size="small"
-                            >
-                              {showValue[env.key] ? (
-                                <VisibilityOff />
-                              ) : (
-                                <Visibility />
-                              )}
-                            </IconButton>
-                          </InputAdornment>
-                        ),
-                      }}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    {editKey === env.key ? (
-                      <>
-                        <Button
-                          size="small"
-                          color="primary"
-                          onClick={async () => {
-                            if (!name) return;
-                            await updateModuleEnvVar(name, env.key, editValue);
-                            setEnvVars(
-                              envVars.map((e) =>
-                                e.key === env.key
-                                  ? { ...e, value: editValue }
-                                  : e
-                              )
-                            );
-                            setEditKey(null);
-                            setEditValue("");
-                            setEnvSnackbar("환경변수 수정됨");
-                          }}
-                        >
-                          저장
-                        </Button>
-                        <Button
-                          size="small"
-                          onClick={() => {
-                            setEditKey(null);
-                            setEditValue("");
-                          }}
-                        >
-                          취소
-                        </Button>
-                      </>
-                    ) : null}
-                    <Button
-                      size="small"
-                      color="error"
-                      onClick={() => handleDeleteEnv(env.key)}
-                    >
-                      삭제
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-              <TableRow>
-                <TableCell>
-                  <TextField
-                    size="small"
-                    placeholder="키"
-                    value={newEnv.key}
-                    onChange={(e) =>
-                      setNewEnv((v) => ({ ...v, key: e.target.value }))
-                    }
-                    onKeyPress={(e) => {
-                      if (e.key === "Enter") {
-                        handleAddEnv();
-                      }
-                    }}
-                  />
-                </TableCell>
-                <TableCell>
-                  <TextField
-                    size="small"
-                    placeholder="값"
-                    value={newEnv.value}
-                    onChange={(e) =>
-                      setNewEnv((v) => ({ ...v, value: e.target.value }))
-                    }
-                    onKeyPress={(e) => {
-                      if (e.key === "Enter") {
-                        handleAddEnv();
-                      }
-                    }}
-                  />
-                </TableCell>
-                <TableCell>
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    onClick={handleAddEnv}
-                  >
-                    추가
-                  </Button>
-                </TableCell>
-              </TableRow>
-            </TableBody>
-          </Table>
-        </TableContainer>
-        <Snackbar
-          open={!!envSnackbar}
-          autoHideDuration={1500}
-          onClose={() => setEnvSnackbar(null)}
-          message={envSnackbar}
-        />
       </Paper>
     </div>
   );

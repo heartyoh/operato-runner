@@ -14,6 +14,8 @@ import {
   Tab,
 } from "@mui/material";
 import FileDownloadIcon from "@mui/icons-material/FileDownload";
+import VersionSelectInput from "./VersionSelectInput";
+import { useNavigate } from "react-router-dom";
 
 interface Props {
   onUploadSuccess?: () => void;
@@ -43,6 +45,7 @@ const ModuleUpload: React.FC<Props> = ({ onUploadSuccess }) => {
   "y": 2
 }`);
   const [artifactType, setArtifactType] = useState("");
+  const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -78,6 +81,7 @@ const ModuleUpload: React.FC<Props> = ({ onUploadSuccess }) => {
       setVersion("0.1.0");
       setFile(null);
       setArtifactUri("");
+      navigate(`/admin/modules/${name}`);
       if (onUploadSuccess) onUploadSuccess();
     } catch (err: any) {
       const detail = err?.response?.data?.detail;
@@ -128,6 +132,7 @@ const ModuleUpload: React.FC<Props> = ({ onUploadSuccess }) => {
   "x": 1,
   "y": 2
 }`);
+      navigate(`/admin/modules/${inlineName}`);
       if (onUploadSuccess) onUploadSuccess();
     } catch (err: any) {
       const detail = err?.response?.data?.detail;
@@ -214,11 +219,10 @@ const ModuleUpload: React.FC<Props> = ({ onUploadSuccess }) => {
               <MenuItem value="conda">conda</MenuItem>
               <MenuItem value="uv">uv</MenuItem>
             </TextField>
-            <TextField
-              label="버전"
+            <VersionSelectInput
+              currentVersion={"0.1.0"}
               value={version}
-              onChange={(e) => setVersion(e.target.value)}
-              size="small"
+              onChange={setVersion}
             />
             {/* zip 파일 업로드 또는 git 링크 중 하나만 입력 */}
             <Button
@@ -289,11 +293,10 @@ const ModuleUpload: React.FC<Props> = ({ onUploadSuccess }) => {
               size="small"
               sx={{ width: 120 }}
             />
-            <TextField
-              label="버전"
+            <VersionSelectInput
+              currentVersion={"0.1.0"}
               value={inlineVersion}
-              onChange={(e) => setInlineVersion(e.target.value)}
-              size="small"
+              onChange={setInlineVersion}
             />
             <TextField
               label="설명"
