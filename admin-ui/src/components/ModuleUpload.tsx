@@ -49,22 +49,74 @@ const ModuleUpload: React.FC<Props> = ({ onUploadSuccess }) => {
   "x": 1,
   "y": 2
 }`);
-  const [artifactType, setArtifactType] = useState("");
+  const [artifactType, setArtifactType] = useState<string>("zip");
   const [inlineIsPublic, setInlineIsPublic] = useState(false);
+  const [dockerImage, setDockerImage] = useState("");
   const navigate = useNavigate();
+
+  // artifact_type별 허용 env 목록 정의
+  const allowedEnvs: Record<string, string[]> = {
+    zip: ["venv", "conda", "uv"],
+    git: ["venv", "conda", "uv"],
+    docker: ["docker"],
+    inline: ["inline"],
+  };
+
+  // 논리적 조합 체크 함수
+  const isArtifactTypeAllowed = (type: string, env: string) => {
+    if (env === "inline") return type === "inline";
+    if (env === "docker") return type === "docker";
+    return ["zip", "git"].includes(type);
+  };
+
+  // 탭 변경 핸들러
+  const handleArtifactTabChange = (_: any, newValue: string) => {
+    setArtifactType(newValue);
+    setFile(null);
+    setArtifactUri("");
+    setDockerImage("");
+    setInlineName("");
+    setInlineCode("");
+    setInlineDesc("");
+    setInlineInput(`{\n  \"x\": 1,\n  \"y\": 2\n}`);
+  };
+
+  // artifactType 변경 시 env 자동 보정
+  React.useEffect(() => {
+    if (!allowedEnvs[artifactType].includes(env)) {
+      setEnv(allowedEnvs[artifactType][0]);
+    }
+  }, [artifactType]);
+
+  // artifactType이 'inline'이거나 env가 'inline'이면 인라인 입력란 항상 활성화
+  const showInlineFields = artifactType === "inline" || env === "inline";
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setSuccess(false);
-    if (!name || (!file && !artifactUri)) {
-      setError(
-        "모듈 이름과 소스(zip 파일 또는 git 링크) 중 하나를 입력하세요."
-      );
+    if (!name) {
+      setError("모듈 이름을 입력하세요.");
       return;
     }
-    if (file && artifactUri) {
-      setError("zip 파일과 git 링크 중 하나만 입력하세요.");
+    if (!isArtifactTypeAllowed(artifactType, env)) {
+      setError("선택한 환경과 아티팩트 타입 조합이 맞지 않습니다.");
+      return;
+    }
+    if (artifactType === "zip" && !file) {
+      setError("zip 파일을 첨부하세요.");
+      return;
+    }
+    if (artifactType === "git" && !artifactUri) {
+      setError("Git 저장소 링크를 입력하세요.");
+      return;
+    }
+    if (artifactType === "docker" && !dockerImage) {
+      setError("Docker 이미지 주소를 입력하세요.");
+      return;
+    }
+    if (artifactType === "inline" && !inlineCode) {
+      setError("인라인 코드를 입력하세요.");
       return;
     }
     setLoading(true);
@@ -76,10 +128,16 @@ const ModuleUpload: React.FC<Props> = ({ onUploadSuccess }) => {
       formData.append("is_public", String(isPublic));
       formData.append("description", description);
       formData.append("tags", tags);
-      if (file) {
-        formData.append("file", file);
-      } else if (artifactUri) {
+      formData.append("artifact_type", artifactType);
+      if (artifactType === "zip") {
+        formData.append("file", file!);
+      } else if (artifactType === "git") {
         formData.append("artifact_uri", artifactUri);
+      } else if (artifactType === "docker") {
+        formData.append("artifact_uri", dockerImage);
+      } else if (artifactType === "inline") {
+        formData.append("code", inlineCode);
+        formData.append("input", inlineInput);
       }
       await axios.post("/api/modules", formData, {
         headers: { "Content-Type": "multipart/form-data" },
@@ -90,12 +148,15 @@ const ModuleUpload: React.FC<Props> = ({ onUploadSuccess }) => {
       setVersion("0.1.0");
       setFile(null);
       setArtifactUri("");
+      setDockerImage("");
+      setArtifactType("zip");
+      setInlineCode("");
+      setInlineInput(`{\n  \"x\": 1,\n  \"y\": 2\n}`);
       navigate(`/admin/modules/${name}`);
       if (onUploadSuccess) onUploadSuccess();
     } catch (err: any) {
       const detail = err?.response?.data?.detail;
       let errorMessage = err.message;
-
       if (typeof detail === "string") {
         errorMessage = detail;
       } else if (detail && typeof detail === "object") {
@@ -105,62 +166,9 @@ const ModuleUpload: React.FC<Props> = ({ onUploadSuccess }) => {
           errorMessage = "서버에서 오류 응답을 받았습니다.";
         }
       }
-
       setError(errorMessage);
     } finally {
       setLoading(false);
-    }
-  };
-
-  // 인라인 등록 핸들러 (FormData로 /api/modules에 전송, axios 사용)
-  const handleInlineSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setInlineError(null);
-    setInlineSuccess(false);
-    if (!inlineName || !inlineCode) {
-      setInlineError("모듈 이름과 코드를 모두 입력하세요.");
-      return;
-    }
-    setInlineLoading(true);
-    try {
-      const formData = new FormData();
-      formData.append("name", inlineName.trim());
-      formData.append("env", "inline");
-      formData.append("version", inlineVersion);
-      formData.append("code", inlineCode);
-      formData.append("description", inlineDesc);
-      formData.append("input", inlineInput);
-      formData.append("is_public", String(inlineIsPublic));
-      // tags 등 추가 필드 필요시 formData.append("tags", ...)
-      await axios.post("/api/modules", formData);
-      setInlineSuccess(true);
-      setInlineName("");
-      setInlineVersion("0.1.0");
-      setInlineCode("");
-      setInlineDesc("");
-      setInlineInput(`{
-  "x": 1,
-  "y": 2
-}`);
-      navigate(`/admin/modules/${inlineName}`);
-      if (onUploadSuccess) onUploadSuccess();
-    } catch (err: any) {
-      const detail = err?.response?.data?.detail;
-      let errorMessage = err.message;
-
-      if (typeof detail === "string") {
-        errorMessage = detail;
-      } else if (detail && typeof detail === "object") {
-        try {
-          errorMessage = JSON.stringify(detail);
-        } catch {
-          errorMessage = "서버에서 오류 응답을 받았습니다.";
-        }
-      }
-
-      setInlineError(errorMessage);
-    } finally {
-      setInlineLoading(false);
     }
   };
 
@@ -208,69 +216,86 @@ const ModuleUpload: React.FC<Props> = ({ onUploadSuccess }) => {
           템플릿 다운로드
         </Button>
       </Box>
-      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
-        <Tab label="파일 업로드" />
-        <Tab label="인라인 코드 등록" />
+      <Tabs
+        value={artifactType}
+        onChange={handleArtifactTabChange}
+        sx={{ mb: 2 }}
+        variant="scrollable"
+        scrollButtons="auto"
+      >
+        <Tab label="ZIP 파일" value="zip" />
+        <Tab label="Git 저장소" value="git" />
+        <Tab label="Docker 이미지" value="docker" />
+        <Tab label="인라인 코드" value="inline" />
       </Tabs>
-      {tab === 0 && (
-        <form onSubmit={handleSubmit}>
-          <Box display="flex" gap={2} flexWrap="wrap" alignItems="center">
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={isPublic}
-                  onChange={(e) => setIsPublic(e.target.checked)}
-                  color="primary"
-                />
-              }
-              label={isPublic ? "공개 모듈" : "비공개 모듈"}
-              sx={{ mr: 2 }}
-            />
-            <TextField
-              label="이름"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-              size="small"
-            />
-            <TextField
-              label="환경"
-              select
-              value={env}
-              onChange={(e) => setEnv(e.target.value)}
-              size="small"
-            >
-              <MenuItem value="venv">venv</MenuItem>
-              <MenuItem value="conda">conda</MenuItem>
-              <MenuItem value="uv">uv</MenuItem>
-            </TextField>
-            <TextField
-              label="버전"
-              value={version}
-              onChange={(e) => setVersion(e.target.value)}
-              required
-              size="small"
-              sx={{ width: 120 }}
-            />
-            <TextField
-              label="설명"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              size="small"
-              sx={{ minWidth: 200 }}
-            />
-            <TextField
-              label="태그"
-              value={tags}
-              onChange={(e) => setTags(e.target.value)}
-              size="small"
-              sx={{ minWidth: 160 }}
-              placeholder="쉼표로 구분"
-            />
+      <form onSubmit={handleSubmit}>
+        <Box display="flex" gap={2} flexWrap="wrap" alignItems="center">
+          <FormControlLabel
+            control={
+              <Switch
+                checked={isPublic}
+                onChange={(e) => setIsPublic(e.target.checked)}
+                color="primary"
+              />
+            }
+            label={isPublic ? "공개 모듈" : "비공개 모듈"}
+            sx={{ mr: 2 }}
+          />
+          <TextField
+            label="이름"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+            size="small"
+          />
+          <TextField
+            label="환경"
+            select
+            value={env}
+            onChange={(e) => setEnv(e.target.value)}
+            size="small"
+          >
+            {(["venv", "conda", "uv", "docker", "inline"] as const).map(
+              (opt) => (
+                <MenuItem
+                  key={opt}
+                  value={opt}
+                  disabled={!allowedEnvs[artifactType].includes(opt)}
+                >
+                  {opt}
+                </MenuItem>
+              )
+            )}
+          </TextField>
+          <TextField
+            label="버전"
+            value={version}
+            onChange={(e) => setVersion(e.target.value)}
+            required
+            size="small"
+            sx={{ width: 120 }}
+          />
+          <TextField
+            label="설명"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            size="small"
+            sx={{ minWidth: 200 }}
+          />
+          <TextField
+            label="태그"
+            value={tags}
+            onChange={(e) => setTags(e.target.value)}
+            size="small"
+            sx={{ minWidth: 160 }}
+            placeholder="쉼표로 구분"
+          />
+          {/* 각 탭별 입력란 */}
+          {artifactType === "zip" && isArtifactTypeAllowed("zip", env) && (
             <Button
               variant="contained"
               component="label"
-              disabled={!!artifactUri}
+              disabled={!!artifactUri || !!dockerImage}
             >
               파일 선택
               <input
@@ -279,131 +304,104 @@ const ModuleUpload: React.FC<Props> = ({ onUploadSuccess }) => {
                 hidden
                 onChange={(e) => {
                   setFile(e.target.files?.[0] || null);
-                  if (e.target.files?.[0]) setArtifactUri("");
+                  if (e.target.files?.[0]) {
+                    setArtifactUri("");
+                    setDockerImage("");
+                  }
                 }}
               />
             </Button>
-            {file && <Typography>{file.name}</Typography>}
+          )}
+          {file && artifactType === "zip" && (
+            <Typography>{file.name}</Typography>
+          )}
+          {artifactType === "git" && isArtifactTypeAllowed("git", env) && (
             <TextField
               label="Git 저장소 링크"
               value={artifactUri}
               onChange={(e) => {
                 setArtifactUri(e.target.value);
-                if (e.target.value) setFile(null);
+                if (e.target.value) {
+                  setFile(null);
+                  setDockerImage("");
+                }
               }}
               size="small"
               sx={{ minWidth: 260 }}
               placeholder="https://github.com/username/repo.git"
-              disabled={!!file}
             />
-            <Button
-              type="submit"
-              variant="contained"
-              color="primary"
-              disabled={loading}
-            >
-              업로드
-            </Button>
-          </Box>
-        </form>
-      )}
-      {tab === 0 && loading && <CircularProgress sx={{ mt: 2 }} />}
-      {tab === 0 && error && (
-        <Alert severity="error" sx={{ mt: 2 }}>
-          {error}
-        </Alert>
-      )}
-      {tab === 0 && success && (
-        <Alert severity="success" sx={{ mt: 2 }}>
-          업로드 성공!
-        </Alert>
-      )}
-      {tab === 1 && (
-        <form onSubmit={handleInlineSubmit}>
-          <Box display="flex" gap={2} flexWrap="wrap" alignItems="center">
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={inlineIsPublic}
-                  onChange={(e) => setInlineIsPublic(e.target.checked)}
-                  color="primary"
-                />
-              }
-              label={inlineIsPublic ? "공개 모듈" : "비공개 모듈"}
-              sx={{ mr: 2 }}
-            />
+          )}
+          {artifactType === "docker" && (
             <TextField
-              label="이름"
-              value={inlineName}
-              onChange={(e) => setInlineName(e.target.value)}
+              label="도커 이미지 주소"
+              value={dockerImage}
+              onChange={(e) => {
+                setDockerImage(e.target.value);
+                if (e.target.value) {
+                  setFile(null);
+                  setArtifactUri("");
+                }
+              }}
+              size="small"
+              sx={{ minWidth: 260 }}
+              placeholder="ghcr.io/yourorg/yourimage:tag"
               required
-              size="small"
             />
-            <TextField
-              label="환경"
-              value="inline"
-              InputProps={{ readOnly: true }}
-              size="small"
-              sx={{ width: 120 }}
-            />
-            <VersionSelectInput
-              currentVersion={"0.1.0"}
-              value={inlineVersion}
-              onChange={setInlineVersion}
-            />
-            <TextField
-              label="설명"
-              value={inlineDesc}
-              onChange={(e) => setInlineDesc(e.target.value)}
-              size="small"
-              sx={{ minWidth: 200 }}
-            />
-          </Box>
-          <TextField
-            label="input 예시 (JSON)"
-            value={inlineInput}
-            onChange={(e) => setInlineInput(e.target.value)}
-            fullWidth
-            margin="normal"
-            multiline
-            minRows={3}
-            placeholder={`{
-  "x": 1,
-  "y": 2
-}`}
-            helperText="실행 시 input 파라미터로 전달됩니다. 코드에서 input['x'] 등으로 바로 사용하세요."
-          />
-          <TextField
-            label="코드"
-            value={inlineCode}
-            onChange={(e) => setInlineCode(e.target.value)}
-            fullWidth
-            margin="normal"
-            multiline
-            minRows={8}
-            placeholder="여기에 파이썬 코드를 입력하세요"
-            required
-          />
+          )}
+          {artifactType === "inline" && (
+            <>
+              <TextField
+                label="input 예시 (JSON)"
+                value={inlineInput}
+                onChange={(e) => setInlineInput(e.target.value)}
+                fullWidth
+                margin="normal"
+                multiline
+                minRows={3}
+                placeholder={`{\n  \"x\": 1,\n  \"y\": 2\n}`}
+                helperText="실행 시 input 파라미터로 전달됩니다. 코드에서 input['x'] 등으로 바로 사용하세요."
+              />
+              <TextField
+                label="코드"
+                value={inlineCode}
+                onChange={(e) => setInlineCode(e.target.value)}
+                fullWidth
+                margin="normal"
+                multiline
+                minRows={8}
+                placeholder="여기에 파이썬 코드를 입력하세요"
+                required
+              />
+            </>
+          )}
+          {/* 논리적으로 맞지 않는 조합 안내 제거 */}
+          {/* 업로드 버튼 항상 활성화, 필수 입력값만 체크 */}
           <Button
             type="submit"
             variant="contained"
             color="primary"
-            disabled={inlineLoading}
-            sx={{ mt: 2 }}
+            disabled={
+              loading ||
+              !name ||
+              (artifactType === "inline" && !inlineCode) ||
+              (artifactType === "zip" && !file) ||
+              (artifactType === "git" && !artifactUri) ||
+              (artifactType === "docker" && !dockerImage)
+            }
           >
-            인라인 등록
+            {artifactType === "inline" ? "등록" : "업로드"}
           </Button>
-        </form>
-      )}
-      {tab === 1 && inlineLoading && <CircularProgress sx={{ mt: 2 }} />}
-      {tab === 1 && inlineError && (
+        </Box>
+      </form>
+      {loading && <CircularProgress sx={{ mt: 2 }} />}
+      {error && (
         <Alert severity="error" sx={{ mt: 2 }}>
-          {inlineError}
+          {error}
         </Alert>
       )}
-      {tab === 1 && inlineSuccess && (
+      {success && (
         <Alert severity="success" sx={{ mt: 2 }}>
-          인라인 등록 성공!
+          업로드 성공!
         </Alert>
       )}
     </Paper>

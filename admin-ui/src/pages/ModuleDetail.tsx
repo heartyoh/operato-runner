@@ -156,20 +156,37 @@ const ModuleDetail: React.FC = () => {
       .finally(() => setDeployInfoLoading(false));
   }, [name, tab]);
 
-  const handleAction = async (
-    type: "rollback" | "activate" | "deactivate",
-    version: string
-  ) => {
+  // 업그레이드 탭 진입 시 활성화 버전(없으면 최신 버전) 코드 자동 세팅
+  useEffect(() => {
+    if (tab === 1 && module?.artifact_type === "inline" && name) {
+      // 1. 버전 리스트 조회
+      fetchModuleVersions(name).then((versions) => {
+        let targetVersion = versions.find((v: any) => v.is_active)?.version;
+        if (!targetVersion && versions.length > 0) {
+          targetVersion = versions[0].version; // 최신 버전
+        }
+        if (targetVersion) {
+          // 2. 해당 버전의 code 조회
+          axios
+            .get(`/api/modules/${name}/versions/${targetVersion}`)
+            .then((res) => setUpgradeCode(res.data.code || ""))
+            .catch(() => setUpgradeCode(""));
+        } else {
+          setUpgradeCode("");
+        }
+      });
+    }
+    // eslint-disable-next-line
+  }, [tab, module?.artifact_type, name]);
+
+  const handleAction = async (type: "activate", version: string) => {
     if (!name) return;
     setActionLoading(true);
     setActionMsg(null);
     setActionError(null);
     try {
       let res;
-      if (type === "rollback") res = await rollbackModule(name, version);
       if (type === "activate") res = await activateModuleVersion(name, version);
-      if (type === "deactivate")
-        res = await deactivateModuleVersion(name, version);
       setActionMsg(res.detail || "성공");
     } catch (e: any) {
       setActionError(e?.response?.data?.detail || e.message);
@@ -238,22 +255,51 @@ const ModuleDetail: React.FC = () => {
               </Typography>
               <Typography>{module.name}</Typography>
             </Box>
+            {/* artifact_type/env/artifact_uri 표 */}
             <Box sx={{ mb: 2 }}>
               <Typography variant="subtitle2" color="text.secondary">
-                환경
+                유형 정보
               </Typography>
-              <Typography>{module.env}</Typography>
+              <Table size="small" sx={{ maxWidth: 400 }}>
+                <TableBody>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: "bold", width: 90 }}>
+                      artifact_type
+                    </TableCell>
+                    <TableCell>{module.artifact_type || "-"}</TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: "bold" }}>env</TableCell>
+                    <TableCell>{module.env || "-"}</TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: "bold" }}>
+                      artifact_uri
+                    </TableCell>
+                    <TableCell>
+                      {module.artifact_uri ? (
+                        <a
+                          href={module.artifact_uri}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{
+                            textDecoration: "underline",
+                            color: "#1976d2",
+                          }}
+                        >
+                          {module.artifact_uri}
+                        </a>
+                      ) : (
+                        "-"
+                      )}
+                    </TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+              <Typography variant="caption" color="text.secondary">
+                artifact_type은 최초 생성 후 변경할 수 없습니다.
+              </Typography>
             </Box>
-            {module.artifact_type && module.artifact_uri && (
-              <Box sx={{ mb: 2 }}>
-                <Typography variant="subtitle2" color="text.secondary">
-                  Artifact
-                </Typography>
-                <Typography color="primary" fontWeight={500}>
-                  {module.artifact_type}: {module.artifact_uri}
-                </Typography>
-              </Box>
-            )}
             <Box sx={{ mb: 2 }}>
               <Typography variant="subtitle2" color="text.secondary">
                 현재 적용 버전
@@ -455,16 +501,17 @@ const ModuleDetail: React.FC = () => {
             const formData = new FormData();
             formData.append("version", upgradeVersion);
             formData.append("description", upgradeDesc);
-            if (module?.env === "inline") {
+            // artifact_type별 분기
+            if (module?.artifact_type === "inline") {
               formData.append("code", upgradeCode);
-            } else if (
-              module?.env === "venv" ||
-              module?.env === "conda" ||
-              module?.env === "uv"
-            ) {
+            } else if (module?.artifact_type === "zip") {
               if (upgradeFile) formData.append("file", upgradeFile);
-              if (upgradeArtifactUri)
-                formData.append("artifact_uri", upgradeArtifactUri);
+            } else if (
+              module?.artifact_type === "git" ||
+              module?.artifact_type === "docker"
+            ) {
+              // git/docker: 업그레이드는 코드 다시 가져오기만 지원
+              // 별도 업로드 없음
             }
             await uploadModuleVersion(name, formData);
             setUpgradeMsg("새 버전 업로드 성공");
@@ -481,7 +528,8 @@ const ModuleDetail: React.FC = () => {
           }
         }}
       >
-        {module?.env === "inline" ? (
+        {/* artifact_type별 업그레이드 UI */}
+        {module?.artifact_type === "inline" && (
           <Box sx={{ mb: 3 }}>
             <Typography
               variant="subtitle2"
@@ -517,6 +565,7 @@ const ModuleDetail: React.FC = () => {
                 currentVersion={
                   module?.current_version || module?.version || "0.1.0"
                 }
+                versions={versions.map((v: any) => v.version)}
                 value={upgradeVersion}
                 onChange={setUpgradeVersion}
               />
@@ -543,9 +592,8 @@ const ModuleDetail: React.FC = () => {
               </Button>
             </Stack>
           </Box>
-        ) : module?.env === "venv" ||
-          module?.env === "conda" ||
-          module?.env === "uv" ? (
+        )}
+        {module?.artifact_type === "zip" && (
           <Box sx={{ mb: 3 }}>
             <Stack
               direction="row"
@@ -557,6 +605,7 @@ const ModuleDetail: React.FC = () => {
                 currentVersion={
                   module?.current_version || module?.version || "0.1.0"
                 }
+                versions={versions.map((v: any) => v.version)}
                 value={upgradeVersion}
                 onChange={setUpgradeVersion}
               />
@@ -581,57 +630,76 @@ const ModuleDetail: React.FC = () => {
                 color="text.secondary"
                 sx={{ mb: 1 }}
               >
-                소스 업로드 방식 선택
+                새 zip 파일 첨부
               </Typography>
-              <Stack direction="row" spacing={2} alignItems="center">
-                <Button
-                  variant="contained"
-                  component="label"
-                  disabled={!!upgradeArtifactUri}
-                  size="small"
+              <Button variant="contained" component="label" size="small">
+                파일 선택
+                <input
+                  type="file"
+                  accept=".zip"
+                  hidden
+                  onChange={(e) => {
+                    setUpgradeFile(e.target.files?.[0] || null);
+                  }}
+                />
+              </Button>
+              {upgradeFile && (
+                <Typography
+                  variant="body2"
+                  color="text.secondary"
+                  sx={{ ml: 2 }}
                 >
-                  파일 선택
-                  <input
-                    type="file"
-                    accept=".zip"
-                    hidden
-                    onChange={(e) => {
-                      setUpgradeFile(e.target.files?.[0] || null);
-                      if (e.target.files?.[0]) setUpgradeArtifactUri("");
-                    }}
-                  />
-                </Button>
-                {upgradeFile && (
-                  <Typography variant="body2" color="text.secondary">
-                    선택된 파일: {upgradeFile.name}
-                  </Typography>
-                )}
-              </Stack>
-              <Typography
-                variant="body2"
-                color="text.secondary"
-                sx={{ mt: 1, mb: 1 }}
-              >
-                또는
-              </Typography>
-              <TextField
-                size="small"
-                label="Git 저장소 링크"
-                value={upgradeArtifactUri}
-                onChange={(e) => {
-                  setUpgradeArtifactUri(e.target.value);
-                  if (e.target.value) setUpgradeFile(null);
-                }}
-                placeholder="https://github.com/username/repo.git"
-                disabled={!!upgradeFile}
-                sx={{ width: 400 }}
-              />
+                  선택된 파일: {upgradeFile.name}
+                </Typography>
+              )}
             </Box>
             <Button type="submit" variant="contained" disabled={upgradeLoading}>
               {upgradeLoading ? "업로드중..." : "업그레이드"}
             </Button>
           </Box>
-        ) : null}
+        )}
+        {(module?.artifact_type === "git" ||
+          module?.artifact_type === "docker") && (
+          <Box sx={{ mb: 3 }}>
+            <Stack
+              direction="row"
+              spacing={2}
+              alignItems="center"
+              sx={{ mb: 2 }}
+            >
+              <VersionSelectInput
+                currentVersion={
+                  module?.current_version || module?.version || "0.1.0"
+                }
+                versions={versions.map((v: any) => v.version)}
+                value={upgradeVersion}
+                onChange={setUpgradeVersion}
+              />
+              <TextField
+                size="small"
+                placeholder="태그(쉼표구분)"
+                value={upgradeTags}
+                onChange={(e) => setUpgradeTags(e.target.value)}
+                sx={{ width: 160 }}
+              />
+              <TextField
+                size="small"
+                placeholder="설명"
+                value={upgradeDesc}
+                onChange={(e) => setUpgradeDesc(e.target.value)}
+                sx={{ width: 200 }}
+              />
+            </Stack>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              {module.artifact_type === "git"
+                ? "Git 저장소 URL은 변경할 수 없습니다. 업그레이드는 현재 저장소의 최신 코드를 다시 가져옵니다."
+                : "Docker 이미지 URL은 변경할 수 없습니다. 업그레이드는 현재 이미지를 다시 가져옵니다."}
+            </Typography>
+            <Button type="submit" variant="contained" disabled={upgradeLoading}>
+              {upgradeLoading ? "업로드중..." : "코드 다시 가져오기"}
+            </Button>
+          </Box>
+        )}
       </Box>
       <Divider sx={{ my: 3 }} />
       <Typography variant="h6" gutterBottom>
@@ -678,34 +746,19 @@ const ModuleDetail: React.FC = () => {
                   </TableCell>
                   <TableCell>{v.status}</TableCell>
                   <TableCell>
-                    <Stack direction="row" spacing={1}>
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        disabled={actionLoading || v.status === "active"}
-                        onClick={() => handleAction("rollback", v.version)}
-                      >
-                        롤백
+                    {v.version === module?.version ? (
+                      <Button disabled variant="contained" color="success">
+                        활성화됨
                       </Button>
+                    ) : (
                       <Button
-                        size="small"
-                        variant="contained"
-                        color="success"
-                        disabled={actionLoading || v.status === "active"}
                         onClick={() => handleAction("activate", v.version)}
+                        variant="contained"
+                        color="primary"
                       >
                         활성화
                       </Button>
-                      <Button
-                        size="small"
-                        variant="contained"
-                        color="warning"
-                        disabled={actionLoading || v.status === "inactive"}
-                        onClick={() => handleAction("deactivate", v.version)}
-                      >
-                        비활성화
-                      </Button>
-                    </Stack>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}

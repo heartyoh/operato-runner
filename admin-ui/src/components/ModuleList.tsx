@@ -359,10 +359,22 @@ const ModuleList: React.FC = () => {
                     <TableCell>{m.env}</TableCell>
                     <TableCell>{m.version}</TableCell>
                     <TableCell>
-                      {m.artifact_type && m.artifact_uri ? (
-                        <span style={{ color: "#1976d2", fontWeight: 500 }}>
-                          {m.artifact_type}: {m.artifact_uri}
-                        </span>
+                      {m.artifact_type ? (
+                        m.artifact_uri ? (
+                          <a
+                            href={m.artifact_uri}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                              textDecoration: "underline",
+                              color: "#1976d2",
+                            }}
+                          >
+                            {m.artifact_type}
+                          </a>
+                        ) : (
+                          m.artifact_type
+                        )
                       ) : (
                         <span style={{ color: "#888" }}>-</span>
                       )}

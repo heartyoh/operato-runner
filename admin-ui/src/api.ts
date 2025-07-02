@@ -147,9 +147,7 @@ export async function deleteModule(name: string) {
 }
 
 export async function uploadModuleVersion(name: string, formData: FormData) {
-  const res = await axios.post(`/api/modules/${name}/versions`, formData, {
-    headers: { "Content-Type": "multipart/form-data" },
-  });
+  const res = await axios.post(`/api/modules/${name}/versions`, formData);
   return res.data;
 }
 

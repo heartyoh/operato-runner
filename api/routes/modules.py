@@ -42,6 +42,8 @@ class ModuleDetailResponse(BaseModel):
     usage_example: Optional[Dict[str, Any]] = None
     input_schema: Optional[Dict[str, Any]] = None
     output_schema: Optional[Dict[str, Any]] = None
+    artifact_type: Optional[str] = None
+    artifact_uri: Optional[str] = None
 
 # --- 의존성 주입 함수들 ---
 async def get_module_registry(db: AsyncSession = Depends(get_db)):
@@ -200,11 +202,13 @@ async def get_module_detail(
         tags=module.tags.split(",") if isinstance(module.tags, str) else (module.tags if module.tags else []),
         visibility=module.visibility,
         isDeployed=is_deployed(module),
-        created_at=module.created_at.isoformat() if module.created_at else None,
+        created_at=(module.created_at.replace(tzinfo=timezone.utc).isoformat() if module.created_at and module.created_at.tzinfo is None else module.created_at.isoformat()) if module.created_at else None,
         owner=owner_username,
         usage_example=usage_example,
         input_schema={"type": "object", "properties": {"data": {"type": "string"}}},
-        output_schema={"type": "object", "properties": {"result": {"type": "string"}}}
+        output_schema={"type": "object", "properties": {"result": {"type": "string"}}},
+        artifact_type=getattr(module, "artifact_type", None),
+        artifact_uri=getattr(module, "artifact_uri", None),
     )
 
 # (추가로 /api/modules, /api/modules/{name} 등도 이 파일에 분리 가능) 

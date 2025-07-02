@@ -78,6 +78,8 @@ def create_app() -> FastAPI:
         description: Optional[str] = ""
         visibility: str = "private"
         is_public: bool = False  # 호환성을 위해 유지 (deprecated)
+        artifact_type: Optional[str] = None
+        artifact_uri: Optional[str] = None
 
     class VersionResponse(BaseModel):
         id: int
@@ -130,6 +132,14 @@ def create_app() -> FastAPI:
         usage_example: Optional[str] = None
         input_schema: Optional[Dict[str, Any]] = None
         output_schema: Optional[Dict[str, Any]] = None
+        artifact_type: Optional[str] = None
+        artifact_uri: Optional[str] = None
+
+    class VersionDetailResponse(BaseModel):
+        version: str
+        description: Optional[str] = None
+        code: Optional[str] = None
+        created_at: Optional[str] = None
 
     # DI: AsyncSession을 받아서 ModuleRegistry 생성
     async def get_module_registry(db: AsyncSession = Depends(get_db)):
@@ -169,14 +179,13 @@ def create_app() -> FastAPI:
                 active_version = v_result.scalars().first()
                 if active_version:
                     description = active_version.description
-            
+            # created_at에 timezone 보정
             created_at_iso = None
             if m.created_at:
                 dt = m.created_at
                 if dt.tzinfo is None:
                     dt = dt.replace(tzinfo=timezone.utc)
                 created_at_iso = dt.isoformat()
-
             result.append({
                 "name": m.name,
                 "env": m.env,
@@ -187,6 +196,8 @@ def create_app() -> FastAPI:
                 "description": description,
                 "visibility": m.visibility or "private",
                 "is_public": m.visibility == "public",  # 호환성을 위해 유지
+                "artifact_type": getattr(m, "artifact_type", None),
+                "artifact_uri": getattr(m, "artifact_uri", None),
             })
         return result
 
@@ -273,9 +284,41 @@ def create_app() -> FastAPI:
         tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
         # is_public 파싱
         is_public_bool = is_public.lower() == 'true'
-        # 외부 참조형(docker/git 등) artifact 등록 분기
-        if env in ["docker", "git"] and artifact_type and artifact_uri:
-            # (여기서 간단한 유효성 검사만, 실제 pull/clone 등은 별도 모듈화 가능)
+        # env/배포 방식 유효성 체크
+        valid_envs = ["venv", "conda", "uv", "docker", "inline"]
+        valid_artifact_types = ["zip", "git", "docker", "inline", None]
+        if env not in valid_envs:
+            raise HTTPException(status_code=400, detail=f"지원하지 않는 실행 환경입니다: {env}")
+        # artifact_type 자동 세팅
+        if artifact_uri and not artifact_type:
+            artifact_type = "git"
+        if file and not artifact_type:
+            artifact_type = "zip"
+        if artifact_type not in valid_artifact_types:
+            raise HTTPException(status_code=400, detail=f"지원하지 않는 artifact_type입니다: {artifact_type}")
+        # 논리적 조합 체크
+        if env == "git":
+            raise HTTPException(status_code=400, detail="env에 'git'은 허용하지 않습니다. 실행 환경만 입력하세요.")
+        if artifact_type == "git" and not artifact_uri:
+            raise HTTPException(status_code=400, detail="artifact_type이 git이면 artifact_uri가 필요합니다.")
+        if artifact_type == "zip" and not file:
+            raise HTTPException(status_code=400, detail="artifact_type이 zip이면 파일 업로드가 필요합니다.")
+        if artifact_type == "docker" and not artifact_uri:
+            raise HTTPException(status_code=400, detail="artifact_type이 docker이면 artifact_uri(도커 이미지 주소)가 필요합니다.")
+        # 논리적 조합 체크 (inline은 양방향으로 강제)
+        if (artifact_type == "inline") != (env == "inline"):
+            raise HTTPException(
+                status_code=400,
+                detail="artifact_type과 env가 모두 inline이거나 모두 inline이 아니어야 합니다."
+            )
+        # inline 환경에서 불필요한 업로드/링크 차단 (artifact_type이 inline이거나 없으면 허용)
+        if env == "inline" and (artifact_type not in [None, "", "inline"] or artifact_uri or file):
+            raise HTTPException(status_code=400, detail="inline 환경은 별도 소스 업로드/링크가 필요 없습니다.")
+        if env == "inline" and artifact_type != "inline":
+            raise HTTPException(status_code=400, detail="env가 inline이면 artifact_type도 inline이어야 합니다.")
+        # 실제 분기
+        if artifact_type == "git":
+            # git 저장소 등록 처리
             module = Module(
                 name=name,
                 env=env,
@@ -284,23 +327,84 @@ def create_app() -> FastAPI:
                 artifact_uri=artifact_uri,
                 description=description,
                 tags=",".join(tag_list),
-                is_public=is_public_bool,
+                visibility="public" if is_public_bool else "private",
             )
             db.add(module)
             await db.commit()
-            return {
-                "name": name,
-                "env": env,
-                "version": version,
-                "created_at": (module.created_at.replace(tzinfo=timezone.utc).isoformat() if module.created_at and module.created_at.tzinfo is None else module.created_at.isoformat()) if module.created_at else None,
-                "tags": tag_list,
-                "isDeployed": False,
-                "description": description,
-                "visibility": "public" if is_public_bool else "private",
-                "is_public": is_public_bool,  # 호환성을 위해 유지
-            }
-        # 기존 zip 업로드/인라인 분기(venv/conda 등)
-        if file:
+            await db.refresh(module)
+            # [추가] git 저장소를 modules/<name>/<version>/에 clone
+            modules_dir = os.path.join("modules", name, version)
+            if os.path.exists(modules_dir):
+                shutil.rmtree(modules_dir)
+            os.makedirs(modules_dir, exist_ok=True)
+            import subprocess
+            try:
+                subprocess.run([
+                    "git", "clone", artifact_uri, modules_dir
+                ], check=True, capture_output=True, text=True)
+            except subprocess.CalledProcessError as e:
+                raise HTTPException(status_code=400, detail=f"git clone 실패: {e.stderr}")
+            # Version/Deployment 생성 추가
+            version_obj = Version(
+                module_id=module.id,
+                version=version,
+                code=None,
+                description=description,
+                changelog=None,
+            )
+            db.add(version_obj)
+            await db.commit()
+            await db.refresh(version_obj)
+            deployment_obj = Deployment(module_id=module.id, version_id=version_obj.id, status="active")
+            db.add(deployment_obj)
+            module.version = version
+            await db.commit()
+            return ModuleResponse(
+                name=module.name,
+                env=module.env,
+                version=module.version,
+                created_at=(module.created_at.replace(tzinfo=timezone.utc).isoformat() if module.created_at and module.created_at.tzinfo is None else module.created_at.isoformat()) if module.created_at else None,
+                tags=tag_list,
+                isDeployed=False,
+                description=description,
+                visibility=module.visibility,
+                is_public=module.visibility == "public",
+                artifact_type=artifact_type,
+                artifact_uri=artifact_uri,
+            )
+        elif artifact_type == "docker":
+            # 도커 이미지 등록 처리
+            module = Module(
+                name=name,
+                env=env,
+                version=version,
+                artifact_type=artifact_type,
+                artifact_uri=artifact_uri,
+                description=description,
+                tags=",".join(tag_list),
+                visibility="public" if is_public_bool else "private",
+            )
+            db.add(module)
+            await db.commit()
+            await db.refresh(module)
+            return ModuleResponse(
+                name=module.name,
+                env=module.env,
+                version=module.version,
+                created_at=(module.created_at.replace(tzinfo=timezone.utc).isoformat() if module.created_at and module.created_at.tzinfo is None else module.created_at.isoformat()) if module.created_at else None,
+                tags=tag_list,
+                isDeployed=False,
+                description=description,
+                visibility=module.visibility,
+                is_public=module.visibility == "public",
+                artifact_type=artifact_type,
+                artifact_uri=artifact_uri,
+            )
+        elif artifact_type == "zip":
+            # zip 파일 업로드 처리 (기존 로직)
+            if not file:
+                raise HTTPException(status_code=400, detail="파일 기반 모듈의 경우 파일 업로드가 필요합니다.")
+            
             # 1. 모듈명 중복 체크
             result = await db.execute(select(Module).where(Module.name == name))
             if result.scalars().first():
@@ -343,6 +447,8 @@ def create_app() -> FastAPI:
                     owner_id=current_user.id,
                     is_active=1,  # 등록과 동시에 활성화
                     visibility="public" if is_public_bool else "private",
+                    artifact_type="zip",  # ← zip 타입 명시적으로 저장
+                    artifact_uri=None,     # ← 필요시 파일명 등 저장 가능
                 )
                 db.add(module)
                 await db.commit()
@@ -373,10 +479,12 @@ def create_app() -> FastAPI:
                     isDeployed=True,
                     description=module.description,
                     visibility=module.visibility or "private",
-                    is_public=module.visibility == "public",  # 호환성을 위해 유지
+                    is_public=module.visibility == "public",
+                    artifact_type=artifact_type,
+                    artifact_uri=artifact_uri,
                 )
-        elif code:
-            # 인라인 코드 등록 처리 (기존과 동일)
+        elif env == "inline":
+            # 인라인 코드 등록 처리 (기존 로직)
             module = Module(
                 name=name,
                 env=env,
@@ -388,6 +496,8 @@ def create_app() -> FastAPI:
                 owner_id=current_user.id,
                 is_active=1,  # 등록과 동시에 활성화
                 visibility="public" if is_public_bool else "private",
+                artifact_type="inline",  # ← inline 타입 명시적으로 저장
+                artifact_uri=None,
             )
             module.input_example = input_dict if hasattr(module, 'input_example') else None
             db.add(module)
@@ -430,12 +540,16 @@ def create_app() -> FastAPI:
                 env=module.env,
                 version=module.version,
                 created_at=(module.created_at.replace(tzinfo=timezone.utc).isoformat() if module.created_at and module.created_at.tzinfo is None else module.created_at.isoformat()) if module.created_at else None,
-                tags=module.tags if module.tags else [],
+                tags=module.tags.split(",") if module.tags else [],
                 isDeployed=True,
                 description=module.description,
                 visibility=module.visibility or "private",
-                is_public=module.visibility == "public",  # 호환성을 위해 유지
+                is_public=module.visibility == "public",
+                artifact_type=artifact_type,
+                artifact_uri=artifact_uri,
             )
+        else:
+            raise HTTPException(status_code=400, detail="지원하지 않는 조합입니다.")
 
     @app.delete("/api/modules/{name}", status_code=204)
     async def delete_module(
@@ -1230,157 +1344,177 @@ def create_app() -> FastAPI:
         module = result.scalars().first()
         if not module:
             raise HTTPException(status_code=404, detail=f"Module '{name}' not found")
-        
         # 2. 중복 버전 체크
         version_result = await db.execute(
             select(Version).where(Version.module_id == module.id, Version.version == version)
         )
         if version_result.scalars().first():
             raise HTTPException(status_code=400, detail=f"이미 존재하는 버전입니다: {name} v{version}")
-        
         # 3. inline 모듈 처리
         if module.env == "inline":
             if not code:
                 raise HTTPException(status_code=400, detail="inline 모듈의 경우 코드가 필요합니다.")
-            
-            # Version 테이블에 새 버전 추가 (코드 포함)
+            # 실제 inline 버전 업로드 처리
             version_obj = Version(
                 module_id=module.id,
                 version=version,
-                code=code,  # inline 모듈은 코드 저장
+                code=code,
                 description=description,
                 changelog=None,
             )
             db.add(version_obj)
             await db.commit()
             await db.refresh(version_obj)
-            
-            # 기존 활성 배포를 비활성화하고 새 버전을 활성화
+            # 기존 Deployment 모두 inactive로
             deployments = await db.execute(select(Deployment).where(Deployment.module_id == module.id))
             for d in deployments.scalars().all():
                 d.status = "inactive"
-            
-            # 새 버전을 활성화
+            # 새 버전만 active
             deployment_obj = Deployment(module_id=module.id, version_id=version_obj.id, status="active")
             db.add(deployment_obj)
-            
-            # Module.version 필드도 갱신
             module.version = version
             await db.commit()
-            
-            # 성공 로그 기록
-            log = ModuleValidationLog(filename=f"{name}_v{version}", status="success", message=f"inline 버전 업로드 성공: {name} v{version}")
-            db.add(log)
-            await db.commit()
-            
             return {
                 "detail": f"inline 모듈 버전 업로드 성공: {name} v{version}",
                 "version": version,
                 "description": description
             }
-        
-        # 4. 파일 기반 모듈 처리 (기존 로직)
-        if not file:
-            raise HTTPException(status_code=400, detail="파일 기반 모듈의 경우 파일 업로드가 필요합니다.")
-        
-        # 5. 임시 디렉토리 생성 및 파일 저장
-        with tempfile.TemporaryDirectory() as tmpdir:
-            zip_path = os.path.join(tmpdir, file.filename)
-            with open(zip_path, "wb") as f:
-                content = await file.read()
-                f.write(content)
-            
-            # 6. 압축 해제
-            try:
-                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                    zip_ref.extractall(tmpdir)
-            except zipfile.BadZipFile:
-                raise HTTPException(status_code=400, detail="업로드 파일이 올바른 zip 압축파일이 아닙니다.")
-            
-            # 7. 필수 파일 검사
-            required_files = ["__main__.py", "requirements.txt"]
-            found = {f: False for f in required_files}
-            main_path = None
-            requirements_path = None
-            
-            for root, dirs, files in os.walk(tmpdir):
-                for fname in files:
-                    for req in required_files:
-                        if fname.lower() == req.lower():
-                            found[req] = True
-                    if fname.lower() == "__main__.py":
-                        main_path = os.path.join(root, fname)
-                    if fname.lower() == "requirements.txt":
-                        requirements_path = os.path.join(root, fname)
-            
-            missing = [f for f, ok in found.items() if not ok]
-            if missing:
-                raise HTTPException(status_code=400, detail=f"필수 파일 누락: {', '.join(missing)}")
-            
-            # 8. __main__.py 내부에 main 함수 존재 여부 검사
-            if main_path:
-                with open(main_path, "r", encoding="utf-8") as f:
-                    main_code = f.read()
-                if "def main(" not in main_code:
-                    raise HTTPException(status_code=400, detail="__main__.py에 'def main' 함수가 정의되어 있지 않습니다.")
-            
-            # 9. 모듈 파일을 modules/{name}/{version}/에 저장
-            modules_dir = os.path.join("modules", name, version)
-            if os.path.exists(modules_dir):
-                shutil.rmtree(modules_dir)
-            os.makedirs(modules_dir, exist_ok=True)
-            
-            # 압축 해제된 실제 소스 루트 찾기
-            items = [item for item in os.listdir(tmpdir) if not item.startswith('.') and item != file.filename]
-            if len(items) == 1 and os.path.isdir(os.path.join(tmpdir, items[0])):
-                root_dir = os.path.join(tmpdir, items[0])
-            else:
-                root_dir = tmpdir
-            
-            # 소스 전체를 modules/{name}/{version}/로 복사
-            for item in os.listdir(root_dir):
-                s = os.path.join(root_dir, item)
-                d = os.path.join(modules_dir, item)
-                if os.path.isdir(s):
-                    shutil.copytree(s, d, dirs_exist_ok=True)
-                elif os.path.isfile(s):
-                    shutil.copy2(s, d)
-            
-            # 10. Version 테이블에 새 버전 추가
-            version_obj = Version(
-                module_id=module.id,
-                version=version,
-                code=None,  # 파일 기반 모듈이므로 code는 None
-                description=description,
-                changelog=None,
-            )
-            db.add(version_obj)
-            await db.commit()
-            await db.refresh(version_obj)
-            
-            # 11. 기존 활성 배포를 비활성화하고 새 버전을 활성화
-            deployments = await db.execute(select(Deployment).where(Deployment.module_id == module.id))
-            for d in deployments.scalars().all():
-                d.status = "inactive"
-            
-            # 새 버전을 활성화
-            deployment_obj = Deployment(module_id=module.id, version_id=version_obj.id, status="active")
-            db.add(deployment_obj)
-            
-            # Module.version 필드도 갱신
-            module.version = version
-            await db.commit()
-            
-            # 12. 성공 로그 기록
-            log = ModuleValidationLog(filename=file.filename, status="success", message=f"버전 업로드 성공: {name} v{version}")
-            db.add(log)
-            module.path = zip_path  # 실제 운영시에는 영구 저장소로 이동 필요
-            await db.commit()
-            return {
-                "detail": f"모듈 버전 업로드 성공: {name} v{version}",
-                "version": version,
-                "description": description
-            }
+        elif getattr(module, "artifact_type", None) == "git":
+            # 실제 git 타입 업그레이드 처리
+            import tempfile, os, shutil, subprocess
+            repo_url = module.artifact_uri
+            if not repo_url:
+                raise HTTPException(status_code=400, detail="git 저장소 URL이 없습니다.")
+            with tempfile.TemporaryDirectory() as tmpdir:
+                try:
+                    subprocess.run(["git", "clone", "--depth", "1", repo_url, tmpdir], check=True)
+                except Exception as e:
+                    raise HTTPException(status_code=400, detail=f"git clone 실패: {e}")
+                # 필수 파일 체크
+                main_path = os.path.join(tmpdir, "__main__.py")
+                requirements_path = os.path.join(tmpdir, "requirements.txt")
+                if not os.path.exists(main_path):
+                    raise HTTPException(status_code=400, detail="__main__.py 파일이 없습니다.")
+                if not os.path.exists(requirements_path):
+                    raise HTTPException(status_code=400, detail="requirements.txt 파일이 없습니다.")
+                # modules/{name}/{version}에 복사
+                modules_dir = os.path.join("modules", name, version)
+                if os.path.exists(modules_dir):
+                    shutil.rmtree(modules_dir)
+                os.makedirs(modules_dir, exist_ok=True)
+                for item in os.listdir(tmpdir):
+                    s = os.path.join(tmpdir, item)
+                    d = os.path.join(modules_dir, item)
+                    if os.path.isdir(s):
+                        shutil.copytree(s, d, dirs_exist_ok=True)
+                    elif os.path.isfile(s):
+                        shutil.copy2(s, d)
+                # Version 테이블에 새 버전 추가
+                version_obj = Version(
+                    module_id=module.id,
+                    version=version,
+                    code=None,
+                    description=description,
+                    changelog=None,
+                )
+                db.add(version_obj)
+                await db.commit()
+                await db.refresh(version_obj)
+                # 기존 활성 배포를 비활성화하고 새 버전을 활성화
+                deployments = await db.execute(select(Deployment).where(Deployment.module_id == module.id))
+                for d in deployments.scalars().all():
+                    d.status = "inactive"
+                deployment_obj = Deployment(module_id=module.id, version_id=version_obj.id, status="active")
+                db.add(deployment_obj)
+                module.version = version
+                await db.commit()
+                return {
+                    "detail": f"git 모듈 버전 업로드 성공: {name} v{version}",
+                    "version": version,
+                    "description": description
+                }
+        else:
+            # zip 업로드(파일 기반) 처리 (artifact_type/env 등 기존 모듈 정보 사용)
+            import tempfile, os, shutil, zipfile
+            with tempfile.TemporaryDirectory() as tmpdir:
+                zip_path = os.path.join(tmpdir, file.filename)
+                with open(zip_path, "wb") as f:
+                    content = await file.read()
+                    f.write(content)
+                try:
+                    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                        zip_ref.extractall(tmpdir)
+                except zipfile.BadZipFile:
+                    raise HTTPException(status_code=400, detail="업로드 파일이 올바른 zip 압축파일이 아닙니다.")
+                # 필수 파일 검사
+                required_files = ["__main__.py", "requirements.txt"]
+                found = {f: False for f in required_files}
+                main_path = None
+                requirements_path = None
+                for root, dirs, files in os.walk(tmpdir):
+                    for fname in files:
+                        for req in required_files:
+                            if fname.lower() == req.lower():
+                                found[req] = True
+                        if fname.lower() == "__main__.py":
+                            main_path = os.path.join(root, fname)
+                        if fname.lower() == "requirements.txt":
+                            requirements_path = os.path.join(root, fname)
+                missing = [f for f, ok in found.items() if not ok]
+                if missing:
+                    raise HTTPException(status_code=400, detail=f"필수 파일 누락: {', '.join(missing)}")
+                # __main__.py 내부에 main 함수 존재 여부 검사
+                if main_path:
+                    with open(main_path, "r", encoding="utf-8") as f:
+                        main_code = f.read()
+                    if "def main(" not in main_code:
+                        raise HTTPException(status_code=400, detail="__main__.py에 'def main' 함수가 정의되어 있지 않습니다.")
+                # modules/{name}/{version}에 복사
+                modules_dir = os.path.join("modules", name, version)
+                if os.path.exists(modules_dir):
+                    shutil.rmtree(modules_dir)
+                os.makedirs(modules_dir, exist_ok=True)
+                items = [item for item in os.listdir(tmpdir) if not item.startswith('.') and item != file.filename]
+                if len(items) == 1 and os.path.isdir(os.path.join(tmpdir, items[0])):
+                    root_dir = os.path.join(tmpdir, items[0])
+                else:
+                    root_dir = tmpdir
+                for item in os.listdir(root_dir):
+                    s = os.path.join(root_dir, item)
+                    d = os.path.join(modules_dir, item)
+                    if os.path.isdir(s):
+                        shutil.copytree(s, d, dirs_exist_ok=True)
+                    elif os.path.isfile(s):
+                        shutil.copy2(s, d)
+                # Version 테이블에 새 버전 추가 (artifact_type/env 등 기존 모듈 정보 사용)
+                version_obj = Version(
+                    module_id=module.id,
+                    version=version,
+                    code=None,
+                    description=description,
+                    changelog=None,
+                )
+                db.add(version_obj)
+                await db.commit()
+                await db.refresh(version_obj)
+                # 기존 활성 배포를 비활성화하고 새 버전을 활성화
+                deployments = await db.execute(select(Deployment).where(Deployment.module_id == module.id))
+                for d in deployments.scalars().all():
+                    d.status = "inactive"
+                deployment_obj = Deployment(module_id=module.id, version_id=version_obj.id, status="active")
+                db.add(deployment_obj)
+                module.version = version
+                await db.commit()
+                # 성공 로그 기록
+                log = ModuleValidationLog(filename=file.filename, status="success", message=f"버전 업로드 성공: {name} v{version}")
+                db.add(log)
+                module.path = zip_path  # 실제 운영시에는 영구 저장소로 이동 필요
+                await db.commit()
+                return {
+                    "detail": f"모듈 버전 업로드 성공: {name} v{version}",
+                    "version": version,
+                    "description": description
+                }
 
     @app.post("/api/modules/{name}/deploy")
     async def deploy_module(name: str, db: AsyncSession = Depends(get_db)):
@@ -1824,6 +1958,35 @@ def create_app() -> FastAPI:
             iter([output.getvalue()]),
             media_type="text/csv",
             headers={"Content-Disposition": "attachment; filename=error_logs.csv"}
+        )
+
+    @app.get("/api/modules/{name}/versions/{version}", response_model=VersionDetailResponse)
+    async def get_module_version_detail(name: str, version: str, db: AsyncSession = Depends(get_db)):
+        # 모듈 조회
+        result = await db.execute(select(Module).where(Module.name == name))
+        module = result.scalars().first()
+        if not module:
+            raise HTTPException(status_code=404, detail="Module not found")
+        # 버전 조회
+        version_result = await db.execute(
+            select(Version).where(Version.module_id == module.id, Version.version == version)
+        )
+        version_obj = version_result.scalars().first()
+        if not version_obj:
+            raise HTTPException(status_code=404, detail="Version not found")
+        # code는 inline 타입일 때만 반환, 그 외는 None
+        code_value = version_obj.code if module.env == "inline" else None
+        created_at_iso = None
+        if version_obj.created_at:
+            dt = version_obj.created_at
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            created_at_iso = dt.isoformat()
+        return VersionDetailResponse(
+            version=version_obj.version,
+            description=version_obj.description,
+            code=code_value,
+            created_at=created_at_iso
         )
 
     app.include_router(modules.router, prefix="/api", tags=["modules"])
