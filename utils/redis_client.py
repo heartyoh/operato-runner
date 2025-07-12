@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 # Redis 의존성 조건부 import
 try:
-    import aioredis
+    import redis.asyncio as aioredis
     REDIS_AVAILABLE = True
 except ImportError:
     REDIS_AVAILABLE = False
