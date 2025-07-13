@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 
 services:
   # 백엔드 서비스
@@ -9,11 +9,15 @@ services:
     image: hatiolab/operato-runner-service:latest
     container_name: operato-backend
     ports:
-      - "8000:8000"  # REST API
-      - "50051:50051"  # gRPC
+      - "8000:8000" # REST API
+      - "50051:50051" # gRPC
     environment:
       - PYTHONPATH=/app
       - PYTHONUNBUFFERED=1
+      - DATABASE_URL=${DATABASE_URL} # .env 파일에서 오버라이드 가능
+      # SQLite를 사용 (DATABASE_URL 미설정 시 기본값)
+      # - DATABASE_URL=sqlite+aiosqlite:///./app.db
+      # - REDIS_ENABLED=false
     volumes:
       - ./modules:/app/modules
       - ./module_envs:/app/module_envs
@@ -27,6 +31,8 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    command: >
+      python main.py --rest-port 8000 --grpc-port 50051 --no-redis
 
   # 프론트엔드 서비스
   frontend:
@@ -36,13 +42,15 @@ services:
     image: hatiolab/operato-runner:latest
     container_name: operato-frontend
     ports:
-      - "3000:80"  # 웹 UI
+      - "3000:80" # 웹 UI
     depends_on:
       - backend
     networks:
       - operato-network
     restart: unless-stopped
+    volumes:
+      - ./admin-ui/nginx.conf:/etc/nginx/nginx.conf
 
 networks:
   operato-network:
-    driver: bridge 
+    driver: bridge

@@ -26,10 +26,11 @@ RUN apt-get update && apt-get install -y \
     g++ \
     curl \
     git \
+    docker.io \
     && rm -rf /var/lib/apt/lists/*
 
 # Python 의존성 파일 복사 및 설치 (Redis 없이)
-COPY requirements-minimal.txt requirements.txt
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # 애플리케이션 코드 복사

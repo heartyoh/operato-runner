@@ -14,7 +14,8 @@ sqlalchemy
 aiosqlite
 python-dotenv
 alembic
-greenlet 
+greenlet
+asyncpg 
 
 # --- 테스트 및 커버리지 ---
 pytest-cov
