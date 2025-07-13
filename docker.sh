@@ -47,32 +47,41 @@ build_images() {
         error_exit "Docker가 실행되지 않았습니다. Docker Desktop을 시작해주세요."
     fi
 
-    # Backend 이미지 빌드
-    info_msg "Backend 이미지 빌드 중..."
-    docker build \
+    # buildx builder 활성화 안내
+    info_msg "buildx builder가 활성화되어 있어야 멀티아키 빌드가 가능합니다. (최초 1회: docker buildx create --use)"
+
+    # Backend 멀티아키 빌드 및 푸시
+    info_msg "Backend 멀티아키 이미지 빌드 및 푸시 중..."
+    docker buildx build \
+        --platform linux/amd64,linux/arm64 \
         --build-arg VERSION=$VERSION \
         --build-arg BUILD_DATE=$BUILD_DATE \
         --build-arg VCS_REF=$VCS_REF \
         -t hatiolab/operato-runner-service:$VERSION \
         -t hatiolab/operato-runner-service:latest \
-        . || error_exit "Backend 이미지 빌드 실패"
-    success_msg "Backend 이미지 빌드 완료"
+        --push . || error_exit "Backend 멀티아키 이미지 빌드/푸시 실패"
+    success_msg "Backend 멀티아키 이미지 빌드 및 푸시 완료"
 
     echo ""
 
-    # Frontend 이미지 빌드
-    info_msg "Frontend 이미지 빌드 중..."
-    docker build \
+    # Frontend 멀티아키 빌드 및 푸시
+    info_msg "Frontend 멀티아키 이미지 빌드 및 푸시 중..."
+    docker buildx build \
+        --platform linux/amd64,linux/arm64 \
         --build-arg VERSION=$VERSION \
         --build-arg BUILD_DATE=$BUILD_DATE \
         --build-arg VCS_REF=$VCS_REF \
         -t hatiolab/operato-runner:$VERSION \
         -t hatiolab/operato-runner:latest \
-        ./admin-ui || error_exit "Frontend 이미지 빌드 실패"
-    success_msg "Frontend 이미지 빌드 완료"
+        --push ./admin-ui || error_exit "Frontend 멀티아키 이미지 빌드/푸시 실패"
+    success_msg "Frontend 멀티아키 이미지 빌드 및 푸시 완료"
 
     echo ""
-    success_msg "모든 이미지 빌드 완료!"
+    success_msg "모든 멀티아키 이미지 빌드 및 푸시 완료!"
+
+    # (로컬 단일 아키텍처 빌드가 필요하면 아래 명령 참고)
+    # docker build --platform linux/amd64 ...
+    # docker build --platform linux/arm64 ...
 }
 
 # Docker Hub 푸시 함수
