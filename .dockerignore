@@ -96,3 +96,6 @@ docs/
 .roomodes
 .windsurfrules
 .taskmasterconfig 
+
+/modules
+/module_envs
