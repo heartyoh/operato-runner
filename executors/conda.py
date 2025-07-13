@@ -74,7 +74,7 @@ class CondaExecutor(Executor):
                 f"result = main(input_data); "
                 f"with open('{output_path}', 'w') as f: json.dump(result, f)"
             ]
-            process = subprocess.run(cmd, capture_output=True, text=True, timeout=60, env=env)
+            process = subprocess.run(cmd, capture_output=True, text=True, timeout=3600, env=env)
             result_json = {}
             if process.returncode == 0:
                 try:

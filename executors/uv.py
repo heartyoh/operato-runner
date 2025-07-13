@@ -81,7 +81,7 @@ with open('{output_path}', 'w') as f:
                 [python_bin, script_path],
                 capture_output=True,
                 text=True,
-                timeout=60,
+                timeout=3600,
                 env=env
             )
             if os.path.exists(output_path):

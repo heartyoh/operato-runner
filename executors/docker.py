@@ -91,7 +91,7 @@ class DockerExecutor(Executor):
                 stdout=True,
                 user=os.getuid() if hasattr(os, "getuid") else None,
             )
-            exit_code = container.wait(timeout=60)["StatusCode"]
+            exit_code = container.wait(timeout=3600)["StatusCode"]
             logs = container.logs(stdout=True, stderr=True).decode("utf-8")
             stdout = ""
             stderr = ""

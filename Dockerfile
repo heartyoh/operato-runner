@@ -28,6 +28,7 @@ RUN apt-get update && apt-get install -y \
     git \
     docker.io \
     libgl1 \
+    libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 # Python 의존성 파일 복사 및 설치 (Redis 없이)
