@@ -16,6 +16,7 @@ python-dotenv
 alembic
 greenlet
 asyncpg 
+psycopg2-binary
 
 # --- 테스트 및 커버리지 ---
 pytest-cov
