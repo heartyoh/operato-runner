@@ -279,7 +279,11 @@ const Dashboard: React.FC = () => {
                       "&:hover": { boxShadow: 3 },
                       transition: "box-shadow 0.2s",
                     }}
-                    onClick={() => navigate(`/admin/modules/${module.name}`)}
+                    onClick={() =>
+                      navigate(
+                        `/admin/modules/${encodeURIComponent(module.name)}`
+                      )
+                    }
                   >
                     <CardContent>
                       <Box

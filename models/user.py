@@ -10,6 +10,7 @@ class User(Base):
     email = Column(String(120), unique=True, nullable=False, index=True)
     hashed_password = Column(String(128), nullable=False)
     created_at = Column(DateTime, server_default=func.now())
+    is_active = Column(Boolean, default=True)
     roles = relationship('Role', secondary='user_role', back_populates='users')
     modules = relationship('Module', back_populates='owner')
 

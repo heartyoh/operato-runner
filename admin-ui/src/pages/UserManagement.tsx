@@ -305,19 +305,17 @@ const UserManagement: React.FC = () => {
               label="User"
             />
           </FormGroup>
-          {editingUser && (
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={newUser.is_active}
-                  onChange={(e) =>
-                    setNewUser({ ...newUser, is_active: e.target.checked })
-                  }
-                />
-              }
-              label="활성 상태"
-            />
-          )}
+          <FormControlLabel
+            control={
+              <Switch
+                checked={newUser.is_active}
+                onChange={(e) =>
+                  setNewUser({ ...newUser, is_active: e.target.checked })
+                }
+              />
+            }
+            label="활성 상태"
+          />
           <Button
             fullWidth
             variant="contained"

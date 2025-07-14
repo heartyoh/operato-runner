@@ -287,6 +287,10 @@ def create_app() -> FastAPI:
         current_user: User = Depends(get_current_user)
     ):
         name = name.strip()
+        # 모듈명에 슬래시 등 경로 구분자 금지
+        import re
+        if "/" in name or "\\" in name or ".." in name or not re.match(r"^[a-zA-Z0-9_\-]+$", name):
+            raise HTTPException(status_code=400, detail="모듈명에 경로 구분자나 특수문자를 사용할 수 없습니다.")
         # input 파싱
         input_dict = {}
         if input:
@@ -733,6 +737,7 @@ def create_app() -> FastAPI:
             username=refreshed_user.username,
             email=refreshed_user.email,
             created_at=refreshed_user.created_at,
+            is_active=refreshed_user.is_active,
             roles=[
                 RoleRead(id=role.id, name=role.name, description=role.description)
                 for role in refreshed_user.roles
@@ -757,6 +762,8 @@ def create_app() -> FastAPI:
         print("[login] input:", form.password, "db hash:", user.hashed_password, "verify:", verify)
         if not verify:
             raise HTTPException(status_code=401, detail="Incorrect username or password")
+        if not user.is_active:
+            raise HTTPException(status_code=403, detail="비활성화된 계정입니다. 관리자에게 문의하세요.")
 
         scopes = [role.name for role in user.roles]
         access_token = create_access_token({"sub": user.username, "scopes": scopes})
@@ -803,6 +810,8 @@ def create_app() -> FastAPI:
             user = result.scalar_one_or_none()
             if not user:
                 raise HTTPException(status_code=401, detail="User not found")
+            if not user.is_active:
+                raise HTTPException(status_code=403, detail="비활성화된 계정입니다. 관리자에게 문의하세요.")
             scopes = [role.name for role in user.roles]
             access_token = create_access_token({"sub": username, "scopes": scopes})
             new_refresh_token = create_refresh_token({"sub": username})
@@ -858,6 +867,7 @@ def create_app() -> FastAPI:
             username=user.username,
             email=user.email,
             created_at=user.created_at,
+            is_active=user.is_active,
             roles=[
                 RoleRead(id=role.id, name=role.name, description=role.description)
                 for role in user.roles
@@ -892,6 +902,7 @@ def create_app() -> FastAPI:
                     username=user.username,
                     email=user.email,
                     created_at=user.created_at,
+                    is_active=user.is_active,
                     roles=[
                         RoleRead(id=role.id, name=role.name, description=role.description)
                         for role in user.roles
@@ -942,6 +953,7 @@ def create_app() -> FastAPI:
             username=refreshed_user.username,
             email=refreshed_user.email,
             created_at=refreshed_user.created_at,
+            is_active=refreshed_user.is_active,
             roles=[
                 RoleRead(id=role.id, name=role.name, description=role.description)
                 for role in refreshed_user.roles
@@ -995,6 +1007,7 @@ def create_app() -> FastAPI:
             username=user.username,
             email=user.email,
             created_at=user.created_at,
+            is_active=user.is_active,
             roles=[
                 RoleRead(id=role.id, name=role.name, description=role.description)
                 for role in user.roles

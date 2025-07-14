@@ -142,7 +142,7 @@ export async function fetchModuleHistory(name: string) {
 }
 
 export async function fetchModuleDetail(name: string) {
-  const res = await axios.get(`/api/modules/${name}`);
+  const res = await axios.get(`/api/modules/${encodeURIComponent(name)}`);
   return res.data;
 }
 
@@ -180,17 +180,21 @@ export async function login(username: string, password: string) {
 }
 
 export async function deployModule(name: string) {
-  const res = await axios.post(`/api/modules/${name}/deploy`);
+  const res = await axios.post(
+    `/api/modules/${encodeURIComponent(name)}/deploy`
+  );
   return res.data;
 }
 
 export async function undeployModule(name: string) {
-  const res = await axios.delete(`/api/modules/${name}/deploy`);
+  const res = await axios.delete(
+    `/api/modules/${encodeURIComponent(name)}/deploy`
+  );
   return res.data;
 }
 
 export async function deleteModule(name: string) {
-  const res = await axios.delete(`/api/modules/${name}`);
+  const res = await axios.delete(`/api/modules/${encodeURIComponent(name)}`);
   return res.data;
 }
 
@@ -209,7 +213,10 @@ export async function updateModuleInfo(
   if (data.tags !== undefined) formData.append("tags", data.tags);
   if (data.is_public !== undefined)
     formData.append("is_public", String(data.is_public));
-  const res = await axios.patch(`/api/modules/${name}`, formData);
+  const res = await axios.patch(
+    `/api/modules/${encodeURIComponent(name)}`,
+    formData
+  );
   return res.data;
 }
 
@@ -293,7 +300,13 @@ export const listUsers = async (params?: any) => {
   return data;
 };
 
-export const createUser = async (userData: any) => {
+export const createUser = async (userData: {
+  username: string;
+  email: string;
+  password: string;
+  roles?: string[];
+  is_active?: boolean;
+}) => {
   const { data } = await api.post("/api/users", userData);
   return data;
 };

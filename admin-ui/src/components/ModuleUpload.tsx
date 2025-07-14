@@ -37,6 +37,7 @@ const ModuleUpload: React.FC<Props> = ({ onUploadSuccess }) => {
   const [isPublic, setIsPublic] = useState(false);
   const [description, setDescription] = useState("");
   const [tags, setTags] = useState("");
+  const [nameError, setNameError] = useState<string | null>(null);
   // 인라인 등록 상태
   const [inlineName, setInlineName] = useState("");
   const [inlineVersion, setInlineVersion] = useState("0.1.0");
@@ -152,7 +153,7 @@ const ModuleUpload: React.FC<Props> = ({ onUploadSuccess }) => {
       setArtifactType("zip");
       setInlineCode("");
       setInlineInput(`{\n  \"x\": 1,\n  \"y\": 2\n}`);
-      navigate(`/admin/modules/${name}`);
+      navigate(`/admin/modules/${encodeURIComponent(name)}`);
       if (onUploadSuccess) onUploadSuccess();
     } catch (err: any) {
       const detail = err?.response?.data?.detail;
@@ -244,9 +245,20 @@ const ModuleUpload: React.FC<Props> = ({ onUploadSuccess }) => {
           <TextField
             label="이름"
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => {
+              const v = e.target.value;
+              // 슬래시, 역슬래시, .., 특수문자 금지
+              if (/[\/\\]|\.\./.test(v) || !/^[a-zA-Z0-9_\-]*$/.test(v)) {
+                setNameError("모듈명에 /, \\, .., 특수문자 사용 불가");
+              } else {
+                setNameError(null);
+              }
+              setName(v);
+            }}
             required
             size="small"
+            error={!!nameError}
+            helperText={nameError || ""}
           />
           <TextField
             label="환경"
@@ -383,6 +395,7 @@ const ModuleUpload: React.FC<Props> = ({ onUploadSuccess }) => {
             disabled={
               loading ||
               !name ||
+              !!nameError ||
               (artifactType === "inline" && !inlineCode) ||
               (artifactType === "zip" && !file) ||
               (artifactType === "git" && !artifactUri) ||

@@ -14,10 +14,12 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     password: str
     roles: Optional[List[str]] = []
+    is_active: Optional[bool] = True
 
 class UserRead(UserBase):
     id: int
     created_at: datetime
+    is_active: bool
     roles: Optional[List[RoleRead]] = []
 
     @field_serializer('created_at')
@@ -43,6 +45,7 @@ class UserRead(UserBase):
             username=user.username,
             email=user.email,
             created_at=user.created_at,
+            is_active=getattr(user, "is_active", True),
             roles=roles
         )
 

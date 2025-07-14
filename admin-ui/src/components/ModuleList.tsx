@@ -436,7 +436,7 @@ const ModuleList: React.FC = () => {
                       <Button
                         size="small"
                         component={Link}
-                        to={`/admin/modules/${m.name}`}
+                        to={`/admin/modules/${encodeURIComponent(m.name)}`}
                       >
                         상세
                       </Button>
