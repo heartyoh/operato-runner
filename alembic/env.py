@@ -23,11 +23,13 @@ target_metadata = Base.metadata
 # DB URL을 .env에서 읽어오도록 설정
 from dotenv import load_dotenv
 load_dotenv()
+import os
+from alembic import context
+config = context.config
+config.set_main_option('sqlalchemy.url', os.environ['DATABASE_URL'])
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
-config = context.config
-
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
 if config.config_file_name is not None:
@@ -37,7 +39,6 @@ if config.config_file_name is not None:
 # can be acquired:
 # my_important_option = config.get_main_option("my_important_option")
 # ... etc.
-
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode.
