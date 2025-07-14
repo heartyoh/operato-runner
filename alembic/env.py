@@ -22,7 +22,7 @@ target_metadata = Base.metadata
 
 # DB URL을 .env에서 읽어오도록 설정
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv(override=True)
 import os
 from alembic import context
 config = context.config
