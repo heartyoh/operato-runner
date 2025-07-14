@@ -9,7 +9,7 @@ from core.db import get_db, Base, get_engine, init_engine
 from models.user import User
 from schemas.user import UserCreate, UserRead, UserLogin, UserUpdate
 from schemas.role import RoleRead
-from utils.jwt import create_access_token
+from utils.jwt import create_access_token, create_refresh_token, decode_token, REFRESH_TOKEN_EXPIRE_MINUTES
 from api.auth import verify_password, get_current_user, has_role, has_execute_permission, can_execute_module
 from utils.security import hash_password, validate_password_policy
 import hashlib
@@ -161,7 +161,11 @@ def create_app() -> FastAPI:
         )
 
     @app.get("/api/modules", response_model=List[ModuleResponse])
-    async def list_modules(module_registry: ModuleRegistry = Depends(get_module_registry), db: AsyncSession = Depends(get_db)):
+    async def list_modules(
+        module_registry: ModuleRegistry = Depends(get_module_registry),
+        db: AsyncSession = Depends(get_db),
+        current_user: User = Depends(get_current_user)
+    ):
         modules = await module_registry.list_modules()
         def is_deployed(m):
             if m.env == "inline":
@@ -170,6 +174,8 @@ def create_app() -> FastAPI:
             return os.path.exists(venv_dir)
         result = []
         for m in modules:
+            if m.owner_id != current_user.id:
+                continue  # 내가 만든 모듈만 반환
             description = m.description
             if m.env == "inline":
                 v_result = await db.execute(
@@ -186,6 +192,13 @@ def create_app() -> FastAPI:
                 if dt.tzinfo is None:
                     dt = dt.replace(tzinfo=timezone.utc)
                 created_at_iso = dt.isoformat()
+            # owner_name 조회
+            owner_name = None
+            if m.owner_id:
+                owner_result = await db.execute(select(User).where(User.id == m.owner_id))
+                owner = owner_result.scalars().first()
+                if owner:
+                    owner_name = owner.username
             result.append({
                 "name": m.name,
                 "env": m.env,
@@ -198,6 +211,8 @@ def create_app() -> FastAPI:
                 "is_public": m.visibility == "public",  # 호환성을 위해 유지
                 "artifact_type": getattr(m, "artifact_type", None),
                 "artifact_uri": getattr(m, "artifact_uri", None),
+                "owner_id": m.owner_id,
+                "owner_name": owner_name,
             })
         return result
 
@@ -745,9 +760,72 @@ def create_app() -> FastAPI:
 
         scopes = [role.name for role in user.roles]
         access_token = create_access_token({"sub": user.username, "scopes": scopes})
+        refresh_token = create_refresh_token({"sub": user.username})
 
         await log_audit_event(db, action="login", detail=f"User {user.username} logged in", user_id=user.id)
-        return {"access_token": access_token, "token_type": "bearer"}
+        response = JSONResponse(content={"access_token": access_token, "token_type": "bearer"})
+        response.set_cookie(
+            key="access_token",
+            value=access_token,
+            httponly=True,
+            secure=True,
+            samesite="lax",
+            max_age=60*60*12  # 12시간
+        )
+        response.set_cookie(
+            key="refresh_token",
+            value=refresh_token,
+            httponly=True,
+            secure=True,
+            samesite="lax",
+            max_age=60*60*24*30  # 30일
+        )
+        return response
+
+    @app.post("/auth/refresh")
+    async def refresh_token(request: Request, db: AsyncSession = Depends(get_db)):
+        refresh_token = request.cookies.get("refresh_token")
+        if not refresh_token:
+            try:
+                body = await request.json()
+                refresh_token = body.get("refresh_token")
+            except Exception:
+                refresh_token = None
+        if not refresh_token:
+            raise HTTPException(status_code=401, detail="No refresh token provided")
+        try:
+            payload = decode_token(refresh_token)
+            if payload.get("type") != "refresh":
+                raise HTTPException(status_code=401, detail="Invalid refresh token type")
+            username = payload.get("sub")
+            # 유저 존재 여부 확인
+            result = await db.execute(select(User).where(User.username == username))
+            user = result.scalar_one_or_none()
+            if not user:
+                raise HTTPException(status_code=401, detail="User not found")
+            scopes = [role.name for role in user.roles]
+            access_token = create_access_token({"sub": username, "scopes": scopes})
+            new_refresh_token = create_refresh_token({"sub": username})
+            response = JSONResponse(content={"access_token": access_token, "token_type": "bearer"})
+            response.set_cookie(
+                key="access_token",
+                value=access_token,
+                httponly=True,
+                secure=True,
+                samesite="lax",
+                max_age=60*60*12
+            )
+            response.set_cookie(
+                key="refresh_token",
+                value=new_refresh_token,
+                httponly=True,
+                secure=True,
+                samesite="lax",
+                max_age=60*60*24*30
+            )
+            return response
+        except Exception:
+            raise HTTPException(status_code=401, detail="Invalid refresh token")
 
     @app.get("/api/profile", response_model=UserRead)
     async def get_profile(current_user: User = Depends(get_current_user)):
@@ -815,7 +893,7 @@ def create_app() -> FastAPI:
                     email=user.email,
                     created_at=user.created_at,
                     roles=[
-                        RoleRead(id=role.id, name=role.name, description=role.description) 
+                        RoleRead(id=role.id, name=role.name, description=role.description)
                         for role in user.roles
                     ]
                 )
@@ -1071,16 +1149,26 @@ def create_app() -> FastAPI:
         to_date: Optional[datetime] = None,
         limit: int = 100,
         db: AsyncSession = Depends(get_db),
-        current_user: User = Depends(has_role("admin"))
+        current_user: User = Depends(get_current_user)
     ):
         query = select(ErrorLog)
+        # admin이 아니면 자신의 모듈만
+        await db.refresh(current_user, attribute_names=["roles"])
+        is_admin = any(role.name == "admin" for role in current_user.roles)
+        if not is_admin:
+            # ErrorLog.module_name(또는 filename 등)에 내 모듈명만 포함되도록
+            module_result = await db.execute(select(Module).where(Module.owner_id == current_user.id))
+            my_modules = [m.name for m in module_result.scalars().all()]
+            if my_modules:
+                from sqlalchemy import or_
+                query = query.where(or_(*[ErrorLog.module_name.contains(name) for name in my_modules]))
+            else:
+                return []
         if from_date:
             query = query.where(ErrorLog.created_at >= from_date)
         if to_date:
             query = query.where(ErrorLog.created_at <= to_date)
-        
         query = query.order_by(ErrorLog.created_at.desc()).limit(limit)
-        
         result = await db.execute(query)
         logs = result.scalars().all()
         return logs
@@ -1093,12 +1181,24 @@ def create_app() -> FastAPI:
         to_date: Optional[datetime] = None,
         limit: int = 100,
         db: AsyncSession = Depends(get_db),
-        current_user: User = Depends(has_role("admin"))
+        current_user: User = Depends(get_current_user)
     ):
-        """모듈 검증 로그를 조회합니다."""
         query = select(ModuleValidationLog)
-        
-        # 필터링 조건 추가
+        # admin이 아니면 자신의 모듈만
+        await db.refresh(current_user, attribute_names=["roles"])
+        is_admin = any(role.name == "admin" for role in current_user.roles)
+        if not is_admin:
+            # ModuleValidationLog.filename에서 모듈명을 추출해, 해당 모듈의 owner_id가 본인인 것만
+            # 우선 모듈명 리스트 추출
+            module_result = await db.execute(select(Module).where(Module.owner_id == current_user.id))
+            my_modules = [m.name for m in module_result.scalars().all()]
+            if my_modules:
+                # filename이 내 모듈명 중 하나를 포함하는 것만
+                from sqlalchemy import or_
+                query = query.where(or_(*[ModuleValidationLog.filename.contains(name) for name in my_modules]))
+            else:
+                # 소유 모듈이 없으면 빈 결과
+                return []
         if module_name:
             query = query.where(ModuleValidationLog.filename.contains(module_name))
         if status:
@@ -1107,10 +1207,7 @@ def create_app() -> FastAPI:
             query = query.where(ModuleValidationLog.created_at >= from_date)
         if to_date:
             query = query.where(ModuleValidationLog.created_at <= to_date)
-        
-        # 최신순으로 정렬하고 제한
         query = query.order_by(ModuleValidationLog.created_at.desc()).limit(limit)
-        
         result = await db.execute(query)
         logs = result.scalars().all()
         return logs

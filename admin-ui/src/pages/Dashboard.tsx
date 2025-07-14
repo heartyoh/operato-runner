@@ -27,6 +27,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { useError } from "../contexts/ErrorContext";
+import axios from "axios";
 
 // 임시 데이터 타입
 interface AuditLog {
@@ -41,6 +42,7 @@ interface Module {
   version: string;
   created_at: string;
   isDeployed: boolean;
+  owner_id?: number;
 }
 
 interface ExecutableModule {
@@ -51,6 +53,8 @@ interface ExecutableModule {
   visibility: string;
   isDeployed: boolean;
   tags: string[];
+  owner_id?: number;
+  owner_name?: string;
 }
 
 interface DbStatus {
@@ -94,66 +98,93 @@ const Dashboard: React.FC = () => {
     ExecutableModule[]
   >([]);
   const [dbStatus, setDbStatus] = useState<DbStatus | null>(null);
+  // 섹션별 에러 상태
+  const [modulesError, setModulesError] = useState<string | null>(null);
+  const [auditError, setAuditError] = useState<string | null>(null);
+  const [dbError, setDbError] = useState<string | null>(null);
+  const [errorsError, setErrorsError] = useState<string | null>(null);
+  const [execError, setExecError] = useState<string | null>(null);
+  // 내 userId 상태
+  const [userId, setUserId] = useState<number | null>(null);
 
   useEffect(() => {
     const fetchDashboardData = async () => {
+      setLoading(true);
+      setError(null);
+      setModulesError(null);
+      setAuditError(null);
+      setDbError(null);
+      setErrorsError(null);
+      setExecError(null);
+      // 내 userId 가져오기
+      let myUserId: number | null = null;
       try {
-        setLoading(true);
-        setError(null);
-
-        // 병렬로 API 호출
-        const [modulesRes, auditRes, healthRes, errorsRes, executableRes] =
-          await Promise.all([
-            api.fetchModules(),
-            api.getAuditLogs({ limit: 5 }),
-            api.getDbHealth(),
-            api.fetchErrorLogs({
-              from: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-            }),
-            api.fetchExecutableModules(),
-          ]);
-
-        setStats({
-          totalModules: modulesRes.length,
-          activeModules: modulesRes.filter((m: Module) => m.isDeployed).length,
-          recentErrors: errorsRes.length,
-        });
-
-        setRecentLogs(auditRes);
-        setDbStatus(healthRes);
-        setRecentModules(modulesRes);
-        setExecutableModules(executableRes);
+        const profile = await axios.get("/api/profile");
+        myUserId = profile.data.id;
+        setUserId(myUserId);
+      } catch {}
+      // 각 정보별로 개별 try-catch
+      let modulesRes: Module[] = [];
+      let auditRes: AuditLog[] = [];
+      let healthRes: DbStatus | null = null;
+      let errorsRes: any[] = [];
+      let executableRes: ExecutableModule[] = [];
+      try {
+        modulesRes = await api.fetchModules();
+      } catch (err: any) {
+        setModulesError("모듈 정보를 불러올 수 없습니다.");
+      }
+      try {
+        auditRes = await api.getAuditLogs({ limit: 5 });
       } catch (err: any) {
         if (err?.response?.status === 403) {
-          setError("대시보드에 접근할 권한이 없습니다. 관리자에게 문의하세요.");
+          setAuditError("감사 로그는 관리자만 볼 수 있습니다.");
         } else {
-          let errorMessage =
-            "데이터를 불러오는 중 알 수 없는 오류가 발생했습니다.";
-          const detail = err?.response?.data?.detail;
-          if (typeof detail === "string") {
-            errorMessage = detail;
-          } else if (Array.isArray(detail) && detail[0]?.msg) {
-            errorMessage = detail
-              .map((d) => `${d.loc.join(".")} - ${d.msg}`)
-              .join("; ");
-          } else if (detail && typeof detail === "object") {
-            // 객체인 경우 JSON 문자열로 변환하거나 기본 메시지 사용
-            try {
-              errorMessage = JSON.stringify(detail);
-            } catch {
-              errorMessage = "서버에서 오류 응답을 받았습니다.";
-            }
-          } else if (err.message) {
-            errorMessage = err.message;
-          }
-          setError(errorMessage);
+          setAuditError("감사 로그를 불러올 수 없습니다.");
         }
-      } finally {
-        setLoading(false);
       }
+      try {
+        healthRes = await api.getDbHealth();
+      } catch (err: any) {
+        setDbError("DB 상태 정보를 불러올 수 없습니다.");
+      }
+      try {
+        errorsRes = await api.fetchErrorLogs({
+          from: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+        });
+      } catch (err: any) {
+        if (err?.response?.status === 403) {
+          setErrorsError("에러 로그는 관리자만 볼 수 있습니다.");
+        } else {
+          setErrorsError("에러 로그를 불러올 수 없습니다.");
+        }
+      }
+      try {
+        executableRes = await api.fetchExecutableModules();
+      } catch (err: any) {
+        setExecError("실행 가능한 모듈 정보를 불러올 수 없습니다.");
+      }
+      setStats({
+        totalModules: modulesRes.length,
+        activeModules: modulesRes.filter((m: Module) => m.isDeployed).length,
+        recentErrors: errorsRes.length,
+      });
+      setRecentLogs(auditRes);
+      setDbStatus(healthRes);
+      setRecentModules(modulesRes);
+      setExecutableModules(executableRes);
+      setLoading(false);
     };
     fetchDashboardData();
   }, [setError]);
+
+  // 관리대상모듈: ownerId==userId
+  const myModules = recentModules;
+
+  // 실행가능모듈: executableModules 그대로(내+공개)
+  const myExecutableModules = executableModules.filter(
+    (m: ExecutableModule) => m.visibility === "public" || m.owner_id === userId
+  );
 
   return (
     <Box sx={{ flexGrow: 1, p: 3 }}>
@@ -230,7 +261,7 @@ const Dashboard: React.FC = () => {
                   <CircularProgress />
                 </Box>
               </Grid>
-            ) : recentModules.length === 0 ? (
+            ) : myModules.length === 0 ? (
               <Grid item xs={12}>
                 <Paper sx={{ p: 3, textAlign: "center" }}>
                   <Typography color="textSecondary">
@@ -239,7 +270,7 @@ const Dashboard: React.FC = () => {
                 </Paper>
               </Grid>
             ) : (
-              recentModules.slice(0, 3).map((module) => (
+              myModules.slice(0, 3).map((module) => (
                 <Grid item xs={12} sm={6} md={4} key={module.name}>
                   <Card
                     sx={{
@@ -328,7 +359,7 @@ const Dashboard: React.FC = () => {
                   <CircularProgress />
                 </Box>
               </Grid>
-            ) : executableModules.length === 0 ? (
+            ) : myExecutableModules.length === 0 ? (
               <Grid item xs={12}>
                 <Paper sx={{ p: 3, textAlign: "center" }}>
                   <Typography color="textSecondary">
@@ -337,7 +368,7 @@ const Dashboard: React.FC = () => {
                 </Paper>
               </Grid>
             ) : (
-              executableModules.slice(0, 6).map((module) => (
+              myExecutableModules.slice(0, 6).map((module) => (
                 <Grid item xs={12} sm={6} md={4} key={module.name}>
                   <Card
                     sx={{
@@ -365,6 +396,14 @@ const Dashboard: React.FC = () => {
                         sx={{ mb: 1 }}
                       >
                         {module.description || "설명 없음"}
+                      </Typography>
+                      {/* 소유자 정보 */}
+                      <Typography
+                        variant="caption"
+                        color="textSecondary"
+                        sx={{ mb: 1, display: "block" }}
+                      >
+                        소유자: {module.owner_name || "Unknown"}
                       </Typography>
                       <Box
                         sx={{ display: "flex", alignItems: "center", mb: 1 }}

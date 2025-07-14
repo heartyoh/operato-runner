@@ -38,6 +38,8 @@ interface Module {
   isDeployed: boolean;
   visibility: string;
   created_at?: string;
+  owner_id?: number;
+  owner_name?: string;
 }
 
 interface ExecutionResult {
@@ -300,6 +302,15 @@ const ExecutableModuleList: React.FC = () => {
                   sx={{ mb: 2 }}
                 >
                   {module.description || "설명 없음"}
+                </Typography>
+
+                {/* 소유자 정보 */}
+                <Typography
+                  variant="caption"
+                  color="textSecondary"
+                  sx={{ mb: 1, display: "block" }}
+                >
+                  소유자: {module.owner_name || "Unknown"}
                 </Typography>
 
                 <Box display="flex" gap={1} mb={2} flexWrap="wrap">

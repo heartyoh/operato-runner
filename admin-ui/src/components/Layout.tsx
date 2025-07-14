@@ -108,6 +108,11 @@ const Layout: React.FC = () => {
     navigate("/admin/profile"); // 또는 /admin/users/me 등
   };
 
+  // 관리자 권한 여부 판별
+  const isAdmin =
+    Array.isArray(user?.roles) &&
+    user.roles.some((r: any) => r.name === "admin");
+
   return (
     <Box sx={{ display: "flex" }}>
       <AppBar
@@ -196,18 +201,22 @@ const Layout: React.FC = () => {
                 📦 모듈 관리
               </Typography>
             </Box>
-            {moduleManagementItems.map((item) => (
-              <ListItem key={item.path} disablePadding>
-                <ListItemButton
-                  component={Link}
-                  to={item.path}
-                  selected={location.pathname === item.path}
-                >
-                  <ListItemIcon>{item.icon}</ListItemIcon>
-                  <ListItemText primary={item.text} />
-                </ListItemButton>
-              </ListItem>
-            ))}
+            {moduleManagementItems
+              .filter(
+                (item) => item.text !== "감사 로그" || isAdmin // 감사 로그는 admin만
+              )
+              .map((item) => (
+                <ListItem key={item.path} disablePadding>
+                  <ListItemButton
+                    component={Link}
+                    to={item.path}
+                    selected={location.pathname === item.path}
+                  >
+                    <ListItemIcon>{item.icon}</ListItemIcon>
+                    <ListItemText primary={item.text} />
+                  </ListItemButton>
+                </ListItem>
+              ))}
 
             <Divider sx={{ my: 1 }} />
 
@@ -237,27 +246,31 @@ const Layout: React.FC = () => {
             <Divider sx={{ my: 1 }} />
 
             {/* 시스템 어드민 섹션 */}
-            <Box sx={{ my: 1, mx: 2 }}>
-              <Typography
-                variant="caption"
-                color="text.secondary"
-                sx={{ fontWeight: "bold" }}
-              >
-                ⚙️ 시스템 어드민
-              </Typography>
-            </Box>
-            {systemAdminItems.map((item) => (
-              <ListItem key={item.path} disablePadding>
-                <ListItemButton
-                  component={Link}
-                  to={item.path}
-                  selected={location.pathname === item.path}
-                >
-                  <ListItemIcon>{item.icon}</ListItemIcon>
-                  <ListItemText primary={item.text} />
-                </ListItemButton>
-              </ListItem>
-            ))}
+            {isAdmin && (
+              <>
+                <Box sx={{ my: 1, mx: 2 }}>
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ fontWeight: "bold" }}
+                  >
+                    ⚙️ 시스템 어드민
+                  </Typography>
+                </Box>
+                {systemAdminItems.map((item) => (
+                  <ListItem key={item.path} disablePadding>
+                    <ListItemButton
+                      component={Link}
+                      to={item.path}
+                      selected={location.pathname === item.path}
+                    >
+                      <ListItemIcon>{item.icon}</ListItemIcon>
+                      <ListItemText primary={item.text} />
+                    </ListItemButton>
+                  </ListItem>
+                ))}
+              </>
+            )}
           </List>
         </Box>
       </Drawer>

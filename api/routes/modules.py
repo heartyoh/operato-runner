@@ -28,6 +28,8 @@ class ModuleResponse(BaseModel):
     description: Optional[str] = ""
     visibility: str = "private"
     is_public: bool = False
+    owner_id: Optional[int] = None
+    owner_name: Optional[str] = None
 
 class ModuleDetailResponse(BaseModel):
     name: str
@@ -86,13 +88,18 @@ async def list_executable_modules(
     query = query.order_by(Module.name)
     result = await db.execute(query)
     modules = result.scalars().all()
-    
+    # owner_name 조회
+    owner_ids = list(set([m.owner_id for m in modules if m.owner_id]))
+    owner_map = {}
+    if owner_ids:
+        owner_result = await db.execute(select(User).where(User.id.in_(owner_ids)))
+        for u in owner_result.scalars().all():
+            owner_map[u.id] = u.username
     def is_deployed(m):
         if m.env == "inline":
             return True
         venv_dir = os.path.join("module_envs", m.name, "venv")
         return os.path.exists(venv_dir)
-    
     return [
         ModuleResponse(
             name=m.name,
@@ -103,7 +110,9 @@ async def list_executable_modules(
             isDeployed=is_deployed(m),
             description=m.description or "",
             visibility=m.visibility,
-            is_public=m.visibility == "public"
+            is_public=m.visibility == "public",
+            owner_id=m.owner_id,
+            owner_name=owner_map.get(m.owner_id) if m.owner_id else None
         )
         for m in modules
     ]
