@@ -87,22 +87,7 @@ build_images() {
 # Docker Hub 푸시 함수
 push_images() {
     info_msg "Docker Hub에 푸시 시작..."
-    
-    # Backend 이미지 푸시
-    info_msg "Backend 이미지 푸시 중..."
-    docker push hatiolab/operato-runner-service:$VERSION || error_exit "Backend 이미지 푸시 실패"
-    docker push hatiolab/operato-runner-service:latest || error_exit "Backend latest 태그 푸시 실패"
-    success_msg "Backend 이미지 푸시 완료"
-    
-    echo ""
-    
-    # Frontend 이미지 푸시
-    info_msg "Frontend 이미지 푸시 중..."
-    docker push hatiolab/operato-runner:$VERSION || error_exit "Frontend 이미지 푸시 실패"
-    docker push hatiolab/operato-runner:latest || error_exit "Frontend latest 태그 푸시 실패"
-    success_msg "Frontend 이미지 푸시 완료"
-    
-    echo ""
+    warning_msg "buildx --push로 이미 푸시되었으므로 별도 push는 필요하지 않습니다."
     success_msg "🎉 모든 이미지 푸시 완료!"
 }
 
@@ -148,18 +133,9 @@ case "$1" in
         ;;
     "push")
         build_images
-        push_images
         ;;
     "release")
         build_images
-        echo ""
-        read -p "🚀 Docker Hub에 푸시하시겠습니까? (y/N): " -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-            push_images
-        else
-            warning_msg "푸시를 건너뜁니다."
-        fi
         ;;
     "start")
         start_services
