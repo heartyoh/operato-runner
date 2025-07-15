@@ -34,3 +34,5 @@ humanize
 # --- Redis 캐시 ---
 redis
 aioredis
+
+uv
