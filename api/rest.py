@@ -1681,8 +1681,8 @@ def create_app() -> FastAPI:
                 if not os.path.exists(os.path.join(uv_dir, "bin", "python")):
                     subprocess.run(["uv", "venv", uv_dir, "--python", "3.9"], check=True, capture_output=True, text=True)
 
-                requirements_path = os.path.join(dst_dir, "requirements.txt")
-                if os.path.exists(requirements_path):
+                requirements_path = "requirements.txt"  # <-- 파일명만 넘김
+                if os.path.exists(os.path.join(dst_dir, requirements_path)):
                     subprocess.run(["uv", "pip", "install", "-r", requirements_path], check=True, cwd=dst_dir, capture_output=True, text=True)
             
             elif env_type == "docker":
