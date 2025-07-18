@@ -98,8 +98,16 @@ async def list_executable_modules(
     def is_deployed(m):
         if m.env == "inline":
             return True
-        venv_dir = os.path.join("module_envs", m.name, "venv")
-        return os.path.exists(venv_dir)
+        elif m.env == "uv":
+            return os.path.exists(os.path.join("module_envs", m.name, "uv"))
+        elif m.env == "venv":
+            return os.path.exists(os.path.join("module_envs", m.name, "venv"))
+        elif m.env == "conda":
+            return os.path.exists(os.path.join("module_envs", m.name, "conda_env"))
+        elif m.env == "docker":
+            # 도커 이미지는 파일로 체크 불가, 간단히 env 디렉토리 존재로 대체
+            return os.path.exists(os.path.join("module_envs", m.name))
+        return False
     return [
         ModuleResponse(
             name=m.name,
