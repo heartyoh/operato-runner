@@ -40,6 +40,7 @@ interface Module {
   created_at?: string;
   owner_id?: number;
   owner_name?: string;
+  deployment_mismatch?: boolean;
 }
 
 interface ExecutionResult {
@@ -119,14 +120,24 @@ const ExecutableModuleList: React.FC = () => {
   };
 
   const handleExecute = async () => {
-    if (!executeModule || !executionInput.trim()) return;
+    if (!executeModule) return;
 
     try {
       setExecuting(true);
       setExecutionError(null);
       setExecutionResult(null);
 
-      const inputData = JSON.parse(executionInput);
+      // 입력 데이터가 없으면 빈 객체로 처리
+      let inputData = {};
+      if (executionInput.trim()) {
+        try {
+          inputData = JSON.parse(executionInput);
+        } catch (err) {
+          setExecutionError("입력 데이터가 올바른 JSON 형식이 아닙니다.");
+          return;
+        }
+      }
+
       const response = await axios.post(`/api/run/${executeModule.name}`, {
         input: inputData,
       });
@@ -335,6 +346,15 @@ const ExecutableModuleList: React.FC = () => {
                   {module.isDeployed && (
                     <Chip label="배포됨" size="small" color="success" />
                   )}
+                  {module.deployment_mismatch && (
+                    <Chip
+                      label="⚠️ 불일치"
+                      size="small"
+                      color="warning"
+                      variant="outlined"
+                      title="Active 버전과 전개 상태가 일치하지 않습니다"
+                    />
+                  )}
                 </Box>
 
                 {module.tags.length > 0 && (
@@ -374,7 +394,7 @@ const ExecutableModuleList: React.FC = () => {
         <DialogContent>
           <Box sx={{ mb: 2 }}>
             <Typography variant="body2" color="text.secondary" gutterBottom>
-              입력 데이터 (JSON 형식):
+              입력 데이터 (JSON 형식, 선택사항):
             </Typography>
             <TextField
               fullWidth
@@ -382,7 +402,7 @@ const ExecutableModuleList: React.FC = () => {
               rows={4}
               value={executionInput}
               onChange={(e) => setExecutionInput(e.target.value)}
-              placeholder='{"key": "value"}'
+              placeholder='{"key": "value"} (빈 값으로도 실행 가능)'
               variant="outlined"
             />
           </Box>
@@ -474,7 +494,7 @@ const ExecutableModuleList: React.FC = () => {
           <Button
             onClick={handleExecute}
             variant="contained"
-            disabled={!executionInput.trim() || executing}
+            disabled={executing}
             startIcon={
               executing ? <CircularProgress size={16} /> : <PlayIcon />
             }
