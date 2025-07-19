@@ -30,6 +30,7 @@ import {
   Tab,
   Switch,
   FormControlLabel,
+  DialogContentText,
 } from "@mui/material";
 import {
   fetchModuleDetail,
@@ -93,6 +94,17 @@ const ModuleDetail: React.FC = () => {
   const [deployInfoLoading, setDeployInfoLoading] = useState(false);
   const [deployInfoError, setDeployInfoError] = useState<string | null>(null);
   const [editIsPublic, setEditIsPublic] = useState(false);
+  const [autoDeploy, setAutoDeploy] = useState(false);
+  const [showDeployDialog, setShowDeployDialog] = useState(false);
+  const [deployDialogData, setDeployDialogData] = useState<{
+    moduleName: string;
+    version: string;
+  }>({ moduleName: "", version: "" });
+  const [showDeployFailureDialog, setShowDeployFailureDialog] = useState(false);
+  const [deployFailureData, setDeployFailureData] = useState<{
+    version: string;
+    error: string;
+  }>({ version: "", error: "" });
 
   const fetchData = useCallback(() => {
     if (!name) return;
@@ -105,9 +117,7 @@ const ModuleDetail: React.FC = () => {
     ])
       .then(([mod, versions, history, envVarsData]) => {
         setModule(mod);
-        if (mod.env === "inline") {
-          setUpgradeCode(mod.code || "");
-        }
+        // 인라인 모듈의 경우 활성화된 버전의 코드를 설정하지 않음 (별도 useEffect에서 처리)
         setVersions(versions);
         setHistory(history);
         setEnvVars(envVarsData || []);
@@ -186,12 +196,68 @@ const ModuleDetail: React.FC = () => {
     setActionError(null);
     try {
       let res;
-      if (type === "activate") res = await activateModuleVersion(name, version);
-      setActionMsg(res.detail || "성공");
+      if (type === "activate") {
+        // 1. 먼저 버전을 활성화
+        res = await activateModuleVersion(name, version);
+
+        // 2. 모듈이 inline이 아니면 전개도 진행
+        if (module && module.env !== "inline") {
+          try {
+            const deployResponse = await axios.post(
+              `/api/modules/${encodeURIComponent(name)}/deploy`
+            );
+            setActionMsg(
+              `버전 ${version} 활성화 및 전개 완료 - ${deployResponse.data.detail}`
+            );
+          } catch (deployError: any) {
+            // 전개 실패 시 활성화도 롤백
+            try {
+              // 이전 활성 버전으로 롤백 (또는 비활성화)
+              const currentActiveVersion = module?.version;
+              if (currentActiveVersion && currentActiveVersion !== version) {
+                await activateModuleVersion(name, currentActiveVersion);
+              }
+              // 전개 실패 다이얼로그 표시
+              setDeployFailureData({
+                version: version,
+                error:
+                  deployError?.response?.data?.detail ||
+                  deployError?.message ||
+                  "알 수 없는 오류",
+              });
+              setShowDeployFailureDialog(true);
+            } catch (rollbackError: any) {
+              setActionError(
+                `전개 실패 및 롤백 실패: ${
+                  deployError?.response?.data?.detail || deployError?.message
+                } (롤백 오류: ${
+                  rollbackError?.response?.data?.detail ||
+                  rollbackError?.message
+                })`
+              );
+            }
+          }
+        } else {
+          setActionMsg(res.detail || "활성화 완료");
+          // 인라인 모듈의 경우 활성화된 버전의 코드로 UI 갱신
+          if (module?.artifact_type === "inline") {
+            try {
+              const versionResponse = await axios.get(
+                `/api/modules/${encodeURIComponent(name)}/versions/${version}`
+              );
+              setUpgradeCode(versionResponse.data.code || "");
+            } catch (error) {
+              console.error("활성화된 버전 코드 조회 실패:", error);
+            }
+          }
+        }
+      }
     } catch (e: any) {
       setActionError(e?.response?.data?.detail || e.message);
     } finally {
       setActionLoading(false);
+      // 데이터 새로고침
+      fetchData();
     }
   };
 
@@ -229,7 +295,61 @@ const ModuleDetail: React.FC = () => {
     }
   };
   const handleToggleShow = (key: string) => {
-    setShowValue((prev) => ({ ...prev, [key]: !prev[key] }));
+    setShowValue({ ...showValue, [key]: !showValue[key] });
+  };
+
+  // 자동 전개 다이얼로그 핸들러
+  const handleDeployConfirm = async () => {
+    try {
+      // 새 버전을 활성화하는 API 호출
+      const formData = new FormData();
+      formData.append("version", deployDialogData.version);
+
+      await axios.post(
+        `/api/modules/${encodeURIComponent(
+          deployDialogData.moduleName
+        )}/activate`,
+        formData
+      );
+      setShowDeployDialog(false);
+      setUpgradeMsg("새 버전 업로드 및 자동 전개 성공");
+      setUpgradeVersion("");
+      setUpgradeCode("");
+      fetchData();
+      setUpgradeTags("");
+      setUpgradeFile(null);
+      setUpgradeArtifactUri("");
+      setAutoDeploy(false);
+    } catch (err: any) {
+      console.error("자동 전개 오류:", err);
+      let errorMessage = "자동 전개 중 오류가 발생했습니다";
+
+      if (err?.response?.data?.detail) {
+        errorMessage += ": " + err.response.data.detail;
+      } else if (err?.response?.status) {
+        errorMessage += ` (HTTP ${err.response.status})`;
+      } else if (err?.message) {
+        errorMessage += ": " + err.message;
+      } else if (typeof err === "string") {
+        errorMessage += ": " + err;
+      } else {
+        errorMessage += ": 알 수 없는 오류";
+      }
+
+      setUpgradeError(errorMessage);
+    }
+  };
+
+  const handleDeployCancel = () => {
+    setShowDeployDialog(false);
+    setUpgradeMsg("새 버전 업로드 성공 (수동 전개 필요)");
+    setUpgradeVersion("");
+    setUpgradeCode("");
+    fetchData();
+    setUpgradeTags("");
+    setUpgradeFile(null);
+    setUpgradeArtifactUri("");
+    setAutoDeploy(false);
   };
 
   // --- 섹션별 렌더링 함수 ---
@@ -501,6 +621,7 @@ const ModuleDetail: React.FC = () => {
             const formData = new FormData();
             formData.append("version", upgradeVersion);
             formData.append("description", upgradeDesc);
+            formData.append("auto_deploy", String(autoDeploy));
             // artifact_type별 분기
             if (module?.artifact_type === "inline") {
               formData.append("code", upgradeCode);
@@ -513,16 +634,43 @@ const ModuleDetail: React.FC = () => {
               // git/docker: 업그레이드는 코드 다시 가져오기만 지원
               // 별도 업로드 없음
             }
-            await uploadModuleVersion(name, formData);
-            setUpgradeMsg("새 버전 업로드 성공");
-            setUpgradeVersion("");
-            setUpgradeCode("");
-            fetchData();
-            setUpgradeTags("");
-            setUpgradeFile(null);
-            setUpgradeArtifactUri("");
+            const response = await uploadModuleVersion(name, formData);
+
+            // 응답에서 전개 상태 확인 (안전한 접근)
+            const responseData = response?.data || response;
+            if (responseData?.was_deployed && !responseData?.auto_deployed) {
+              setDeployDialogData({
+                moduleName: name,
+                version: upgradeVersion,
+              });
+              setShowDeployDialog(true);
+            } else {
+              setUpgradeMsg("새 버전 업로드 성공");
+              setUpgradeVersion("");
+              setUpgradeCode("");
+              fetchData();
+              setUpgradeTags("");
+              setUpgradeFile(null);
+              setUpgradeArtifactUri("");
+              setAutoDeploy(false);
+            }
           } catch (e: any) {
-            setUpgradeError(e?.response?.data?.detail || e.message);
+            console.error("버전 업로드 오류:", e);
+            let errorMessage = "버전 업로드 중 오류가 발생했습니다";
+
+            if (e?.response?.data?.detail) {
+              errorMessage += ": " + e.response.data.detail;
+            } else if (e?.response?.status) {
+              errorMessage += ` (HTTP ${e.response.status})`;
+            } else if (e?.message) {
+              errorMessage += ": " + e.message;
+            } else if (typeof e === "string") {
+              errorMessage += ": " + e;
+            } else {
+              errorMessage += ": 알 수 없는 오류";
+            }
+
+            setUpgradeError(errorMessage);
           } finally {
             setUpgradeLoading(false);
           }
@@ -582,6 +730,16 @@ const ModuleDetail: React.FC = () => {
                 value={upgradeDesc}
                 onChange={(e) => setUpgradeDesc(e.target.value)}
                 sx={{ width: 200 }}
+              />
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={autoDeploy}
+                    onChange={(e) => setAutoDeploy(e.target.checked)}
+                    color="primary"
+                  />
+                }
+                label="자동 전개"
               />
               <Button
                 type="submit"
@@ -656,6 +814,16 @@ const ModuleDetail: React.FC = () => {
             <Button type="submit" variant="contained" disabled={upgradeLoading}>
               {upgradeLoading ? "업로드중..." : "업그레이드"}
             </Button>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={autoDeploy}
+                  onChange={(e) => setAutoDeploy(e.target.checked)}
+                  color="primary"
+                />
+              }
+              label="자동 전개"
+            />
           </Box>
         )}
         {(module?.artifact_type === "git" ||
@@ -751,13 +919,22 @@ const ModuleDetail: React.FC = () => {
                         활성화됨
                       </Button>
                     ) : (
-                      <Button
-                        onClick={() => handleAction("activate", v.version)}
-                        variant="contained"
-                        color="primary"
+                      <Tooltip
+                        title={
+                          module?.env === "inline"
+                            ? "버전을 활성화합니다"
+                            : "버전을 활성화하고 전개합니다"
+                        }
                       >
-                        활성화
-                      </Button>
+                        <Button
+                          onClick={() => handleAction("activate", v.version)}
+                          variant="contained"
+                          color="primary"
+                          disabled={actionLoading}
+                        >
+                          {actionLoading ? "처리중..." : "활성화 및 전개"}
+                        </Button>
+                      </Tooltip>
                     )}
                   </TableCell>
                 </TableRow>
@@ -1145,6 +1322,73 @@ const ModuleDetail: React.FC = () => {
           {tab === 4 && renderDeployedInfo()}
         </Box>
       </Paper>
+
+      {/* 자동 전개 확인 다이얼로그 */}
+      <Dialog
+        open={showDeployDialog}
+        onClose={handleDeployCancel}
+        aria-labelledby="deploy-dialog-title"
+        aria-describedby="deploy-dialog-description"
+      >
+        <DialogTitle id="deploy-dialog-title">새 버전 자동 전개</DialogTitle>
+        <DialogContent>
+          <DialogContentText id="deploy-dialog-description">
+            모듈 "{deployDialogData?.moduleName}"의 새 버전 v
+            {deployDialogData?.version}이 업로드되었습니다. 이전 버전이 전개되어
+            있었습니다. 새 버전을 자동으로 전개하시겠습니까?
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleDeployCancel} color="primary">
+            나중에 수동 전개
+          </Button>
+          <Button
+            onClick={handleDeployConfirm}
+            color="primary"
+            variant="contained"
+          >
+            자동 전개
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* 전개 실패 다이얼로그 */}
+      <Dialog
+        open={showDeployFailureDialog}
+        onClose={() => setShowDeployFailureDialog(false)}
+        aria-labelledby="deploy-failure-dialog-title"
+        aria-describedby="deploy-failure-dialog-description"
+      >
+        <DialogTitle id="deploy-failure-dialog-title">전개 실패</DialogTitle>
+        <DialogContent>
+          <DialogContentText id="deploy-failure-dialog-description">
+            버전 v{deployFailureData?.version}을 전개하는 중 오류가
+            발생했습니다:
+            <br />
+            <b>{deployFailureData?.error}</b>
+            <br />
+            활성화된 버전을 롤백하고 새 버전을 활성화하시겠습니까?
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => setShowDeployFailureDialog(false)}
+            color="primary"
+          >
+            취소
+          </Button>
+          <Button
+            onClick={async () => {
+              setShowDeployFailureDialog(false);
+              await handleAction("activate", deployFailureData?.version || "");
+            }}
+            color="primary"
+            variant="contained"
+          >
+            롤백 및 전개
+          </Button>
+        </DialogActions>
+      </Dialog>
     </div>
   );
 };

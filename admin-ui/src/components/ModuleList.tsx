@@ -45,6 +45,9 @@ interface Module {
   artifact_uri?: string;
   visibility: string;
   is_public: boolean; // 호환성을 위해 유지 (deprecated)
+  deployment_mismatch?: boolean;
+  latest_version?: string;
+  active_version?: string;
 }
 
 const codeTemplates = {
@@ -319,33 +322,12 @@ const ModuleList: React.FC = () => {
             <Table size="small">
               <TableHead>
                 <TableRow>
-                  {/* <TableCell>ID</TableCell> */}
                   <TableCell>이름</TableCell>
                   <TableCell>환경</TableCell>
                   <TableCell>버전</TableCell>
                   <TableCell>Artifact</TableCell>
-                  <TableCell
-                    sx={{
-                      maxWidth: 320,
-                      minWidth: 200,
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                    }}
-                  >
-                    설명
-                  </TableCell>
-                  <TableCell
-                    sx={{
-                      maxWidth: 240,
-                      minWidth: 120,
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                    }}
-                  >
-                    태그
-                  </TableCell>
+                  <TableCell>설명</TableCell>
+                  <TableCell>태그</TableCell>
                   <TableCell>공개여부</TableCell>
                   <TableCell>상태</TableCell>
                   <TableCell>액션</TableCell>
@@ -356,8 +338,50 @@ const ModuleList: React.FC = () => {
                   <TableRow key={m.name} hover>
                     {/* <TableCell>{m.id}</TableCell> */}
                     <TableCell>{m.name}</TableCell>
-                    <TableCell>{m.env}</TableCell>
-                    <TableCell>{m.version}</TableCell>
+                    <TableCell>
+                      <Box display="flex" gap={1} flexWrap="wrap">
+                        <Chip label={m.env} size="small" variant="outlined" />
+                        <Chip
+                          label={m.visibility}
+                          size="small"
+                          variant="outlined"
+                          color={
+                            m.visibility === "public" ? "success" : "default"
+                          }
+                        />
+                      </Box>
+                    </TableCell>
+                    <TableCell>
+                      <Box>
+                        <Typography
+                          variant="body2"
+                          color={m.active_version ? "primary" : "textSecondary"}
+                          fontWeight={m.active_version ? "bold" : "normal"}
+                        >
+                          {m.active_version || "없음"}
+                        </Typography>
+                        {m.latest_version &&
+                          m.latest_version !== m.active_version && (
+                            <Box sx={{ mt: 0.5 }}>
+                              <Typography
+                                variant="caption"
+                                color="warning.main"
+                                sx={{
+                                  backgroundColor: "warning.light",
+                                  color: "warning.contrastText",
+                                  px: 0.5,
+                                  py: 0.25,
+                                  borderRadius: 0.5,
+                                  fontSize: "0.7rem",
+                                  fontWeight: "medium",
+                                }}
+                              >
+                                최신: {m.latest_version}
+                              </Typography>
+                            </Box>
+                          )}
+                      </Box>
+                    </TableCell>
                     <TableCell>
                       {m.artifact_type ? (
                         m.artifact_uri ? (

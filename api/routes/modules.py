@@ -96,17 +96,33 @@ async def list_executable_modules(
         for u in owner_result.scalars().all():
             owner_map[u.id] = u.username
     def is_deployed(m):
+        """전개 상태 확인: 실제 전개된 버전이 있는지 확인"""
         if m.env == "inline":
+            # inline은 전개가 필요 없지만, active 버전이 있어야 함
             return True
         elif m.env == "uv":
             return os.path.exists(os.path.join("module_envs", m.name, "uv"))
         elif m.env == "venv":
             return os.path.exists(os.path.join("module_envs", m.name, "venv"))
         elif m.env == "conda":
-            return os.path.exists(os.path.join("module_envs", m.name, "conda_env"))
+            # conda 환경 경로 수정
+            return os.path.exists(os.path.join("module_envs", m.name, "conda"))
         elif m.env == "docker":
-            # 도커 이미지는 파일로 체크 불가, 간단히 env 디렉토리 존재로 대체
-            return os.path.exists(os.path.join("module_envs", m.name))
+            # Docker는 이미지 존재 여부도 확인
+            import subprocess
+            try:
+                # Docker 이미지 확인
+                result = subprocess.run(
+                    ["docker", "images", "-q", f"mod_{m.name}"],
+                    capture_output=True, text=True, timeout=10
+                )
+                has_image = bool(result.stdout.strip())
+                # 전개 디렉토리도 확인
+                has_deploy_dir = os.path.exists(os.path.join("module_envs", m.name))
+                return has_image and has_deploy_dir
+            except Exception:
+                # Docker 명령어 실패 시 디렉토리만 확인
+                return os.path.exists(os.path.join("module_envs", m.name))
         return False
     return [
         ModuleResponse(

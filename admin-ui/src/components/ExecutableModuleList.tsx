@@ -343,18 +343,6 @@ const ExecutableModuleList: React.FC = () => {
                     size="small"
                     variant="outlined"
                   />
-                  {module.isDeployed && (
-                    <Chip label="배포됨" size="small" color="success" />
-                  )}
-                  {module.deployment_mismatch && (
-                    <Chip
-                      label="⚠️ 불일치"
-                      size="small"
-                      color="warning"
-                      variant="outlined"
-                      title="Active 버전과 전개 상태가 일치하지 않습니다"
-                    />
-                  )}
                 </Box>
 
                 {module.tags.length > 0 && (

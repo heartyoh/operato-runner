@@ -14,6 +14,11 @@ import {
   Tab,
   Switch,
   FormControlLabel,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  DialogContentText,
 } from "@mui/material";
 import FileDownloadIcon from "@mui/icons-material/FileDownload";
 import VersionSelectInput from "./VersionSelectInput";
@@ -54,6 +59,19 @@ const ModuleUpload: React.FC<Props> = ({ onUploadSuccess }) => {
   const [inlineIsPublic, setInlineIsPublic] = useState(false);
   const [dockerImage, setDockerImage] = useState("");
   const navigate = useNavigate();
+
+  // 폼 초기화 함수
+  const resetForm = () => {
+    setName("");
+    setEnv("venv");
+    setVersion("0.1.0");
+    setFile(null);
+    setArtifactUri("");
+    setDockerImage("");
+    setArtifactType("zip");
+    setInlineCode("");
+    setInlineInput(`{\n  \"x\": 1,\n  \"y\": 2\n}`);
+  };
 
   // artifact_type별 허용 env 목록 정의
   const allowedEnvs: Record<string, string[]> = {
@@ -140,19 +158,13 @@ const ModuleUpload: React.FC<Props> = ({ onUploadSuccess }) => {
         formData.append("code", inlineCode);
         formData.append("input", inlineInput);
       }
-      await axios.post("/api/modules", formData, {
+      const response = await axios.post("/api/modules", formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
+
+      // 신규 모듈 생성의 경우 이전 버전이 없으므로 항상 성공
       setSuccess(true);
-      setName("");
-      setEnv("venv");
-      setVersion("0.1.0");
-      setFile(null);
-      setArtifactUri("");
-      setDockerImage("");
-      setArtifactType("zip");
-      setInlineCode("");
-      setInlineInput(`{\n  \"x\": 1,\n  \"y\": 2\n}`);
+      resetForm();
       navigate(`/admin/modules/${encodeURIComponent(name)}`);
       if (onUploadSuccess) onUploadSuccess();
     } catch (err: any) {

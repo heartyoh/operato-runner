@@ -80,6 +80,10 @@ def create_app() -> FastAPI:
         is_public: bool = False  # 호환성을 위해 유지 (deprecated)
         artifact_type: Optional[str] = None
         artifact_uri: Optional[str] = None
+        owner_id: Optional[int] = None
+        owner_name: Optional[str] = None
+        latest_version: Optional[str] = None  # 최신 버전
+        active_version: Optional[str] = None  # 활성화된 버전
 
     class VersionResponse(BaseModel):
         id: int
@@ -167,32 +171,69 @@ def create_app() -> FastAPI:
         current_user: User = Depends(get_current_user)
     ):
         modules = await module_registry.list_modules()
+        
         def is_deployed(m):
+            """전개 상태 확인: 실제 전개된 버전이 있는지 확인"""
             if m.env == "inline":
-                return True
+                # inline은 Active 버전이 있을 때만 전개된 것으로 간주
+                # 이 함수는 파일시스템 체크용이므로, Active 버전 존재 여부는 별도로 확인
+                return True  # 인라인은 전개 개념이 없으므로 항상 True
             elif m.env == "uv":
                 return os.path.exists(os.path.join("module_envs", m.name, "uv"))
             elif m.env == "venv":
                 return os.path.exists(os.path.join("module_envs", m.name, "venv"))
             elif m.env == "conda":
-                return os.path.exists(os.path.join("module_envs", m.name, "conda_env"))
+                # conda 환경 경로 수정
+                return os.path.exists(os.path.join("module_envs", m.name, "conda"))
             elif m.env == "docker":
-                # 도커 이미지는 파일로 체크 불가, 간단히 env 디렉토리 존재로 대체
-                return os.path.exists(os.path.join("module_envs", m.name))
+                # Docker는 이미지 존재 여부도 확인
+                import subprocess
+                try:
+                    # Docker 이미지 확인
+                    result = subprocess.run(
+                        ["docker", "images", "-q", f"mod_{m.name}"],
+                        capture_output=True, text=True, timeout=10
+                    )
+                    has_image = bool(result.stdout.strip())
+                    # 전개 디렉토리도 확인
+                    has_deploy_dir = os.path.exists(os.path.join("module_envs", m.name))
+                    return has_image and has_deploy_dir
+                except Exception:
+                    # Docker 명령어 실패 시 디렉토리만 확인
+                    return os.path.exists(os.path.join("module_envs", m.name))
             return False
+        
         result = []
         for m in modules:
             if m.owner_id != current_user.id:
                 continue  # 내가 만든 모듈만 반환
+            
+            # 실제 전개 상태 확인
+            is_actually_deployed = is_deployed(m)
+            
+            # Active 버전 조회
+            # Active 버전은 "현재 전개된 버전" 또는 "다음 전개될 버전"을 의미
+            # 전개된 상태가 있다면 해당 버전, 없다면 최신 버전이 active가 됨
+            active_version_result = await db.execute(
+                select(Version).join(Deployment, Deployment.version_id == Version.id)
+                .where(Version.module_id == m.id, Deployment.status == "active")
+            )
+            active_version = active_version_result.scalars().first()
+            
+            # 최신 버전 조회
+            latest_version_result = await db.execute(
+                select(Version).where(Version.module_id == m.id)
+                .order_by(Version.created_at.desc())
+            )
+            latest_version = latest_version_result.scalars().first()
+            
+            # Active 버전은 항상 "현재 전개된 버전" 또는 "다음 전개될 버전"을 의미
+            # 불일치 상태는 존재하지 않음
+            
             description = m.description
-            if m.env == "inline":
-                v_result = await db.execute(
-                    select(Version).join(Deployment, Deployment.version_id == Version.id)
-                    .where(Version.module_id == m.id, Deployment.status == "active")
-                )
-                active_version = v_result.scalars().first()
-                if active_version:
-                    description = active_version.description
+            if m.env == "inline" and active_version:
+                description = active_version.description
+            
             # created_at에 timezone 보정
             created_at_iso = None
             if m.created_at:
@@ -200,6 +241,7 @@ def create_app() -> FastAPI:
                 if dt.tzinfo is None:
                     dt = dt.replace(tzinfo=timezone.utc)
                 created_at_iso = dt.isoformat()
+            
             # owner_name 조회
             owner_name = None
             if m.owner_id:
@@ -207,13 +249,14 @@ def create_app() -> FastAPI:
                 owner = owner_result.scalars().first()
                 if owner:
                     owner_name = owner.username
+            
             result.append({
                 "name": m.name,
                 "env": m.env,
                 "version": m.version,
                 "created_at": created_at_iso,
                 "tags": m.tags.split(",") if isinstance(m.tags, str) else (m.tags if m.tags else []),
-                "isDeployed": is_deployed(m),
+                "isDeployed": is_actually_deployed,
                 "description": description,
                 "visibility": m.visibility or "private",
                 "is_public": m.visibility == "public",  # 호환성을 위해 유지
@@ -221,6 +264,8 @@ def create_app() -> FastAPI:
                 "artifact_uri": getattr(m, "artifact_uri", None),
                 "owner_id": m.owner_id,
                 "owner_name": owner_name,
+                "latest_version": latest_version.version if latest_version else None,
+                "active_version": active_version.version if active_version else None,
             })
         return result
 
@@ -290,6 +335,7 @@ def create_app() -> FastAPI:
         file: UploadFile = File(None),
         input: str = Form(""),
         is_public: str = Form("false"),
+        auto_deploy: bool = Form(False),  # 자동 전개 여부
         module_registry: ModuleRegistry = Depends(get_module_registry),
         db: AsyncSession = Depends(get_db),
         current_user: User = Depends(get_current_user)
@@ -398,6 +444,10 @@ def create_app() -> FastAPI:
                 is_public=module.visibility == "public",
                 artifact_type=artifact_type,
                 artifact_uri=artifact_uri,
+                owner_id=module.owner_id,
+                owner_name=module.owner_name,
+                latest_version=latest_version.version if latest_version else None,
+                active_version=active_version.version if active_version else None,
             )
         elif artifact_type == "docker":
             # 도커 이미지 등록 처리
@@ -426,6 +476,10 @@ def create_app() -> FastAPI:
                 is_public=module.visibility == "public",
                 artifact_type=artifact_type,
                 artifact_uri=artifact_uri,
+                owner_id=module.owner_id,
+                owner_name=module.owner_name,
+                latest_version=latest_version.version if latest_version else None,
+                active_version=active_version.version if active_version else None,
             )
         elif artifact_type == "zip":
             # zip 파일 업로드 처리 (기존 로직)
@@ -509,6 +563,10 @@ def create_app() -> FastAPI:
                     is_public=module.visibility == "public",
                     artifact_type=artifact_type,
                     artifact_uri=artifact_uri,
+                    owner_id=module.owner_id,
+                    owner_name=module.owner_name,
+                    latest_version=latest_version.version if latest_version else None,
+                    active_version=active_version.version if active_version else None,
                 )
         elif env == "inline":
             # 인라인 코드 등록 처리 (기존 로직)
@@ -574,6 +632,10 @@ def create_app() -> FastAPI:
                 is_public=module.visibility == "public",
                 artifact_type=artifact_type,
                 artifact_uri=artifact_uri,
+                owner_id=module.owner_id,
+                owner_name=module.owner_name,
+                latest_version=latest_version.version if latest_version else None,
+                active_version=active_version.version if active_version else None,
             )
         else:
             raise HTTPException(status_code=400, detail="지원하지 않는 조합입니다.")
@@ -614,10 +676,13 @@ def create_app() -> FastAPI:
                     detail=f"User does not have permission to execute module '{module}'",
                 )
                 
+        # 활성화된 버전 조회
+        # 모든 환경에서 동일하게 Deployment 테이블의 Active 버전을 조회
         active_version_result = await db.execute(
             select(Version).join(Deployment, Deployment.version_id == Version.id)
             .where(Version.module_id == module_obj.id, Deployment.status == "active")
         )
+        
         version_obj = active_version_result.scalars().first()
         if not version_obj:
             raise HTTPException(
@@ -1453,6 +1518,7 @@ def create_app() -> FastAPI:
         version: str = Form(...),
         description: str = Form(""),
         code: str = Form(None),  # inline 모듈용 코드
+        auto_deploy: bool = Form(False),  # 자동 전개 여부
         db: AsyncSession = Depends(get_db),
         current_user: User = Depends(get_current_user)
     ):
@@ -1462,13 +1528,21 @@ def create_app() -> FastAPI:
         module = result.scalars().first()
         if not module:
             raise HTTPException(status_code=404, detail=f"Module '{name}' not found")
-        # 2. 중복 버전 체크
+        
+        # 2. 이전 버전의 전개 상태 확인
+        current_deployment = await db.execute(
+            select(Deployment).where(Deployment.module_id == module.id, Deployment.status == "active")
+        )
+        is_currently_deployed = current_deployment.scalars().first() is not None
+        
+        # 3. 중복 버전 체크
         version_result = await db.execute(
             select(Version).where(Version.module_id == module.id, Version.version == version)
         )
         if version_result.scalars().first():
             raise HTTPException(status_code=400, detail=f"이미 존재하는 버전입니다: {name} v{version}")
-        # 3. inline 모듈 처리
+        
+        # 4. inline 모듈 처리
         if module.env == "inline":
             if not code:
                 raise HTTPException(status_code=400, detail="inline 모듈의 경우 코드가 필요합니다.")
@@ -1483,19 +1557,13 @@ def create_app() -> FastAPI:
             db.add(version_obj)
             await db.commit()
             await db.refresh(version_obj)
-            # 기존 Deployment 모두 inactive로
-            deployments = await db.execute(select(Deployment).where(Deployment.module_id == module.id))
-            for d in deployments.scalars().all():
-                d.status = "inactive"
-            # 새 버전만 active
-            deployment_obj = Deployment(module_id=module.id, version_id=version_obj.id, status="active")
-            db.add(deployment_obj)
-            module.version = version
-            await db.commit()
+            # 버전 업로드만 수행, 활성화는 별도 단계
             return {
                 "detail": f"inline 모듈 버전 업로드 성공: {name} v{version}",
                 "version": version,
-                "description": description
+                "description": description,
+                "auto_deployed": False,  # 인라인 모듈도 자동 활성화하지 않음
+                "was_deployed": is_currently_deployed
             }
         elif getattr(module, "artifact_type", None) == "git":
             # 실제 git 타입 업그레이드 처리
@@ -1538,18 +1606,13 @@ def create_app() -> FastAPI:
                 db.add(version_obj)
                 await db.commit()
                 await db.refresh(version_obj)
-                # 기존 활성 배포를 비활성화하고 새 버전을 활성화
-                deployments = await db.execute(select(Deployment).where(Deployment.module_id == module.id))
-                for d in deployments.scalars().all():
-                    d.status = "inactive"
-                deployment_obj = Deployment(module_id=module.id, version_id=version_obj.id, status="active")
-                db.add(deployment_obj)
-                module.version = version
-                await db.commit()
+                # 버전 업로드만 수행, 활성화는 별도 단계
                 return {
                     "detail": f"git 모듈 버전 업로드 성공: {name} v{version}",
                     "version": version,
-                    "description": description
+                    "description": description,
+                    "auto_deployed": False,  # 자동 활성화하지 않음
+                    "was_deployed": is_currently_deployed
                 }
         else:
             # zip 업로드(파일 기반) 처리 (artifact_type/env 등 기존 모듈 정보 사용)
@@ -1615,23 +1678,17 @@ def create_app() -> FastAPI:
                 db.add(version_obj)
                 await db.commit()
                 await db.refresh(version_obj)
-                # 기존 활성 배포를 비활성화하고 새 버전을 활성화
-                deployments = await db.execute(select(Deployment).where(Deployment.module_id == module.id))
-                for d in deployments.scalars().all():
-                    d.status = "inactive"
-                deployment_obj = Deployment(module_id=module.id, version_id=version_obj.id, status="active")
-                db.add(deployment_obj)
-                module.version = version
-                await db.commit()
+                # 버전 업로드만 수행, 활성화는 별도 단계
                 # 성공 로그 기록
                 log = ModuleValidationLog(filename=file.filename, status="success", message=f"버전 업로드 성공: {name} v{version}")
                 db.add(log)
-                module.path = zip_path  # 실제 운영시에는 영구 저장소로 이동 필요
                 await db.commit()
                 return {
                     "detail": f"모듈 버전 업로드 성공: {name} v{version}",
                     "version": version,
-                    "description": description
+                    "description": description,
+                    "auto_deployed": False,  # 자동 활성화하지 않음
+                    "was_deployed": is_currently_deployed
                 }
 
     @app.post("/api/modules/{name}/deploy")
@@ -1641,16 +1698,65 @@ def create_app() -> FastAPI:
         module = result.scalars().first()
         if not module:
             raise HTTPException(status_code=404, detail=f"Module {name} not found")
+        
+        def is_deployed(m):
+            """전개 상태 확인: 실제 전개된 버전이 있는지 확인"""
+            if m.env == "inline":
+                return True  # 인라인은 전개 개념이 없으므로 항상 True
+            elif m.env == "uv":
+                return os.path.exists(os.path.join("module_envs", m.name, "uv"))
+            elif m.env == "venv":
+                return os.path.exists(os.path.join("module_envs", m.name, "venv"))
+            elif m.env == "conda":
+                return os.path.exists(os.path.join("module_envs", m.name, "conda"))
+            elif m.env == "docker":
+                import subprocess
+                try:
+                    result = subprocess.run(
+                        ["docker", "images", "-q", f"mod_{m.name}"],
+                        capture_output=True, text=True, timeout=10
+                    )
+                    has_image = bool(result.stdout.strip())
+                    has_deploy_dir = os.path.exists(os.path.join("module_envs", m.name))
+                    return has_image and has_deploy_dir
+                except Exception:
+                    return os.path.exists(os.path.join("module_envs", m.name))
+            return False
 
-        version_result = await db.execute(
-            select(Version).where(Version.module_id == module.id).order_by(Version.created_at.desc())
+        # Active 버전 확인
+        active_version_result = await db.execute(
+            select(Version).join(Deployment, Deployment.version_id == Version.id)
+            .where(Version.module_id == module.id, Deployment.status == "active")
         )
-        latest_version = version_result.scalars().first()
-        if not latest_version:
-            raise HTTPException(status_code=404, detail=f"No versions found for module {name}")
+        active_version = active_version_result.scalars().first()
+        
+        # Active 버전이 없으면 최신 버전을 active로 설정
+        if not active_version:
+            latest_version_result = await db.execute(
+                select(Version).where(Version.module_id == module.id).order_by(Version.created_at.desc())
+            )
+            latest_version = latest_version_result.scalars().first()
+            if not latest_version:
+                raise HTTPException(status_code=404, detail=f"No versions found for module {name}")
+            
+            # 기존 active 배포를 모두 비활성화
+            deployments = await db.execute(select(Deployment).where(Deployment.module_id == module.id))
+            for d in deployments.scalars().all():
+                d.status = "inactive"
+            
+            # 최신 버전을 active로 설정
+            deployment_obj = Deployment(module_id=module.id, version_id=latest_version.id, status="active")
+            db.add(deployment_obj)
+            module.version = latest_version.version
+            await db.commit()
+            
+            active_version = latest_version
+        else:
+            # Active 버전이 있으면 해당 버전 사용
+            active_version = active_version
 
         env_type = module.env.lower() if module.env else "venv"
-        src_dir = os.path.join("modules", module.name, latest_version.version)
+        src_dir = os.path.join("modules", module.name, active_version.version)
         dst_dir = os.path.join("module_envs", module.name)
 
         if not os.path.exists(src_dir):
@@ -1665,8 +1771,10 @@ def create_app() -> FastAPI:
                 _copy_src_to_env_dir(req_dir, dst_dir)
                 
                 venv_dir = os.path.join(dst_dir, "venv")
-                if not os.path.exists(os.path.join(venv_dir, "bin", "activate")):
-                    subprocess.run(["python3", "-m", "venv", venv_dir], check=True, capture_output=True, text=True)
+                # 기존 환경이 있으면 삭제하고 새로 생성
+                if os.path.exists(venv_dir):
+                    shutil.rmtree(venv_dir)
+                subprocess.run(["python3", "-m", "venv", venv_dir], check=True, capture_output=True, text=True)
 
                 venv_python = os.path.join(venv_dir, "bin", "python")
                 requirements_path = os.path.join(dst_dir, "requirements.txt")
@@ -1686,18 +1794,50 @@ def create_app() -> FastAPI:
                 _copy_src_to_env_dir(req_dir, dst_dir)
                 
                 uv_dir = os.path.join(dst_dir, "uv")
-                if not os.path.exists(os.path.join(uv_dir, "bin", "python")):
-                    subprocess.run(["uv", "venv", uv_dir, "--python", "3.9"], check=True, capture_output=True, text=True)
+                # 기존 환경이 있으면 삭제하고 새로 생성
+                if os.path.exists(uv_dir):
+                    shutil.rmtree(uv_dir)
+                subprocess.run(["uv", "venv", uv_dir, "--python", "3.9"], check=True, capture_output=True, text=True)
 
                 requirements_path = "requirements.txt"  # <-- 파일명만 넘김
                 if os.path.exists(os.path.join(dst_dir, requirements_path)):
                     subprocess.run(["uv", "pip", "install", "-r", requirements_path], check=True, cwd=dst_dir, capture_output=True, text=True)
             
+            elif env_type == "conda":
+                req_dir = _find_requirements_dir(src_dir)
+                _prepare_env_dir(dst_dir, "conda")
+                _copy_src_to_env_dir(req_dir, dst_dir)
+                
+                conda_dir = os.path.join(dst_dir, "conda")
+                # 기존 환경이 있으면 삭제하고 새로 생성
+                if os.path.exists(conda_dir):
+                    subprocess.run(["conda", "remove", "-y", "-p", conda_dir, "--all"], check=False, capture_output=True, text=True)
+                    shutil.rmtree(conda_dir)
+                subprocess.run(["conda", "create", "-p", conda_dir, "python=3.9", "-y"], check=True, capture_output=True, text=True)
+
+                conda_python = os.path.join(conda_dir, "bin", "python")
+                requirements_path = os.path.join(dst_dir, "requirements.txt")
+                if os.path.exists(requirements_path):
+                    subprocess.run(
+                        [conda_python, "-m", "pip", "install", "--upgrade", "pip"],
+                        check=True, capture_output=True, text=True
+                    )
+                    subprocess.run(
+                        [conda_python, "-m", "pip", "install", "-r", requirements_path],
+                        check=True, capture_output=True, text=True
+                    )
+            
             elif env_type == "docker":
-                docker_tag = f"mod_{module.name}:{latest_version.version}"
+                docker_tag = f"mod_{module.name}:{active_version.version}"
                 dockerfile_path = os.path.join(src_dir, "Dockerfile")
                 if not os.path.exists(dockerfile_path):
                     raise HTTPException(status_code=400, detail="Dockerfile이 존재하지 않습니다.")
+                
+                # 기존 이미지가 있으면 삭제
+                try:
+                    subprocess.run(["docker", "rmi", docker_tag], check=False, capture_output=True, text=True)
+                except Exception:
+                    pass
                 
                 proc = subprocess.run(
                     ["docker", "build", "-t", docker_tag, src_dir],
@@ -1709,33 +1849,39 @@ def create_app() -> FastAPI:
             else:
                 raise HTTPException(status_code=400, detail=f"지원하지 않는 환경 타입입니다: {env_type}")
             
-            log_module_action(module.name, latest_version.version, "deploy", f"{env_type} 환경 배포 성공")
+            log_module_action(module.name, active_version.version, "deploy", f"{env_type} 환경 배포 성공")
             log = ModuleValidationLog(filename=module.name, status="success", message=f"{env_type} 환경 배포 성공")
             db.add(log)
             await db.commit()
 
         except subprocess.CalledProcessError as e:
             error_message = f"{env_type} 환경 배포 실패: {e.stderr}"
-            log_module_action(module.name, latest_version.version, "deploy", error_message)
+            log_module_action(module.name, active_version.version, "deploy", error_message)
             log = ModuleValidationLog(filename=module.name, status="fail", message=error_message)
             db.add(log)
             await db.commit()
             raise HTTPException(status_code=500, detail=error_message)
         except Exception as e:
             error_message = f"배포 중 알 수 없는 예외 발생: {str(e)}"
-            log_module_action(module.name, latest_version.version, "deploy", error_message)
+            log_module_action(module.name, active_version.version, "deploy", error_message)
             log = ModuleValidationLog(filename=module.name, status="fail", message=error_message)
             db.add(log)
             await db.commit()
             raise HTTPException(status_code=500, detail=error_message)
 
-        return {"detail": f"{env_type} 환경에서 모듈 배포가 완료되었습니다."}
+        # 전개 완료 후 상태 확인
+        is_deployed_after = is_deployed(module)
+        log_module_action(module.name, active_version.version, "deploy", f"{env_type} 환경 배포 완료. 전개 상태: {is_deployed_after}")
+        
+        return {"detail": f"{env_type} 환경에서 모듈 배포가 완료되었습니다. (버전: {active_version.version}, 전개 상태: {is_deployed_after})"}
 
     @app.delete("/api/modules/{name}/deploy")
     async def undeploy_module(name: str):
         module_env_dir = os.path.abspath(os.path.join("module_envs", name))
         venv_dir = os.path.join(module_env_dir, "venv")
-        conda_env_dir = os.path.join(module_env_dir, "conda_env")
+        conda_env_dir = os.path.join(module_env_dir, "conda")
+        uv_dir = os.path.join(module_env_dir, "uv")
+        
         # venv 환경 삭제
         if os.path.exists(venv_dir):
             try:
@@ -1752,6 +1898,12 @@ def create_app() -> FastAPI:
             try:
                 if os.path.exists(conda_env_dir):
                     shutil.rmtree(conda_env_dir)
+            except Exception:
+                pass
+        # uv 환경 삭제
+        if os.path.exists(uv_dir):
+            try:
+                shutil.rmtree(uv_dir)
             except Exception:
                 pass
         # docker 환경 삭제
