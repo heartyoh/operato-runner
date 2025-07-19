@@ -31,6 +31,7 @@ import {
   Switch,
   FormControlLabel,
   DialogContentText,
+  Container,
 } from "@mui/material";
 import {
   fetchModuleDetail,
@@ -1289,24 +1290,11 @@ const ModuleDetail: React.FC = () => {
   );
 
   return (
-    <div
-      style={{
-        display: "flex",
-        justifyContent: "center",
-        width: "100%",
-        marginTop: 40,
-      }}
-    >
-      <Paper
-        sx={{
-          p: 4,
-          mb: 3,
-          minWidth: 1200,
-          maxWidth: "90vw",
-          width: "100%",
-          boxSizing: "border-box",
-        }}
-      >
+    <Container maxWidth="xl">
+      <Typography variant="h4" gutterBottom>
+        모듈 상세 정보
+      </Typography>
+      <Paper sx={{ p: 4, mb: 3 }}>
         <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 3 }}>
           <Tab label="기본 정보" />
           <Tab label="버전 관리" />
@@ -1389,7 +1377,7 @@ const ModuleDetail: React.FC = () => {
           </Button>
         </DialogActions>
       </Dialog>
-    </div>
+    </Container>
   );
 };
 

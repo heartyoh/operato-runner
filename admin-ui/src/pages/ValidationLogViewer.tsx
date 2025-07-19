@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from "react";
 import {
-  Paper,
   Typography,
   Table,
   TableBody,
@@ -21,6 +20,8 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  Container,
+  Box,
 } from "@mui/material";
 import { getValidationLogs, downloadValidationLogs } from "../api";
 import CloseIcon from "@mui/icons-material/Close";
@@ -92,29 +93,14 @@ const ValidationLogViewer: React.FC = () => {
   };
 
   return (
-    <div
-      style={{
-        display: "flex",
-        justifyContent: "center",
-        width: "100%",
-        marginTop: 40,
-      }}
-    >
-      <Paper
-        sx={{
-          p: 3,
-          maxWidth: 1200,
-          minWidth: 1200,
-          width: "100%",
-          boxSizing: "border-box",
-        }}
-      >
-        <Typography variant="h4" gutterBottom>
-          검증 로그
-        </Typography>
-        <Typography variant="body1" color="textSecondary" gutterBottom>
-          모듈 검증 및 테스트 결과를 확인할 수 있습니다.
-        </Typography>
+    <Container maxWidth="xl">
+      <Typography variant="h4" gutterBottom>
+        검증 로그
+      </Typography>
+      <Typography variant="body1" color="textSecondary" gutterBottom>
+        모듈 검증 및 테스트 결과를 확인할 수 있습니다.
+      </Typography>
+      <Box sx={{ mt: 4 }}>
         <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
           <TextField
             label="모듈명"
@@ -217,72 +203,72 @@ const ValidationLogViewer: React.FC = () => {
             </TableBody>
           </Table>
         </TableContainer>
-        <TablePagination
-          component="div"
-          count={-1} // total count 미지원 시 -1
-          page={page}
-          onPageChange={(
-            event: React.MouseEvent<HTMLButtonElement> | null,
-            newPage: number
-          ) => setPage(newPage)}
-          rowsPerPage={rowsPerPage}
-          onRowsPerPageChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-            setRowsPerPage(+e.target.value);
-            setPage(0);
-          }}
-          labelDisplayedRows={({ from, to }: { from: number; to: number }) =>
-            `${from}-${to}`
-          }
-          rowsPerPageOptions={[10, 20, 50, 100]}
-        />
-        <Dialog
-          open={!!selected}
-          onClose={() => setSelected(null)}
-          maxWidth="md"
-          fullWidth
-        >
-          <DialogTitle>
-            검증 로그 상세
-            <IconButton
-              onClick={() => setSelected(null)}
-              sx={{ position: "absolute", right: 8, top: 8 }}
-            >
-              <CloseIcon />
-            </IconButton>
-          </DialogTitle>
-          <DialogContent>
-            {selected && (
-              <Stack spacing={2}>
-                <div>
-                  <strong>ID:</strong> {selected.id}
+      </Box>
+      <TablePagination
+        component="div"
+        count={-1} // total count 미지원 시 -1
+        page={page}
+        onPageChange={(
+          event: React.MouseEvent<HTMLButtonElement> | null,
+          newPage: number
+        ) => setPage(newPage)}
+        rowsPerPage={rowsPerPage}
+        onRowsPerPageChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+          setRowsPerPage(+e.target.value);
+          setPage(0);
+        }}
+        labelDisplayedRows={({ from, to }: { from: number; to: number }) =>
+          `${from}-${to}`
+        }
+        rowsPerPageOptions={[10, 20, 50, 100]}
+      />
+      <Dialog
+        open={!!selected}
+        onClose={() => setSelected(null)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>
+          검증 로그 상세
+          <IconButton
+            onClick={() => setSelected(null)}
+            sx={{ position: "absolute", right: 8, top: 8 }}
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent>
+          {selected && (
+            <Stack spacing={2}>
+              <div>
+                <strong>ID:</strong> {selected.id}
+              </div>
+              <div>
+                <strong>파일명:</strong> {selected.filename}
+              </div>
+              <div>
+                <strong>상태:</strong>{" "}
+                <Chip
+                  label={selected.status}
+                  color={getStatusColor(selected.status) as any}
+                  size="small"
+                />
+              </div>
+              <div>
+                <strong>생성시각:</strong>{" "}
+                {new Date(selected.created_at).toLocaleString()}
+              </div>
+              <div>
+                <strong>메시지:</strong>
+                <div style={{ whiteSpace: "pre-wrap", marginTop: 8 }}>
+                  {selected.message}
                 </div>
-                <div>
-                  <strong>파일명:</strong> {selected.filename}
-                </div>
-                <div>
-                  <strong>상태:</strong>{" "}
-                  <Chip
-                    label={selected.status}
-                    color={getStatusColor(selected.status) as any}
-                    size="small"
-                  />
-                </div>
-                <div>
-                  <strong>생성시각:</strong>{" "}
-                  {new Date(selected.created_at).toLocaleString()}
-                </div>
-                <div>
-                  <strong>메시지:</strong>
-                  <div style={{ whiteSpace: "pre-wrap", marginTop: 8 }}>
-                    {selected.message}
-                  </div>
-                </div>
-              </Stack>
-            )}
-          </DialogContent>
-        </Dialog>
-      </Paper>
-    </div>
+              </div>
+            </Stack>
+          )}
+        </DialogContent>
+      </Dialog>
+    </Container>
   );
 };
 

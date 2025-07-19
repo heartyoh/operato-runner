@@ -11,7 +11,9 @@ const ExecutableModules: React.FC = () => {
       <Typography variant="body1" color="textSecondary" gutterBottom>
         실행 가능한 모듈들을 검색하고 테스트해보세요.
       </Typography>
-      <ExecutableModuleList />
+      <Box sx={{ mt: 4 }}>
+        <ExecutableModuleList />
+      </Box>
     </Container>
   );
 };

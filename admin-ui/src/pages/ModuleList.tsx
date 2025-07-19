@@ -2,7 +2,6 @@ import React, { useEffect, useState } from "react";
 import { api } from "../api";
 import {
   Typography,
-  Paper,
   Table,
   TableBody,
   TableCell,
@@ -28,6 +27,8 @@ import {
   Select,
   InputLabel,
   FormControl,
+  Container,
+  Stack,
 } from "@mui/material";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import { useNavigate, Link } from "react-router-dom";
@@ -243,38 +244,15 @@ const ModuleList: React.FC = () => {
   });
 
   return (
-    <div
-      style={{
-        display: "flex",
-        justifyContent: "center",
-        width: "100%",
-        marginTop: 40,
-      }}
-    >
-      <Paper
-        sx={{
-          p: 3,
-          mb: 3,
-          minWidth: 1200,
-          maxWidth: "90vw",
-          width: "100%",
-          boxSizing: "border-box",
-        }}
-      >
-        <Typography variant="h4" gutterBottom>
-          모듈 관리
-        </Typography>
-        <Typography variant="body1" color="textSecondary" gutterBottom>
-          등록된 모든 모듈을 조회, 검색, 관리할 수 있습니다.
-        </Typography>
-        <div
-          style={{
-            display: "flex",
-            gap: 16,
-            alignItems: "center",
-            marginBottom: 16,
-          }}
-        >
+    <Container maxWidth="xl">
+      <Typography variant="h4" gutterBottom>
+        모듈 관리
+      </Typography>
+      <Typography variant="body1" color="textSecondary" gutterBottom>
+        등록된 모든 모듈을 조회, 검색, 관리할 수 있습니다.
+      </Typography>
+      <Box sx={{ mt: 3 }}>
+        <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
           <TextField
             size="small"
             placeholder="이름, 태그, 설명 등으로 검색"
@@ -310,7 +288,7 @@ const ModuleList: React.FC = () => {
               ))}
             </Select>
           </FormControl>
-        </div>
+        </Stack>
         {loading && <CircularProgress sx={{ mt: 2 }} />}
         {error && (
           <Alert severity="error" sx={{ mt: 2 }}>
@@ -318,7 +296,14 @@ const ModuleList: React.FC = () => {
           </Alert>
         )}
         {!loading && !error && (
-          <TableContainer sx={{ overflowX: "visible" }}>
+          <TableContainer
+            sx={{
+              backgroundColor: "background.paper",
+              borderRadius: 2,
+              boxShadow: 1,
+              p: 2,
+            }}
+          >
             <Table size="small">
               <TableHead>
                 <TableRow>
@@ -549,38 +534,38 @@ const ModuleList: React.FC = () => {
             </Table>
           </TableContainer>
         )}
-        {/* 삭제 확인 다이얼로그 */}
-        <Dialog open={!!deleteTarget} onClose={() => setDeleteTarget(null)}>
-          <DialogTitle>모듈 삭제 확인</DialogTitle>
-          <DialogContent>
-            <DialogContentText>
-              정말 <b>{deleteTarget?.name}</b> 모듈을 삭제하시겠습니까?
-              <br />이 작업은 되돌릴 수 없습니다.
-            </DialogContentText>
-            {deleteError && (
-              <Alert severity="error" sx={{ mt: 2 }}>
-                {deleteError}
-              </Alert>
-            )}
-          </DialogContent>
-          <DialogActions>
-            <Button
-              onClick={() => setDeleteTarget(null)}
-              disabled={deleteLoading}
-            >
-              취소
-            </Button>
-            <Button
-              color="error"
-              variant="contained"
-              disabled={deleteLoading}
-              onClick={handleDelete}
-            >
-              {deleteLoading ? "삭제중..." : "삭제"}
-            </Button>
-          </DialogActions>
-        </Dialog>
-      </Paper>
+      </Box>
+      {/* 삭제 확인 다이얼로그 */}
+      <Dialog open={!!deleteTarget} onClose={() => setDeleteTarget(null)}>
+        <DialogTitle>모듈 삭제 확인</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            정말 <b>{deleteTarget?.name}</b> 모듈을 삭제하시겠습니까?
+            <br />이 작업은 되돌릴 수 없습니다.
+          </DialogContentText>
+          {deleteError && (
+            <Alert severity="error" sx={{ mt: 2 }}>
+              {deleteError}
+            </Alert>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => setDeleteTarget(null)}
+            disabled={deleteLoading}
+          >
+            취소
+          </Button>
+          <Button
+            color="error"
+            variant="contained"
+            disabled={deleteLoading}
+            onClick={handleDelete}
+          >
+            {deleteLoading ? "삭제중..." : "삭제"}
+          </Button>
+        </DialogActions>
+      </Dialog>
       {/* 클라이언트 코드 Dialog */}
       <Dialog
         open={clientCodeOpen}
@@ -673,7 +658,7 @@ const ModuleList: React.FC = () => {
         onClose={() => setCopySnackbar(false)}
         message="복사됨!"
       />
-    </div>
+    </Container>
   );
 };
 

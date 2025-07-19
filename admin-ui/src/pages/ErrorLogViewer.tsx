@@ -16,6 +16,8 @@ import {
   DialogTitle,
   DialogContent,
   IconButton,
+  Container,
+  Box,
 } from "@mui/material";
 import { fetchErrorLogs, downloadErrorLogs } from "../api";
 import CloseIcon from "@mui/icons-material/Close";
@@ -71,29 +73,14 @@ const ErrorLogViewer: React.FC = () => {
   };
 
   return (
-    <div
-      style={{
-        display: "flex",
-        justifyContent: "center",
-        width: "100%",
-        marginTop: 40,
-      }}
-    >
-      <Paper
-        sx={{
-          p: 3,
-          maxWidth: 1200,
-          minWidth: 1200,
-          width: "100%",
-          boxSizing: "border-box",
-        }}
-      >
-        <Typography variant="h4" gutterBottom>
-          에러 로그
-        </Typography>
-        <Typography variant="body1" color="textSecondary" gutterBottom>
-          시스템에서 발생한 에러 내역을 확인할 수 있습니다.
-        </Typography>
+    <Container maxWidth="xl">
+      <Typography variant="h4" gutterBottom>
+        에러 로그
+      </Typography>
+      <Typography variant="body1" color="textSecondary" gutterBottom>
+        시스템에서 발생한 에러 내역을 확인할 수 있습니다.
+      </Typography>
+      <Box sx={{ mt: 4 }}>
         <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
           <TextField
             label="코드"
@@ -226,8 +213,8 @@ const ErrorLogViewer: React.FC = () => {
             )}
           </DialogContent>
         </Dialog>
-      </Paper>
-    </div>
+      </Box>
+    </Container>
   );
 };
 

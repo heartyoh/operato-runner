@@ -18,6 +18,7 @@ import {
   FormControlLabel,
   FormGroup,
   Checkbox,
+  Container,
 } from "@mui/material";
 import { listUsers, updateUser, deleteUser, createUser } from "../api";
 
@@ -182,203 +183,207 @@ const UserManagement: React.FC = () => {
   };
 
   return (
-    <Paper sx={{ p: 3, mt: 4 }}>
+    <Container maxWidth="xl">
       <Typography variant="h4" gutterBottom>
         사용자 관리
       </Typography>
       <Typography variant="body1" color="textSecondary" gutterBottom>
         시스템 사용자 계정과 권한을 관리할 수 있습니다.
       </Typography>
-      <Box sx={{ display: "flex", justifyContent: "flex-end", mb: 2 }}>
-        <Button variant="contained" onClick={() => handleOpen()}>
-          신규 사용자 추가
-        </Button>
-      </Box>
-      {/* 검색 입력란 */}
-      <Box sx={{ display: "flex", gap: 2, mb: 2 }}>
-        <TextField
-          label="사용자명"
-          name="username"
-          size="small"
-          value={filters.username}
-          onChange={handleFilterChange}
-          placeholder="사용자명 검색"
-          onKeyDown={(e) => {
-            if (e.key === "Enter") handleSearch();
-          }}
-        />
-        <TextField
-          label="이메일"
-          name="email"
-          size="small"
-          value={filters.email}
-          onChange={handleFilterChange}
-          placeholder="이메일 검색"
-          onKeyDown={(e) => {
-            if (e.key === "Enter") handleSearch();
-          }}
-        />
-        <TextField
-          label="역할"
-          name="role"
-          size="small"
-          value={filters.role}
-          onChange={handleFilterChange}
-          placeholder="역할 검색 (예: admin)"
-          onKeyDown={(e) => {
-            if (e.key === "Enter") handleSearch();
-          }}
-        />
-        <Button variant="outlined" onClick={handleSearch}>
-          검색
-        </Button>
-      </Box>
-
-      <Modal
-        open={open}
-        onClose={handleClose}
-        aria-labelledby="modal-modal-title"
-      >
-        <Box sx={style}>
-          <Typography id="modal-modal-title" variant="h6" component="h2">
-            {editingUser ? "사용자 정보 수정" : "신규 사용자 정보"}
-          </Typography>
+      <Box sx={{ mt: 4 }}>
+        <Box sx={{ display: "flex", justifyContent: "flex-end", mb: 2 }}>
+          <Button variant="contained" onClick={() => handleOpen()}>
+            신규 사용자 추가
+          </Button>
+        </Box>
+        {/* 검색 입력란 */}
+        <Box sx={{ display: "flex", gap: 2, mb: 2 }}>
           <TextField
-            margin="normal"
-            required
-            fullWidth
             label="사용자명"
-            value={newUser.username}
-            disabled={!!editingUser}
-            onChange={(e) =>
-              setNewUser({ ...newUser, username: e.target.value })
-            }
+            name="username"
+            size="small"
+            value={filters.username}
+            onChange={handleFilterChange}
+            placeholder="사용자명 검색"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleSearch();
+            }}
           />
           <TextField
-            margin="normal"
-            required
-            fullWidth
             label="이메일"
-            value={newUser.email}
-            onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
+            name="email"
+            size="small"
+            value={filters.email}
+            onChange={handleFilterChange}
+            placeholder="이메일 검색"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleSearch();
+            }}
           />
-          {!editingUser && (
+          <TextField
+            label="역할"
+            name="role"
+            size="small"
+            value={filters.role}
+            onChange={handleFilterChange}
+            placeholder="역할 검색 (예: admin)"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleSearch();
+            }}
+          />
+          <Button variant="outlined" onClick={handleSearch}>
+            검색
+          </Button>
+        </Box>
+
+        <Modal
+          open={open}
+          onClose={handleClose}
+          aria-labelledby="modal-modal-title"
+        >
+          <Box sx={style}>
+            <Typography id="modal-modal-title" variant="h6" component="h2">
+              {editingUser ? "사용자 정보 수정" : "신규 사용자 정보"}
+            </Typography>
             <TextField
               margin="normal"
               required
               fullWidth
-              label="비밀번호"
-              type="password"
+              label="사용자명"
+              value={newUser.username}
+              disabled={!!editingUser}
               onChange={(e) =>
-                setNewUser({ ...newUser, password: e.target.value })
+                setNewUser({ ...newUser, username: e.target.value })
               }
             />
-          )}
-          <FormGroup sx={{ mt: 2 }}>
-            <Typography variant="subtitle1">역할</Typography>
-            <FormControlLabel
-              control={
-                <Checkbox
-                  checked={newUser.roles.includes("admin")}
-                  onChange={(e) => {
-                    const newRoles = e.target.checked
-                      ? [...newUser.roles, "admin"]
-                      : newUser.roles.filter((r) => r !== "admin");
-                    setNewUser({ ...newUser, roles: newRoles });
-                  }}
-                />
+            <TextField
+              margin="normal"
+              required
+              fullWidth
+              label="이메일"
+              value={newUser.email}
+              onChange={(e) =>
+                setNewUser({ ...newUser, email: e.target.value })
               }
-              label="Admin"
             />
-            <FormControlLabel
-              control={
-                <Checkbox
-                  checked={newUser.roles.includes("user")}
-                  onChange={(e) => {
-                    const newRoles = e.target.checked
-                      ? [...newUser.roles, "user"]
-                      : newUser.roles.filter((r) => r !== "user");
-                    setNewUser({ ...newUser, roles: newRoles });
-                  }}
-                />
-              }
-              label="User"
-            />
-          </FormGroup>
-          <FormControlLabel
-            control={
-              <Switch
-                checked={newUser.is_active}
+            {!editingUser && (
+              <TextField
+                margin="normal"
+                required
+                fullWidth
+                label="비밀번호"
+                type="password"
                 onChange={(e) =>
-                  setNewUser({ ...newUser, is_active: e.target.checked })
+                  setNewUser({ ...newUser, password: e.target.value })
                 }
               />
-            }
-            label="활성 상태"
-          />
-          <Button
-            fullWidth
-            variant="contained"
-            sx={{ mt: 3, mb: 2 }}
-            onClick={handleSaveUser}
-          >
-            저장
-          </Button>
-        </Box>
-      </Modal>
+            )}
+            <FormGroup sx={{ mt: 2 }}>
+              <Typography variant="subtitle1">역할</Typography>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={newUser.roles.includes("admin")}
+                    onChange={(e) => {
+                      const newRoles = e.target.checked
+                        ? [...newUser.roles, "admin"]
+                        : newUser.roles.filter((r) => r !== "admin");
+                      setNewUser({ ...newUser, roles: newRoles });
+                    }}
+                  />
+                }
+                label="Admin"
+              />
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={newUser.roles.includes("user")}
+                    onChange={(e) => {
+                      const newRoles = e.target.checked
+                        ? [...newUser.roles, "user"]
+                        : newUser.roles.filter((r) => r !== "user");
+                      setNewUser({ ...newUser, roles: newRoles });
+                    }}
+                  />
+                }
+                label="User"
+              />
+            </FormGroup>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={newUser.is_active}
+                  onChange={(e) =>
+                    setNewUser({ ...newUser, is_active: e.target.checked })
+                  }
+                />
+              }
+              label="활성 상태"
+            />
+            <Button
+              fullWidth
+              variant="contained"
+              sx={{ mt: 3, mb: 2 }}
+              onClick={handleSaveUser}
+            >
+              저장
+            </Button>
+          </Box>
+        </Modal>
 
-      {loading && <CircularProgress />}
-      {error && <Alert severity="error">{error}</Alert>}
-      <TableContainer>
-        <Table size="small">
-          <TableHead>
-            <TableRow>
-              <TableCell>ID</TableCell>
-              <TableCell>사용자명</TableCell>
-              <TableCell>이메일</TableCell>
-              <TableCell>역할</TableCell>
-              <TableCell>활성 상태</TableCell>
-              <TableCell>생성일</TableCell>
-              <TableCell>작업</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {users.map((user) => (
-              <TableRow key={user.id}>
-                <TableCell>{user.id}</TableCell>
-                <TableCell>{user.username}</TableCell>
-                <TableCell>{user.email}</TableCell>
-                <TableCell>
-                  {user.roles.map((r) => r.name).join(", ")}
-                </TableCell>
-                <TableCell>{user.is_active ? "활성" : "비활성"}</TableCell>
-                <TableCell>
-                  {new Date(user.created_at).toLocaleString()}
-                </TableCell>
-                <TableCell>
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    sx={{ mr: 1 }}
-                    onClick={() => handleOpen(user)}
-                  >
-                    수정
-                  </Button>
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    color="error"
-                    onClick={() => handleDeleteUser(user.id)}
-                  >
-                    삭제
-                  </Button>
-                </TableCell>
+        {loading && <CircularProgress />}
+        {error && <Alert severity="error">{error}</Alert>}
+        <TableContainer>
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell>ID</TableCell>
+                <TableCell>사용자명</TableCell>
+                <TableCell>이메일</TableCell>
+                <TableCell>역할</TableCell>
+                <TableCell>활성 상태</TableCell>
+                <TableCell>생성일</TableCell>
+                <TableCell>작업</TableCell>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </TableContainer>
-    </Paper>
+            </TableHead>
+            <TableBody>
+              {users.map((user) => (
+                <TableRow key={user.id}>
+                  <TableCell>{user.id}</TableCell>
+                  <TableCell>{user.username}</TableCell>
+                  <TableCell>{user.email}</TableCell>
+                  <TableCell>
+                    {user.roles.map((r) => r.name).join(", ")}
+                  </TableCell>
+                  <TableCell>{user.is_active ? "활성" : "비활성"}</TableCell>
+                  <TableCell>
+                    {new Date(user.created_at).toLocaleString()}
+                  </TableCell>
+                  <TableCell>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      sx={{ mr: 1 }}
+                      onClick={() => handleOpen(user)}
+                    >
+                      수정
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      color="error"
+                      onClick={() => handleDeleteUser(user.id)}
+                    >
+                      삭제
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </Box>
+    </Container>
   );
 };
 

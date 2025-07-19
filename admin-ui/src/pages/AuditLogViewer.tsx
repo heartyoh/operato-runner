@@ -16,6 +16,8 @@ import {
   DialogTitle,
   DialogContent,
   IconButton,
+  Container,
+  Box,
 } from "@mui/material";
 import { getAuditLogs, downloadAuditLogs } from "../api";
 import CloseIcon from "@mui/icons-material/Close";
@@ -75,29 +77,14 @@ const AuditLogViewer: React.FC = () => {
   };
 
   return (
-    <div
-      style={{
-        display: "flex",
-        justifyContent: "center",
-        width: "100%",
-        marginTop: 40,
-      }}
-    >
-      <Paper
-        sx={{
-          p: 3,
-          maxWidth: 1200,
-          minWidth: 1200,
-          width: "100%",
-          boxSizing: "border-box",
-        }}
-      >
-        <Typography variant="h4" gutterBottom>
-          감사 로그
-        </Typography>
-        <Typography variant="body1" color="textSecondary" gutterBottom>
-          주요 시스템 활동 및 변경 이력을 확인할 수 있습니다.
-        </Typography>
+    <Container maxWidth="xl">
+      <Typography variant="h4" gutterBottom>
+        감사 로그
+      </Typography>
+      <Typography variant="body1" color="textSecondary" gutterBottom>
+        주요 시스템 활동 및 변경 이력을 확인할 수 있습니다.
+      </Typography>
+      <Box sx={{ mt: 4 }}>
         <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
           <TextField
             label="작업"
@@ -248,8 +235,8 @@ const AuditLogViewer: React.FC = () => {
             )}
           </DialogContent>
         </Dialog>
-      </Paper>
-    </div>
+      </Box>
+    </Container>
   );
 };
 

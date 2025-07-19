@@ -8,6 +8,8 @@ import {
   Button,
   Stack,
   Snackbar,
+  Container,
+  Box,
 } from "@mui/material";
 import axios from "axios";
 
@@ -67,43 +69,53 @@ const Profile: React.FC = () => {
   if (!user) return null;
 
   return (
-    <Paper sx={{ p: 4, maxWidth: 500, margin: "0 auto" }}>
-      <Typography variant="h5" gutterBottom>
+    <Container maxWidth="xl">
+      <Typography variant="h4" gutterBottom>
         내 프로필
       </Typography>
-      <TextField
-        label="아이디"
-        value={user.username}
-        fullWidth
-        margin="normal"
-        disabled
-      />
-      <TextField
-        label="이메일"
-        value={typeof editEmail === "string" ? editEmail : ""}
-        onChange={(e) => setEditEmail(e.target.value)}
-        fullWidth
-        margin="normal"
-      />
-      <TextField
-        label="역할"
-        value={getRoleString(user)}
-        fullWidth
-        margin="normal"
-        disabled
-      />
-      <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
-        <Button variant="contained" onClick={handleSave} disabled={saving}>
-          저장
-        </Button>
-      </Stack>
-      <Snackbar
-        open={!!successMsg}
-        autoHideDuration={2000}
-        onClose={() => setSuccessMsg(null)}
-        message={successMsg}
-      />
-    </Paper>
+      <Typography variant="body1" color="textSecondary" gutterBottom>
+        내 계정 정보를 확인하고 수정할 수 있습니다.
+      </Typography>
+      <Box sx={{ mt: 4 }}>
+        <Paper sx={{ p: 4, maxWidth: 500, margin: "0 auto" }}>
+          <Typography variant="h5" gutterBottom>
+            내 프로필
+          </Typography>
+          <TextField
+            label="아이디"
+            value={user.username}
+            fullWidth
+            margin="normal"
+            disabled
+          />
+          <TextField
+            label="이메일"
+            value={typeof editEmail === "string" ? editEmail : ""}
+            onChange={(e) => setEditEmail(e.target.value)}
+            fullWidth
+            margin="normal"
+          />
+          <TextField
+            label="역할"
+            value={getRoleString(user)}
+            fullWidth
+            margin="normal"
+            disabled
+          />
+          <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
+            <Button variant="contained" onClick={handleSave} disabled={saving}>
+              저장
+            </Button>
+          </Stack>
+          <Snackbar
+            open={!!successMsg}
+            autoHideDuration={2000}
+            onClose={() => setSuccessMsg(null)}
+            message={successMsg}
+          />
+        </Paper>
+      </Box>
+    </Container>
   );
 };
 
