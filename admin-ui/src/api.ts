@@ -35,7 +35,10 @@ axios.interceptors.response.use(
               resolve(axios(originalRequest));
             } else {
               localStorage.removeItem("access_token");
-              window.location.href = "/login";
+              // 더 안정적인 리다이렉트를 위해 setTimeout 사용
+              setTimeout(() => {
+                window.location.href = "/login";
+              }, 100);
               reject(error);
             }
           });
@@ -44,7 +47,14 @@ axios.interceptors.response.use(
       originalRequest._retry = true;
       isRefreshing = true;
       try {
-        const res = await axios.post("/auth/refresh");
+        const refreshToken = localStorage.getItem("refresh_token");
+        if (!refreshToken) {
+          throw new Error("No refresh token available");
+        }
+
+        const res = await axios.post("/auth/refresh", {
+          refresh_token: refreshToken,
+        });
         const newToken = res.data.access_token;
         if (newToken) {
           localStorage.setItem("access_token", newToken);
@@ -57,8 +67,12 @@ axios.interceptors.response.use(
         }
       } catch (refreshError) {
         localStorage.removeItem("access_token");
+        localStorage.removeItem("refresh_token");
         onRefreshed(null); // 큐에 있는 요청들도 모두 실패 처리
-        window.location.href = "/login";
+        // 더 안정적인 리다이렉트를 위해 setTimeout 사용
+        setTimeout(() => {
+          window.location.href = "/login";
+        }, 100);
         return Promise.reject(refreshError);
       } finally {
         isRefreshing = false;
@@ -174,6 +188,16 @@ export async function login(username: string, password: string) {
 
   if (res.data.access_token) {
     localStorage.setItem("access_token", res.data.access_token);
+  }
+
+  // refresh_token도 localStorage에 저장 (쿠키에서 추출)
+  const refreshToken = document.cookie
+    .split("; ")
+    .find((row) => row.startsWith("refresh_token="))
+    ?.split("=")[1];
+
+  if (refreshToken) {
+    localStorage.setItem("refresh_token", refreshToken);
   }
 
   return res.data;

@@ -25,9 +25,11 @@ const LoginPage: React.FC = () => {
         });
         setLoggedIn(true);
         navigate("/dashboard", { replace: true });
-      } catch {
+      } catch (error) {
+        // 토큰이 유효하지 않으면 제거하고 로그인 상태로 유지
         localStorage.removeItem("access_token");
         setChecking(false);
+        // 이미 로그인 페이지에 있으므로 추가 리다이렉트는 불필요
       }
     };
     checkToken();

@@ -89,11 +89,16 @@ const Layout: React.FC = () => {
     axios
       .get("/api/profile")
       .then((res) => setUser(res.data))
-      .catch(() => setUser(null));
-  }, []);
+      .catch(() => {
+        setUser(null);
+        // 인증 실패 시 로그인 페이지로 리다이렉트
+        navigate("/login");
+      });
+  }, [navigate]);
 
   const handleLogout = () => {
     localStorage.removeItem("access_token");
+    localStorage.removeItem("refresh_token");
     navigate("/login");
   };
 

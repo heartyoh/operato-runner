@@ -13,11 +13,31 @@ import ValidationLogViewer from "../pages/ValidationLogViewer";
 import Profile from "../pages/Profile";
 import ExecutableModules from "../pages/ExecutableModules";
 
+// 인증 보호 컴포넌트
+const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({
+  children,
+}) => {
+  const token = localStorage.getItem("access_token");
+
+  if (!token) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return <>{children}</>;
+};
+
 const AppRouter: React.FC = () => {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
-      <Route path="/admin" element={<Layout />}>
+      <Route
+        path="/admin"
+        element={
+          <ProtectedRoute>
+            <Layout />
+          </ProtectedRoute>
+        }
+      >
         <Route index element={<Navigate to="dashboard" replace />} />
         <Route path="dashboard" element={<Dashboard />} />
         <Route path="modules" element={<ModuleList />} />
