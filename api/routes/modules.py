@@ -155,14 +155,7 @@ async def list_modules(
     result = []
     for m in modules:
         description = m.description
-        if m.env == "inline":
-            v_result = await db.execute(
-                select(Version).join(Deployment, Deployment.version_id == Version.id)
-                .where(Version.module_id == m.id, Deployment.status == "active")
-            )
-            active_version = v_result.scalars().first()
-            if active_version:
-                description = active_version.description
+        # 모듈의 description을 사용 (버전의 description이 아님)
         created_at_iso = None
         if m.created_at:
             dt = m.created_at

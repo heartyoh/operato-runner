@@ -230,9 +230,8 @@ def create_app() -> FastAPI:
             # Active 버전은 항상 "현재 전개된 버전" 또는 "다음 전개될 버전"을 의미
             # 불일치 상태는 존재하지 않음
             
+            # 모든 환경에서 모듈의 description을 사용
             description = m.description
-            if m.env == "inline" and active_version:
-                description = active_version.description
             
             # created_at에 timezone 보정
             created_at_iso = None
@@ -1119,17 +1118,8 @@ def create_app() -> FastAPI:
 
         update_fields = {}
         if description is not None:
-            # 인라인 모듈의 경우, 활성화된 버전의 설명을 업데이트
-            if module.env == 'inline':
-                v_result = await db.execute(
-                    select(Version).join(Deployment, Deployment.version_id == Version.id)
-                    .where(Version.module_id == module.id, Deployment.status == "active")
-                )
-                active_version = v_result.scalars().first()
-                if active_version:
-                    active_version.description = description
-            else:
-                update_fields['description'] = description
+            # 모든 환경에서 모듈의 description을 수정
+            update_fields['description'] = description
         
         if tags is not None:
             update_fields['tags'] = tags
