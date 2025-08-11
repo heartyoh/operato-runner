@@ -35,4 +35,8 @@ humanize
 redis
 aioredis
 
+# --- 멀티미디어 지원 ---
+aiofiles
+opencv-python
+
 uv

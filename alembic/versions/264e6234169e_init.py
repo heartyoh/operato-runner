@@ -29,7 +29,7 @@ def upgrade() -> None:
     sa.Column('url', sa.String(length=255), nullable=True),
     sa.Column('stack', sa.Text(), nullable=True),
     sa.Column('user', sa.String(length=64), nullable=True),
-    sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
+            sa.Column('created_at', sa.DateTime(), nullable=False),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_error_log_id'), 'error_log', ['id'], unique=False)
@@ -38,7 +38,7 @@ def upgrade() -> None:
     sa.Column('filename', sa.String(length=255), nullable=False),
     sa.Column('status', sa.String(length=20), nullable=False),
     sa.Column('message', sa.Text(), nullable=True),
-    sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()'), nullable=True),
+    sa.Column('created_at', sa.DateTime(), server_default=sa.text("(datetime('now'))"), nullable=True),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_module_validation_logs_id'), 'module_validation_logs', ['id'], unique=False)
@@ -55,7 +55,7 @@ def upgrade() -> None:
     sa.Column('username', sa.String(length=50), nullable=False),
     sa.Column('email', sa.String(length=120), nullable=False),
     sa.Column('hashed_password', sa.String(length=128), nullable=False),
-    sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()'), nullable=True),
+    sa.Column('created_at', sa.DateTime(), server_default=sa.text("(datetime('now'))"), nullable=True),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_users_email'), 'users', ['email'], unique=True)
@@ -66,7 +66,7 @@ def upgrade() -> None:
     sa.Column('user_id', sa.Integer(), nullable=True),
     sa.Column('action', sa.String(length=50), nullable=False),
     sa.Column('detail', sa.Text(), nullable=True),
-    sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()'), nullable=True),
+    sa.Column('created_at', sa.DateTime(), server_default=sa.text("(datetime('now'))"), nullable=True),
     sa.ForeignKeyConstraint(['user_id'], ['users.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
@@ -81,8 +81,8 @@ def upgrade() -> None:
     sa.Column('path', sa.String(length=255), nullable=True),
     sa.Column('artifact_type', sa.String(length=20), nullable=True),
     sa.Column('artifact_uri', sa.String(length=255), nullable=True),
-    sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()'), nullable=True),
-    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('now()'), nullable=True),
+    sa.Column('created_at', sa.DateTime(), server_default=sa.text("(datetime('now'))"), nullable=True),
+    sa.Column('updated_at', sa.DateTime(), server_default=sa.text("(datetime('now'))"), nullable=True),
     sa.Column('version', sa.String(length=20), nullable=True),
     sa.Column('tags', sa.String(length=255), nullable=True),
     sa.Column('owner_id', sa.Integer(), nullable=True),
@@ -106,7 +106,7 @@ def upgrade() -> None:
     sa.Column('module_id', sa.Integer(), nullable=False),
     sa.Column('key', sa.String(length=100), nullable=False),
     sa.Column('value', sa.String(length=512), nullable=False),
-    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('now()'), nullable=True),
+    sa.Column('updated_at', sa.DateTime(), server_default=sa.text("(datetime('now'))"), nullable=True),
     sa.ForeignKeyConstraint(['module_id'], ['modules.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
@@ -118,7 +118,7 @@ def upgrade() -> None:
     sa.Column('code', sa.Text(), nullable=True),
     sa.Column('description', sa.Text(), nullable=True),
     sa.Column('changelog', sa.Text(), nullable=True),
-    sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()'), nullable=True),
+    sa.Column('created_at', sa.DateTime(), server_default=sa.text("(datetime('now'))"), nullable=True),
     sa.ForeignKeyConstraint(['module_id'], ['modules.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
@@ -129,7 +129,7 @@ def upgrade() -> None:
     sa.Column('module_id', sa.Integer(), nullable=False),
     sa.Column('version_id', sa.Integer(), nullable=False),
     sa.Column('status', sa.String(length=20), nullable=False),
-    sa.Column('deployed_at', sa.DateTime(), server_default=sa.text('now()'), nullable=True),
+            sa.Column('deployed_at', sa.DateTime(), nullable=True),
     sa.ForeignKeyConstraint(['module_id'], ['modules.id'], ),
     sa.ForeignKeyConstraint(['version_id'], ['versions.id'], ),
     sa.PrimaryKeyConstraint('id')
@@ -144,7 +144,7 @@ def upgrade() -> None:
     sa.Column('version_id', sa.Integer(), nullable=False),
     sa.Column('action', sa.String(length=32), nullable=False),
     sa.Column('operator', sa.String(length=64), nullable=True),
-    sa.Column('timestamp', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
+            sa.Column('timestamp', sa.DateTime(), nullable=False),
     sa.ForeignKeyConstraint(['module_id'], ['modules.id'], ),
     sa.ForeignKeyConstraint(['version_id'], ['versions.id'], ),
     sa.PrimaryKeyConstraint('id')

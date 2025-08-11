@@ -25,6 +25,10 @@ import {
   PlayArrow as PlayIcon,
   Info as InfoIcon,
   Search as SearchIcon,
+  VideoFile as VideoIcon,
+  CloudUpload as UploadIcon,
+  Download as DownloadIcon,
+  Close as CloseIcon,
 } from "@mui/icons-material";
 import axios from "axios";
 import { ModuleInfoPopup } from "./ModuleInfoPopup";
@@ -51,6 +55,23 @@ interface ExecutionResult {
   duration: number;
 }
 
+interface OutputFile {
+  file_id: string;
+  download_url: string;
+  original_filename: string;
+  file_size: number;
+  expires_at: string;
+}
+
+interface MediaExecutionResult {
+  result: any;
+  exit_code: number;
+  stderr: string;
+  stdout: string;
+  duration: number;
+  output_files: OutputFile[];
+}
+
 const ExecutableModuleList: React.FC = () => {
   const [modules, setModules] = useState<Module[]>([]);
   const [filteredModules, setFilteredModules] = useState<Module[]>([]);
@@ -71,6 +92,11 @@ const ExecutableModuleList: React.FC = () => {
     useState<ExecutionResult | null>(null);
   const [executing, setExecuting] = useState(false);
   const [executionError, setExecutionError] = useState<string | null>(null);
+  
+  // 멀티미디어 실행 상태
+  const [mediaExecutionResult, setMediaExecutionResult] = useState<MediaExecutionResult | null>(null);
+  const [executionMode, setExecutionMode] = useState<'json' | 'media'>('json');
+  const [uploadFiles, setUploadFiles] = useState<FileList | null>(null);
 
   // 모듈 목록 로드
   useEffect(() => {
@@ -156,7 +182,19 @@ const ExecutableModuleList: React.FC = () => {
     setExecuteModule(module);
     setExecutionInput("");
     setExecutionResult(null);
+    setMediaExecutionResult(null);
     setExecutionError(null);
+    setExecutionMode('json');
+    setUploadFiles(null);
+    
+    // 파일 입력 초기화
+    setTimeout(() => {
+      const fileInput = document.getElementById('file-upload-execution') as HTMLInputElement;
+      if (fileInput) {
+        fileInput.value = '';
+      }
+    }, 0);
+    
     setExecutionDialogOpen(true);
   };
 
@@ -165,7 +203,16 @@ const ExecutableModuleList: React.FC = () => {
     setExecuteModule(null);
     setExecutionInput("");
     setExecutionResult(null);
+    setMediaExecutionResult(null);
     setExecutionError(null);
+    setExecutionMode('json');
+    setUploadFiles(null);
+    
+    // 파일 입력 초기화
+    const fileInput = document.getElementById('file-upload-execution') as HTMLInputElement;
+    if (fileInput) {
+      fileInput.value = '';
+    }
   };
 
   const getEnvironmentLabel = (env: string) => {
@@ -186,6 +233,70 @@ const ExecutableModuleList: React.FC = () => {
       organization: "조직",
     };
     return labels[visibility] || visibility;
+  };
+  
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    setUploadFiles(event.target.files);
+    setExecutionError(null);
+  };
+  
+  const removeFile = (indexToRemove: number) => {
+    if (!uploadFiles) return;
+    
+    const dt = new DataTransfer();
+    const files = Array.from(uploadFiles);
+    
+    files.forEach((file, index) => {
+      if (index !== indexToRemove) {
+        dt.items.add(file);
+      }
+    });
+    
+    setUploadFiles(dt.files.length > 0 ? dt.files : null);
+    
+    // HTML input도 업데이트
+    const fileInput = document.getElementById('file-upload-execution') as HTMLInputElement;
+    if (fileInput) {
+      fileInput.files = dt.files;
+    }
+  };
+  
+  const clearAllFiles = () => {
+    setUploadFiles(null);
+    const fileInput = document.getElementById('file-upload-execution') as HTMLInputElement;
+    if (fileInput) {
+      fileInput.value = '';
+    }
+  };
+  
+  const downloadFile = async (outputFile: OutputFile) => {
+    try {
+      const token = localStorage.getItem('access_token');
+      const response = await axios.get(outputFile.download_url, {
+        headers: { 'Authorization': `Bearer ${token}` },
+        responseType: 'blob'
+      });
+
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', outputFile.original_filename);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      
+    } catch (err: any) {
+      setExecutionError(`다운로드 실패: ${err.response?.data?.detail || err.message}`);
+    }
+  };
+  
+  const formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
   if (loading) {
@@ -380,6 +491,84 @@ const ExecutableModuleList: React.FC = () => {
       >
         <DialogTitle>모듈 실행 테스트: {executeModule?.name}</DialogTitle>
         <DialogContent>
+          {/* 실행 모드 선택 */}
+          <Box sx={{ mb: 3 }}>
+            <Typography variant="subtitle2" gutterBottom>
+              실행 모드:
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              <Button
+                variant={executionMode === 'json' ? 'contained' : 'outlined'}
+                onClick={() => setExecutionMode('json')}
+                size="small"
+              >
+                JSON 입력
+              </Button>
+              <Button
+                variant={executionMode === 'media' ? 'contained' : 'outlined'}
+                onClick={() => setExecutionMode('media')}
+                size="small"
+                startIcon={<VideoIcon />}
+              >
+                멀티미디어 파일
+              </Button>
+            </Box>
+          </Box>
+          
+          {/* 파일 업로드 (media 모드일 때만) */}
+          {executionMode === 'media' && (
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="body2" color="text.secondary" gutterBottom>
+                파일 업로드 (동영상/이미지):
+              </Typography>
+              <input
+                type="file"
+                multiple
+                accept="video/*,image/*"
+                onChange={handleFileChange}
+                style={{ display: 'none' }}
+                id="file-upload-execution"
+              />
+              <label htmlFor="file-upload-execution">
+                <Button
+                  variant="outlined"
+                  component="span"
+                  startIcon={<UploadIcon />}
+                  sx={{ mb: 1 }}
+                >
+                  파일 선택
+                </Button>
+              </label>
+              
+              {uploadFiles && uploadFiles.length > 0 && (
+                <Box sx={{ mt: 1 }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                    <Typography variant="caption" color="text.secondary">
+                      선택된 파일 {uploadFiles.length}개:
+                    </Typography>
+                    <Button
+                      size="small"
+                      onClick={clearAllFiles}
+                      sx={{ minWidth: 'auto', px: 1 }}
+                    >
+                      전체 삭제
+                    </Button>
+                  </Box>
+                  {Array.from(uploadFiles).map((file, index) => (
+                    <Chip
+                      key={index}
+                      label={`${file.name} (${formatFileSize(file.size)})`}
+                      variant="outlined"
+                      onDelete={() => removeFile(index)}
+                      deleteIcon={<CloseIcon />}
+                      sx={{ mr: 1, mb: 1 }}
+                    />
+                  ))}
+                </Box>
+              )}
+            </Box>
+          )}
+          
           <Box sx={{ mb: 2 }}>
             <Typography variant="body2" color="text.secondary" gutterBottom>
               입력 데이터 (JSON 형식, 선택사항):
@@ -474,6 +663,118 @@ const ExecutableModuleList: React.FC = () => {
                   {JSON.stringify(executionResult.result, null, 2)}
                 </Box>
               </Box>
+            </Box>
+          )}
+          
+          {/* 멀티미디어 실행 결과 */}
+          {mediaExecutionResult && (
+            <Box>
+              <Typography variant="h6" gutterBottom>
+                실행 결과 (멀티미디어)
+              </Typography>
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="body2" color="text.secondary">
+                  종료 코드: {mediaExecutionResult.exit_code}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  실행 시간: {mediaExecutionResult.duration.toFixed(2)}초
+                </Typography>
+              </Box>
+
+              {mediaExecutionResult.stdout && (
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="subtitle2" gutterBottom>
+                    표준 출력:
+                  </Typography>
+                  <Box
+                    component="pre"
+                    sx={{
+                      backgroundColor: "grey.100",
+                      p: 1,
+                      borderRadius: 1,
+                      fontSize: "0.875rem",
+                      overflow: "auto",
+                    }}
+                  >
+                    {mediaExecutionResult.stdout}
+                  </Box>
+                </Box>
+              )}
+
+              {mediaExecutionResult.stderr && (
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="subtitle2" gutterBottom>
+                    표준 에러:
+                  </Typography>
+                  <Box
+                    component="pre"
+                    sx={{
+                      backgroundColor: "error.light",
+                      color: "error.contrastText",
+                      p: 1,
+                      borderRadius: 1,
+                      fontSize: "0.875rem",
+                      overflow: "auto",
+                    }}
+                  >
+                    {mediaExecutionResult.stderr}
+                  </Box>
+                </Box>
+              )}
+              
+              {/* 결과 데이터 */}
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="subtitle2" gutterBottom>
+                  결과 데이터:
+                </Typography>
+                <Box
+                  component="pre"
+                  sx={{
+                    backgroundColor: "success.light",
+                    color: "success.contrastText",
+                    p: 1,
+                    borderRadius: 1,
+                    fontSize: "0.875rem",
+                    overflow: "auto",
+                    maxHeight: "200px"
+                  }}
+                >
+                  {JSON.stringify(mediaExecutionResult.result, null, 2)}
+                </Box>
+              </Box>
+              
+              {/* 출력 파일들 */}
+              {mediaExecutionResult.output_files && mediaExecutionResult.output_files.length > 0 && (
+                <Box>
+                  <Typography variant="subtitle2" gutterBottom>
+                    결과 파일들 ({mediaExecutionResult.output_files.length}개):
+                  </Typography>
+                  {mediaExecutionResult.output_files.map((file, index) => (
+                    <Card key={index} variant="outlined" sx={{ mb: 1 }}>
+                      <CardContent sx={{ p: 2 }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <Box>
+                            <Typography variant="body2">
+                              {file.original_filename}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              크기: {formatFileSize(file.file_size)} | 
+                              만료: {new Date(file.expires_at).toLocaleString()}
+                            </Typography>
+                          </Box>
+                          <Button
+                            size="small"
+                            startIcon={<DownloadIcon />}
+                            onClick={() => downloadFile(file)}
+                          >
+                            다운로드
+                          </Button>
+                        </Box>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </Box>
+              )}
             </Box>
           )}
         </DialogContent>

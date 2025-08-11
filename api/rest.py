@@ -48,6 +48,15 @@ from models.module import ModuleEnvVar
 import humanize
 import re
 from api.routes import modules
+from utils.file_storage import temp_file_manager
+from schemas.temp_file import TempFileResponse
+from models.temp_file import TempFile
+from sqlalchemy import delete
+from core.db import get_sessionmaker
+import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 # 프로젝트 루트 경로
 ROOT_DIR = pathlib.Path(__file__).resolve().parent.parent
@@ -152,7 +161,123 @@ def create_app() -> FastAPI:
     def get_executor_manager(request: Request):
         return request.app.state.executor_manager
 
+    # 멀티미디어 지원 모델
+    class MediaExecRequest(BaseModel):
+        input_data: str = "{}"
+    
+    class MediaExecResponse(BaseModel):
+        result: Any
+        exit_code: int
+        stderr: str
+        stdout: str
+        duration: float
+        output_files: List[TempFileResponse] = []
+    
     # 라우트
+    @app.post("/api/modules/execute-media/{module_name}", response_model=MediaExecResponse)
+    async def execute_module_with_media(
+        module_name: str,
+        files: List[UploadFile] = File([]),
+        input_data: str = Form("{}"),
+        module_registry: ModuleRegistry = Depends(get_module_registry),
+        executor_manager: ExecutorManager = Depends(get_executor_manager),
+        current_user: User = Depends(has_execute_permission())
+    ):
+        """동영상/이미지 파일과 함께 모듈 실행"""
+        try:
+            # 1. 업로드된 파일들을 임시 저장
+            input_file_ids = []
+            input_file_paths = []
+            
+            for file in files:
+                if file.size > 100 * 1024 * 1024:  # 100MB 제한
+                    raise HTTPException(400, f"File {file.filename} exceeds 100MB limit")
+                
+                file_id = await temp_file_manager.store_upload(file, current_user.id, expires_in_hours=1)
+                file_path = await temp_file_manager.get_file_path(file_id)
+                input_file_ids.append(file_id)
+                input_file_paths.append({
+                    "file_id": file_id,
+                    "path": file_path,
+                    "filename": file.filename,
+                    "content_type": file.content_type
+                })
+            
+            # 2. JSON 파라미터 파싱 및 파일 정보 추가
+            try:
+                input_json = json.loads(input_data)
+            except json.JSONDecodeError:
+                raise HTTPException(400, "Invalid JSON in input_data")
+            
+            input_json["input_files"] = input_file_paths
+            
+            # 3. 모듈 실행
+            exec_request = ExecRequest(module=module_name, input_json=input_json)
+            result = await executor_manager.execute(exec_request)
+            
+            # 4. 결과 파일들을 임시 파일로 등록
+            output_file_responses = []
+            if "output_files" in result.result_json:
+                for output_path in result.result_json["output_files"]:
+                    if os.path.exists(output_path):
+                        try:
+                            file_id = await temp_file_manager.register_result_file(
+                                output_path, current_user.id, expires_in_hours=72
+                            )
+                            
+                            file_info = await temp_file_manager.get_file_info(file_id)
+                            output_file_responses.append(TempFileResponse(
+                                file_id=file_id,
+                                download_url=temp_file_manager.create_download_url(file_id),
+                                original_filename=file_info.original_filename,
+                                file_size=file_info.file_size,
+                                expires_at=file_info.expires_at
+                            ))
+                        except Exception as e:
+                            logger.error(f"Failed to register result file {output_path}: {e}")
+            
+            # 5. 입력 파일들 즉시 정리 (실행 완료 후)
+            try:
+                for file_id in input_file_ids:
+                    file_info = await temp_file_manager.get_file_info(file_id)
+                    if file_info and os.path.exists(file_info.file_path):
+                        os.unlink(file_info.file_path)
+                        # DB에서도 제거
+                        SessionLocal = get_sessionmaker()
+                        async with SessionLocal() as db:
+                            await db.execute(delete(TempFile).where(TempFile.id == file_id))
+                            await db.commit()
+            except Exception as e:
+                logger.warning(f"Failed to cleanup input files: {e}")
+            
+            # 6. 감사 로그 기록
+            await log_audit_event(
+                user_id=current_user.id,
+                action="execute_module_with_media",
+                resource_type="module",
+                resource_id=module_name,
+                details={
+                    "input_files_count": len(files),
+                    "output_files_count": len(output_file_responses),
+                    "execution_duration": result.duration
+                }
+            )
+            
+            return MediaExecResponse(
+                result=result.result_json,
+                exit_code=result.exit_code,
+                stderr=result.stderr or "",
+                stdout=result.stdout or "",
+                duration=result.duration,
+                output_files=output_file_responses
+            )
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Media execution error for module {module_name}: {e}")
+            raise HTTPException(500, f"Execution failed: {str(e)}")
+    
     @app.get("/api/templates/module", response_class=FileResponse)
     async def download_module_template():
         template_path = ROOT_DIR / "templates" / "module_template.zip"
@@ -444,7 +569,7 @@ def create_app() -> FastAPI:
                 artifact_type=artifact_type,
                 artifact_uri=artifact_uri,
                 owner_id=module.owner_id,
-                owner_name=module.owner_name,
+                owner_name=current_user.username,
                 latest_version=latest_version.version if latest_version else None,
                 active_version=active_version.version if active_version else None,
             )
@@ -476,7 +601,7 @@ def create_app() -> FastAPI:
                 artifact_type=artifact_type,
                 artifact_uri=artifact_uri,
                 owner_id=module.owner_id,
-                owner_name=module.owner_name,
+                owner_name=current_user.username,
                 latest_version=latest_version.version if latest_version else None,
                 active_version=active_version.version if active_version else None,
             )
@@ -562,10 +687,10 @@ def create_app() -> FastAPI:
                     is_public=module.visibility == "public",
                     artifact_type=artifact_type,
                     artifact_uri=artifact_uri,
-                    owner_id=module.owner_id,
-                    owner_name=module.owner_name,
-                    latest_version=latest_version.version if latest_version else None,
-                    active_version=active_version.version if active_version else None,
+                                    owner_id=module.owner_id,
+                owner_name=current_user.username,
+                latest_version=latest_version.version if latest_version else None,
+                active_version=active_version.version if active_version else None,
                 )
         elif env == "inline":
             # 인라인 코드 등록 처리 (기존 로직)
@@ -632,7 +757,7 @@ def create_app() -> FastAPI:
                 artifact_type=artifact_type,
                 artifact_uri=artifact_uri,
                 owner_id=module.owner_id,
-                owner_name=module.owner_name,
+                owner_name=current_user.username,
                 latest_version=latest_version.version if latest_version else None,
                 active_version=active_version.version if active_version else None,
             )
@@ -2248,6 +2373,50 @@ def create_app() -> FastAPI:
             code=code_value,
             created_at=created_at_iso
         )
+
+    @app.get("/api/files/download/{file_id}")
+    async def download_temp_file(
+        file_id: str,
+        current_user: User = Depends(get_current_user)
+    ):
+        """임시 파일 다운로드"""
+        try:
+            # 파일 정보 조회
+            file_info = await temp_file_manager.get_file_info(file_id)
+            
+            if not file_info:
+                raise HTTPException(404, "File not found")
+            
+            # 만료 검증
+            if file_info.is_expired:
+                raise HTTPException(410, "File has expired")
+            
+            # 권한 검증 (파일 소유자만 다운로드 가능)
+            if file_info.user_id != current_user.id:
+                # 관리자는 모든 파일 다운로드 가능
+                SessionLocal = get_sessionmaker()
+                async with SessionLocal() as db:
+                    await db.refresh(current_user, attribute_names=["roles"])
+                    is_admin = any(role.name == "admin" for role in current_user.roles)
+                    if not is_admin:
+                        raise HTTPException(403, "Access denied")
+            
+            # 파일 존재 확인
+            if not os.path.exists(file_info.file_path):
+                raise HTTPException(404, "Physical file not found")
+            
+            # 파일 다운로드 응답
+            return FileResponse(
+                path=file_info.file_path,
+                filename=file_info.original_filename,
+                media_type=file_info.content_type or "application/octet-stream"
+            )
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Download error for file {file_id}: {e}")
+            raise HTTPException(500, f"Download failed: {str(e)}")
 
     app.include_router(modules.router, prefix="/api", tags=["modules"])
 

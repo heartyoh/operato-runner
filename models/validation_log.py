@@ -1,5 +1,7 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, func
+from sqlalchemy import Column, Integer, String, Text, DateTime
 from .base import Base
+from datetime import datetime
+from core.db import get_timestamp_default
 
 class ModuleValidationLog(Base):
     __tablename__ = 'module_validation_logs'
@@ -7,4 +9,4 @@ class ModuleValidationLog(Base):
     filename = Column(String(255), nullable=False)
     status = Column(String(20), nullable=False)  # success, fail
     message = Column(Text, nullable=True)
-    created_at = Column(DateTime, server_default=func.now()) 
+    created_at = Column(DateTime, server_default=get_timestamp_default(), default=datetime.utcnow) 

@@ -4,6 +4,7 @@ import tempfile
 import json
 import time
 import logging
+import shutil
 from executors.base import Executor
 from models import ExecRequest, ExecResult
 
@@ -12,11 +13,13 @@ def log_module_action(module_name, version, action, message):
 
 class VenvExecutor(Executor):
     def __init__(self, venv_path="module_envs", module_registry=None):
-        self.venv_path = venv_path
+        # 절대 경로로 변환
+        self.venv_path = os.path.abspath(venv_path)
         self.module_registry = module_registry
-        os.makedirs(venv_path, exist_ok=True)
+        os.makedirs(self.venv_path, exist_ok=True)
 
     async def validate(self, module_name: str) -> bool:
+        # 절대 경로 사용
         venv_dir = os.path.join(self.venv_path, module_name, "venv")
         return os.path.exists(venv_dir)
 
@@ -24,55 +27,54 @@ class VenvExecutor(Executor):
         start_time = time.time()
         module_name = request.module
         module = await self.module_registry.get_module(module_name)
-        # if not module or not module.path:
-        #     log_module_action(module_name, getattr(module, 'version', 'unknown'), "execute", "Module path not found")
-        #     return ExecResult(
-        #         result_json={},
-        #         exit_code=1,
-        #         stderr=f"Module path not found for {module_name}",
-        #         stdout="",
-        #         duration=0
-        #     )
-            
-        # 가상환경과 모듈 경로 설정
-        venv_dir = os.path.join(self.venv_path, module_name, "venv")
-        module_dir = os.path.join(self.venv_path, module_name)  # 소스는 module_envs/{module_name}/
         
-        # Python 실행 파일 경로
+        # 절대 경로로 가상환경과 모듈 경로 설정
+        venv_dir = os.path.join(self.venv_path, module_name, "venv")
+        module_dir = os.path.join(self.venv_path, module_name)
+        
+        # 각 실행마다 고유한 작업 디렉토리 생성
+        execution_work_dir = tempfile.mkdtemp(prefix=f"exec_{module_name}_{int(time.time())}_")
+        
+        # Python 실행 파일 경로 (절대 경로)
         if os.name == 'nt':
             python_bin = os.path.join(venv_dir, 'Scripts', 'python.exe')
         else:
             python_bin = os.path.join(venv_dir, 'bin', 'python')
             
-        # 임시 파일 생성
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as input_file:
-            json.dump(request.input_json, input_file)
-            input_path = input_file.name
-        output_path = tempfile.mktemp(suffix='.json')
+        # 임시 파일 생성 (작업 디렉토리 내에)
+        input_path = os.path.join(execution_work_dir, "input.json")
+        with open(input_path, 'w') as f:
+            # 표준 API: work_directory 제공
+            enhanced_input = request.input_json.copy()
+            enhanced_input["work_directory"] = execution_work_dir
+            enhanced_input["temp_directory"] = execution_work_dir
+            json.dump(enhanced_input, f)
             
-        # Python 스크립트 작성
+        output_path = os.path.join(execution_work_dir, "output.json")
+            
+        # Python 스크립트 작성 (절대 경로 사용)
         with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as script_file:
             script_content = f"""
 import json
 import sys
 import os
 
-# 모듈 디렉토리를 Python 경로에 추가
-sys.path.insert(0, '{module_dir}')
+# 모듈 디렉토리를 Python 경로에 추가 (절대 경로)
+sys.path.insert(0, r'{module_dir}')
 
 # 모듈의 __main__.py에서 main 함수 import
 import importlib.util
-spec = importlib.util.spec_from_file_location("module_main", os.path.join('{module_dir}', '__main__.py'))
+spec = importlib.util.spec_from_file_location("module_main", os.path.join(r'{module_dir}', '__main__.py'))
 module_main = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module_main)
 main = module_main.main
 
-with open('{input_path}', 'r') as f:
+with open(r'{input_path}', 'r') as f:
     input_data = json.load(f)
 
 result = main(input_data)
 
-with open('{output_path}', 'w') as f:
+with open(r'{output_path}', 'w') as f:
     json.dump(result, f)
 """
             script_file.write(script_content)
@@ -85,7 +87,7 @@ with open('{output_path}', 'w') as f:
         if hasattr(module, 'env_vars') and module.env_vars:
             env_dict = {e.key: e.value for e in module.env_vars}
             env.update(env_dict)
-            # .env 파일 생성
+            # .env 파일 생성 (절대 경로)
             env_path = os.path.join(module_dir, '.env')
             with open(env_path, 'w') as f:
                 for k, v in env_dict.items():
@@ -99,6 +101,7 @@ with open('{output_path}', 'w') as f:
                 capture_output=True,
                 text=True,
                 timeout=3600,
+                cwd=execution_work_dir,  # 격리된 작업 디렉토리에서 실행
                 env=env
             )
             if os.path.exists(output_path):
@@ -123,14 +126,21 @@ with open('{output_path}', 'w') as f:
             result_json = {}
             log_module_action(module_name, getattr(module, 'version', 'unknown'), "execute", f"실행 에러: {str(e)}")
         finally:
-            if os.path.exists(input_path):
-                os.unlink(input_path)
-            if os.path.exists(output_path):
-                os.unlink(output_path)
-            if os.path.exists(script_path):
+            # 작업 디렉토리 전체 정리 (input, output 파일 포함)
+            try:
+                shutil.rmtree(execution_work_dir, ignore_errors=True)
+            except:
+                pass
+            # 스크립트 파일은 별도 위치에 있으므로 개별 삭제
+            try:
                 os.unlink(script_path)
+            except:
+                pass
             if env_path and os.path.exists(env_path):
-                os.unlink(env_path)
+                try:
+                    os.unlink(env_path)
+                except:
+                    pass
                 
         duration = time.time() - start_time
         return ExecResult(

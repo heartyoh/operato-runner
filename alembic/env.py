@@ -26,7 +26,10 @@ load_dotenv(override=True)
 import os
 from alembic import context
 config = context.config
-config.set_main_option('sqlalchemy.url', os.environ['DATABASE_URL'])
+
+# DATABASE_URL이 설정되지 않은 경우 기본값 사용
+database_url = os.getenv('DATABASE_URL', 'sqlite:///./app.db')
+config.set_main_option('sqlalchemy.url', database_url)
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

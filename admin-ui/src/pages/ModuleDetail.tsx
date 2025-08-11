@@ -47,6 +47,7 @@ import {
   deleteModuleEnvVar,
   updateModuleEnvVar,
 } from "../api";
+import MediaUploadForm from "../components/MediaUploadForm";
 import Visibility from "@mui/icons-material/Visibility";
 import VisibilityOff from "@mui/icons-material/VisibilityOff";
 import VersionSelectInput from "../components/VersionSelectInput";
@@ -1301,6 +1302,7 @@ const ModuleDetail: React.FC = () => {
           <Tab label="이력" />
           <Tab label="환경변수" />
           <Tab label="실제 전개 정보" />
+          <Tab label="멀티미디어 실행" />
         </Tabs>
         <Box sx={{ mt: 2 }}>
           {tab === 0 && renderInfo()}
@@ -1308,6 +1310,14 @@ const ModuleDetail: React.FC = () => {
           {tab === 2 && renderHistory()}
           {tab === 3 && renderEnvVars()}
           {tab === 4 && renderDeployedInfo()}
+          {tab === 5 && (
+            <MediaUploadForm 
+              moduleName={module?.name || ""} 
+              onExecutionComplete={(result) => {
+                console.log('Media execution completed:', result);
+              }}
+            />
+          )}
         </Box>
       </Paper>
 

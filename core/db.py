@@ -1,7 +1,7 @@
 import os
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, declarative_base
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text, func
 from sqlalchemy.pool import StaticPool
 from dotenv import load_dotenv
 
@@ -53,6 +53,40 @@ def get_engine():
 def get_sessionmaker():
     engine = get_engine()
     return sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+def get_database_type():
+    """데이터베이스 타입을 반환합니다."""
+    if "+aiosqlite" in DATABASE_URL or DATABASE_URL.startswith("sqlite"):
+        return "sqlite"
+    elif "+asyncpg" in DATABASE_URL or "+psycopg2" in DATABASE_URL:
+        return "postgresql"
+    elif "+aiomysql" in DATABASE_URL or "+pymysql" in DATABASE_URL:
+        return "mysql"
+    else:
+        return "unknown"
+
+def get_timestamp_default():
+    """데이터베이스 타입에 따른 timestamp 기본값을 반환합니다."""
+    db_type = get_database_type()
+    
+    if db_type == "sqlite":
+        return text("(datetime('now'))")
+    elif db_type in ["postgresql", "mysql"]:
+        return func.now()
+    else:
+        # 알 수 없는 타입인 경우 None 반환 (Python 레벨에서 처리)
+        return None
+
+def get_timestamp_onupdate():
+    """데이터베이스 타입에 따른 timestamp onupdate 값을 반환합니다."""
+    db_type = get_database_type()
+    
+    if db_type == "sqlite":
+        return text("(datetime('now'))")
+    elif db_type in ["postgresql", "mysql"]:
+        return func.now()
+    else:
+        return None
 
 async def get_db():
     SessionLocal = get_sessionmaker()

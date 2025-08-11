@@ -1,9 +1,10 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, func, Boolean
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Boolean
 from sqlalchemy.orm import relationship
 from .base import Base
 from pydantic import BaseModel, Field, ValidationError, StrictStr
 from datetime import datetime
 from typing import Optional, Dict, Any, List
+from core.db import get_timestamp_default, get_timestamp_onupdate
 
 class ModuleSchema(BaseModel):
     name: StrictStr
@@ -36,7 +37,7 @@ class ModuleEnvVar(Base):
     module_id = Column(Integer, ForeignKey('modules.id'), nullable=False)
     key = Column(String(100), nullable=False)
     value = Column(String(512), nullable=False)  # 실제 운영에서는 암호화 권장
-    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    updated_at = Column(DateTime, server_default=get_timestamp_default(), onupdate=get_timestamp_onupdate())
 
     module = relationship('Module', back_populates='env_vars')
 
@@ -49,8 +50,8 @@ class Module(Base):
     path = Column(String(255), nullable=True)
     artifact_type = Column(String(20), nullable=True)  # ex: 'docker', 'git', 's3', ...
     artifact_uri = Column(String(255), nullable=True)  # ex: docker image, git url, s3 uri 등
-    created_at = Column(DateTime, server_default=func.now())
-    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    created_at = Column(DateTime, server_default=get_timestamp_default(), default=datetime.utcnow)
+    updated_at = Column(DateTime, server_default=get_timestamp_default(), onupdate=get_timestamp_onupdate())
     version = Column(String(20), default="0.1.0")
     tags = Column(String(255), nullable=True)  # JSON 문자열 등으로 저장 가능
     owner_id = Column(Integer, ForeignKey('users.id'), nullable=True)

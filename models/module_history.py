@@ -1,6 +1,8 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, func
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
 from .base import Base
+from datetime import datetime
+from core.db import get_timestamp_default
 
 class ModuleHistory(Base):
     __tablename__ = 'module_history'
@@ -9,7 +11,7 @@ class ModuleHistory(Base):
     version_id = Column(Integer, ForeignKey('versions.id'), nullable=False, index=True)
     action = Column(String(32), nullable=False)  # rollback, activate, deactivate
     operator = Column(String(64), nullable=True)
-    timestamp = Column(DateTime, server_default=func.now(), nullable=False)
+    timestamp = Column(DateTime, server_default=get_timestamp_default(), default=datetime.utcnow, nullable=False)
 
     module = relationship('Module')
     version = relationship('Version') 

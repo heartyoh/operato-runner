@@ -3,6 +3,7 @@ import subprocess
 import tempfile
 import json
 import time
+import shutil
 from executors.base import Executor
 from models import ExecRequest, ExecResult
 from module_registry import ModuleRegistry
@@ -33,13 +34,20 @@ class CondaExecutor(Executor):
         start_time = time.time()
         module_name = request.module
         
-        # 입력 파일 생성 - NamedTemporaryFile 사용
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as input_file:
-            json.dump(request.input_json, input_file)
-            input_path = input_file.name
+        # 각 실행마다 고유한 작업 디렉토리 생성
+        execution_work_dir = tempfile.mkdtemp(prefix=f"exec_{module_name}_{int(time.time())}_")
         
-        # 출력 파일 경로만 확보 (파일은 미리 생성하지 않음)
-        output_path = tempfile.mktemp(suffix='.json')
+        # 입력 파일 생성 (작업 디렉토리 내에)
+        input_path = os.path.join(execution_work_dir, "input.json")
+        with open(input_path, 'w') as f:
+            # 표준 API: work_directory 제공
+            enhanced_input = request.input_json.copy()
+            enhanced_input["work_directory"] = execution_work_dir
+            enhanced_input["temp_directory"] = execution_work_dir
+            json.dump(enhanced_input, f)
+        
+        # 출력 파일 경로 (작업 디렉토리 내에)
+        output_path = os.path.join(execution_work_dir, "output.json")
         
         # 모듈 경로 획득
         module_path = ""
@@ -74,7 +82,8 @@ class CondaExecutor(Executor):
                 f"result = main(input_data); "
                 f"with open('{output_path}', 'w') as f: json.dump(result, f)"
             ]
-            process = subprocess.run(cmd, capture_output=True, text=True, timeout=3600, env=env)
+            process = subprocess.run(cmd, capture_output=True, text=True, timeout=3600, 
+                                   cwd=execution_work_dir, env=env)
             result_json = {}
             if process.returncode == 0:
                 try:
@@ -97,15 +106,16 @@ class CondaExecutor(Executor):
             stdout = ""
             result_json = {}
         finally:
+            # 작업 디렉토리 전체 정리 (input, output 파일 포함)
             try:
-                if os.path.exists(input_path):
-                    os.unlink(input_path)
-                if os.path.exists(output_path):
-                    os.unlink(output_path)
+                shutil.rmtree(execution_work_dir, ignore_errors=True)
             except Exception as e:
-                print(f"Error cleaning up temporary files: {str(e)}")
+                print(f"Error cleaning up work directory: {str(e)}")
             if env_path and os.path.exists(env_path):
-                os.unlink(env_path)
+                try:
+                    os.unlink(env_path)
+                except:
+                    pass
         duration = time.time() - start_time
         return ExecResult(
             result_json=result_json,

@@ -1,6 +1,8 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, func
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
 from .base import Base
+from datetime import datetime
+from core.db import get_timestamp_default
 
 class Version(Base):
     __tablename__ = 'versions'
@@ -10,7 +12,7 @@ class Version(Base):
     code = Column(Text, nullable=True)
     description = Column(Text, nullable=True)
     changelog = Column(Text, nullable=True)
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, server_default=get_timestamp_default(), default=datetime.utcnow)
     module = relationship('Module', back_populates='versions')
     deployments = relationship('Deployment', back_populates='version', cascade='all, delete-orphan')
 

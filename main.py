@@ -18,6 +18,7 @@ from executors.uv import UvExecutor
 from api.rest import app as rest_app
 from api.grpc_server import serve as serve_grpc
 from utils.redis_client import redis_client
+from utils.file_storage import start_cleanup_scheduler
 import uvicorn
 
 async def main():
@@ -56,7 +57,15 @@ async def main():
         executor_manager.register_executor("inline", InlineExecutor(module_registry))
         executor_manager.register_executor("venv", VenvExecutor(venv_path=args.venv_path, module_registry=module_registry))
         executor_manager.register_executor("conda", CondaExecutor(module_registry))
-        executor_manager.register_executor("docker", DockerExecutor(module_registry))
+        
+        # Docker executor 등록 (사용 가능한 경우에만)
+        try:
+            executor_manager.register_executor("docker", DockerExecutor(module_registry))
+            print("✅ Docker executor 등록됨")
+        except Exception as e:
+            print(f"⚠️  Docker executor 등록 실패: {e}")
+            print("⚠️  Docker 관련 기능 사용 불가")
+        
         executor_manager.register_executor("uv", UvExecutor(uv_path=args.venv_path, module_registry=module_registry))
 
         # FastAPI 앱에 context 주입
@@ -66,8 +75,11 @@ async def main():
         grpc_server = None
         grpc_task = None
         rest_task = None
+        cleanup_task = None
 
         try:
+            # 파일 정리 스케줄러 시작
+            cleanup_task = asyncio.create_task(start_cleanup_scheduler())
             loop = asyncio.get_running_loop()
             if not args.no_grpc:
                 grpc_server = serve_grpc(module_registry, executor_manager, port=args.grpc_port)
@@ -81,7 +93,7 @@ async def main():
                 rest_task = loop.create_task(server.serve())
                 print(f"REST API started on port {args.rest_port}")
 
-            tasks = [t for t in [grpc_task, rest_task] if t is not None]
+            tasks = [t for t in [grpc_task, rest_task, cleanup_task] if t is not None]
             if tasks:
                 done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
         except KeyboardInterrupt:
@@ -89,7 +101,7 @@ async def main():
             if grpc_server:
                 await grpc_server.stop(0)
                 await grpc_server.wait_for_termination()
-            for t in [grpc_task, rest_task]:
+            for t in [grpc_task, rest_task, cleanup_task]:
                 if t is not None and not t.done():
                     t.cancel()
             await asyncio.sleep(0.1)

@@ -13,23 +13,26 @@ def log_module_action(module_name, version, action, message):
 
 class UvExecutor(Executor):
     def __init__(self, uv_path="module_envs", module_registry=None):
-        self.uv_path = uv_path
+        # 절대 경로로 변환
+        self.uv_path = os.path.abspath(uv_path)
         self.module_registry = module_registry
-        os.makedirs(uv_path, exist_ok=True)
+        os.makedirs(self.uv_path, exist_ok=True)
 
     async def validate(self, module_name: str) -> bool:
-        uv_dir = os.path.join(self.uv_path, module_name, "uv")
-        return os.path.exists(uv_dir)
+        # 절대 경로 사용
+        module_dir = os.path.join(self.uv_path, module_name)
+        return os.path.exists(module_dir)
 
     async def execute(self, request: ExecRequest) -> ExecResult:
         start_time = time.time()
         module_name = request.module
         module = await self.module_registry.get_module(module_name)
         
-        uv_dir = os.path.join(self.uv_path, module_name, "uv")
+        # 절대 경로로 모듈과 uv 가상환경 경로 설정
         module_dir = os.path.join(self.uv_path, module_name)
+        uv_dir = os.path.join(module_dir, "uv")
         
-        # uv 가상환경 python 경로
+        # uv 가상환경 python 경로 (절대 경로)
         python_bin = os.path.join(uv_dir, "bin", "python")
         
         # 임시 파일 생성
@@ -38,7 +41,7 @@ class UvExecutor(Executor):
             input_path = input_file.name
         output_path = tempfile.mktemp(suffix='.json')
         
-        # Python 스크립트 작성
+        # Python 스크립트 작성 (절대 경로 사용)
         with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as script_file:
             script_content = f"""
 import json
@@ -46,24 +49,25 @@ import sys
 import os
 import importlib.util
 
-sys.path.insert(0, '{module_dir}')
+# 모듈 디렉토리를 Python 경로에 추가 (절대 경로)
+sys.path.insert(0, r'{module_dir}')
 
-# 모듈의 __main__.py에서 main 함수 import
-spec = importlib.util.spec_from_file_location("module_main", os.path.join('{module_dir}', '__main__.py'))
+# 모듈의 __main__.py에서 main 함수 import (절대 경로)
+spec = importlib.util.spec_from_file_location("module_main", os.path.join(r'{module_dir}', '__main__.py'))
 module_main = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module_main)
 main = module_main.main
 
-with open('{input_path}', 'r') as f:
+with open(r'{input_path}', 'r') as f:
     input_data = json.load(f)
 result = main(input_data)
-with open('{output_path}', 'w') as f:
+with open(r'{output_path}', 'w') as f:
     json.dump(result, f)
 """
             script_file.write(script_content)
             script_path = script_file.name
 
-        # 환경변수 주입 및 .env 파일 생성
+        # 환경변수 주입 및 .env 파일 생성 (절대 경로)
         env = os.environ.copy()
         env["PIP_DISABLE_PIP_VERSION_CHECK"] = "1"
         if hasattr(module, 'env_vars') and module.env_vars:
@@ -106,15 +110,16 @@ with open('{output_path}', 'w') as f:
             result_json = {}
             log_module_action(module_name, getattr(module, 'version', 'unknown'), "execute", f"실행 에러: {str(e)}")
         finally:
-            if os.path.exists(input_path):
+            # 임시 파일들 정리
+            try:
                 os.unlink(input_path)
-            if os.path.exists(output_path):
                 os.unlink(output_path)
-            if os.path.exists(script_path):
                 os.unlink(script_path)
-            if env_path and os.path.exists(env_path):
-                os.unlink(env_path)
-        
+                if env_path and os.path.exists(env_path):
+                    os.unlink(env_path)
+            except:
+                pass
+                
         duration = time.time() - start_time
         return ExecResult(
             result_json=result_json,

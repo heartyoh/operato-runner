@@ -1,5 +1,7 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, func
+from sqlalchemy import Column, Integer, String, Text, DateTime
 from .base import Base
+from datetime import datetime
+from core.db import get_timestamp_default
 
 class ErrorLog(Base):
     __tablename__ = 'error_log'
@@ -10,4 +12,4 @@ class ErrorLog(Base):
     url = Column(String(255), nullable=True)
     stack = Column(Text, nullable=True)
     user = Column(String(64), nullable=True)
-    created_at = Column(DateTime, server_default=func.now(), nullable=False) 
+    created_at = Column(DateTime, server_default=get_timestamp_default(), default=datetime.utcnow, nullable=False) 
