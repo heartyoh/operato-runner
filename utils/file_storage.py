@@ -23,24 +23,15 @@ class TempFileManager:
     
     def _generate_file_id(self) -> str:
         """고유한 파일 ID 생성"""
-        return f"{uuid.uuid4().hex}_{int(time.time())}"
+        return uuid.uuid4().hex
     
     def _sanitize_filename(self, filename: str) -> str:
         """파일명을 안전하게 정리"""
         import re
-        import logging
-        logger = logging.getLogger(__name__)
         
-        # 앞뒤 화이트스페이스 제거
-        filename = filename.strip()
+        # 파일명에 허용할 문자들: 알파벳, 숫자, 하이픈, 언더스코어, 점, 괄호
+        safe_name = re.sub(r'[^\w\-_\.\(\)]', '_', filename)
         
-        # 특수문자 제거, 공백을 언더스코어로 변경
-        safe_name = re.sub(r'[^\w\-_\.]', '_', filename)
-        
-        # 디버깅용 로그
-        if filename != safe_name:
-            logger.info(f"Filename sanitized: '{filename}' -> '{safe_name}'")
-            
         return safe_name[:100]  # 최대 100자로 제한
     
     def _get_file_path(self, file_id: str, filename: str) -> str:
@@ -88,7 +79,7 @@ class TempFileManager:
         
         file_id = self._generate_file_id()
         file_size = os.path.getsize(file_path)
-        original_filename = os.path.basename(file_path)
+        original_filename = self._sanitize_filename(os.path.basename(file_path))
         
         # DB에 메타데이터 저장
         SessionLocal = get_sessionmaker()

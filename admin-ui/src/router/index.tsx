@@ -28,9 +28,15 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({
 
 // 파일 다운로드 처리 컴포넌트
 const FileDownload: React.FC = () => {
+  const downloadedRef = React.useRef(false);
+  
   React.useEffect(() => {
+    if (downloadedRef.current) return; // 중복 실행 방지
+    
     const fileId = window.location.pathname.split('/').pop();
     if (fileId) {
+      downloadedRef.current = true;
+      
       // axios를 통해 백엔드에서 파일을 받아서 다운로드 처리
       const downloadFile = async () => {
         try {
@@ -46,7 +52,7 @@ const FileDownload: React.FC = () => {
             let filename = 'download';
             
             if (contentDisposition) {
-              const match = contentDisposition.match(/filename="?(.+)"?/);
+              const match = contentDisposition.match(/filename[*]?=['"]?([^'";]+)['"]?/);
               if (match) filename = match[1];
             }
             
