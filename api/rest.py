@@ -10,7 +10,7 @@ from models.user import User
 from schemas.user import UserCreate, UserRead, UserLogin, UserUpdate
 from schemas.role import RoleRead
 from utils.jwt import create_access_token, create_refresh_token, decode_token, REFRESH_TOKEN_EXPIRE_MINUTES
-from api.auth import verify_password, get_current_user, has_role, has_execute_permission, can_execute_module
+from api.auth import verify_password, get_current_user, has_role, can_execute_module
 from utils.security import hash_password, validate_password_policy
 import hashlib
 from utils.audit import log_audit_event
@@ -50,9 +50,6 @@ import re
 from api.routes import modules
 from utils.file_storage import temp_file_manager
 from schemas.temp_file import TempFileResponse
-from models.temp_file import TempFile
-from sqlalchemy import delete
-from core.db import get_sessionmaker
 import json
 import logging
 
@@ -131,6 +128,7 @@ def create_app() -> FastAPI:
         stderr: str
         stdout: str
         duration: float
+        output_files: List[TempFileResponse] = []
 
     class ModuleDetailResponse(BaseModel):
         name: str
@@ -165,119 +163,7 @@ def create_app() -> FastAPI:
     class MediaExecRequest(BaseModel):
         input_data: str = "{}"
     
-    class MediaExecResponse(BaseModel):
-        result: Any
-        exit_code: int
-        stderr: str
-        stdout: str
-        duration: float
-        output_files: List[TempFileResponse] = []
-    
     # 라우트
-    @app.post("/api/modules/execute-media/{module_name}", response_model=MediaExecResponse)
-    async def execute_module_with_media(
-        module_name: str,
-        files: List[UploadFile] = File([]),
-        input_data: str = Form("{}"),
-        module_registry: ModuleRegistry = Depends(get_module_registry),
-        executor_manager: ExecutorManager = Depends(get_executor_manager),
-        current_user: User = Depends(has_execute_permission())
-    ):
-        """동영상/이미지 파일과 함께 모듈 실행"""
-        try:
-            # 1. 업로드된 파일들을 임시 저장
-            input_file_ids = []
-            input_file_paths = []
-            
-            for file in files:
-                if file.size > 100 * 1024 * 1024:  # 100MB 제한
-                    raise HTTPException(400, f"File {file.filename} exceeds 100MB limit")
-                
-                file_id = await temp_file_manager.store_upload(file, current_user.id, expires_in_hours=1)
-                file_path = await temp_file_manager.get_file_path(file_id)
-                input_file_ids.append(file_id)
-                input_file_paths.append({
-                    "file_id": file_id,
-                    "path": file_path,
-                    "filename": file.filename,
-                    "content_type": file.content_type
-                })
-            
-            # 2. JSON 파라미터 파싱 및 파일 정보 추가
-            try:
-                input_json = json.loads(input_data)
-            except json.JSONDecodeError:
-                raise HTTPException(400, "Invalid JSON in input_data")
-            
-            input_json["input_files"] = input_file_paths
-            
-            # 3. 모듈 실행
-            exec_request = ExecRequest(module=module_name, input_json=input_json)
-            result = await executor_manager.execute(exec_request)
-            
-            # 4. 결과 파일들을 임시 파일로 등록
-            output_file_responses = []
-            if "output_files" in result.result_json:
-                for output_path in result.result_json["output_files"]:
-                    if os.path.exists(output_path):
-                        try:
-                            file_id = await temp_file_manager.register_result_file(
-                                output_path, current_user.id, expires_in_hours=72
-                            )
-                            
-                            file_info = await temp_file_manager.get_file_info(file_id)
-                            output_file_responses.append(TempFileResponse(
-                                file_id=file_id,
-                                download_url=temp_file_manager.create_download_url(file_id),
-                                original_filename=file_info.original_filename,
-                                file_size=file_info.file_size,
-                                expires_at=file_info.expires_at
-                            ))
-                        except Exception as e:
-                            logger.error(f"Failed to register result file {output_path}: {e}")
-            
-            # 5. 입력 파일들 즉시 정리 (실행 완료 후)
-            try:
-                for file_id in input_file_ids:
-                    file_info = await temp_file_manager.get_file_info(file_id)
-                    if file_info and os.path.exists(file_info.file_path):
-                        os.unlink(file_info.file_path)
-                        # DB에서도 제거
-                        SessionLocal = get_sessionmaker()
-                        async with SessionLocal() as db:
-                            await db.execute(delete(TempFile).where(TempFile.id == file_id))
-                            await db.commit()
-            except Exception as e:
-                logger.warning(f"Failed to cleanup input files: {e}")
-            
-            # 6. 감사 로그 기록
-            await log_audit_event(
-                user_id=current_user.id,
-                action="execute_module_with_media",
-                resource_type="module",
-                resource_id=module_name,
-                details={
-                    "input_files_count": len(files),
-                    "output_files_count": len(output_file_responses),
-                    "execution_duration": result.duration
-                }
-            )
-            
-            return MediaExecResponse(
-                result=result.result_json,
-                exit_code=result.exit_code,
-                stderr=result.stderr or "",
-                stdout=result.stdout or "",
-                duration=result.duration,
-                output_files=output_file_responses
-            )
-            
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Media execution error for module {module_name}: {e}")
-            raise HTTPException(500, f"Execution failed: {str(e)}")
-    
     @app.get("/api/templates/module", response_class=FileResponse)
     async def download_module_template():
         template_path = ROOT_DIR / "templates" / "module_template.zip"
@@ -819,8 +705,45 @@ def create_app() -> FastAPI:
             input_json=request.input
         )
         result = await executor_manager.execute(exec_request)
+        
+        # 결과 파일들을 임시 파일로 등록하고 result.result_json의 output_files를 업데이트
+        output_file_responses = []
+        updated_result_json = result.result_json.copy()
+        
+        if "output_files" in result.result_json:
+            # updated_output_files = []
+            for output_path in result.result_json["output_files"]:
+                if os.path.exists(output_path):
+                    try:
+                        file_id = await temp_file_manager.register_result_file(
+                            output_path, current_user.id, expires_in_hours=72
+                        )
+                        
+                        file_info = await temp_file_manager.get_file_info(file_id)
+                        download_url = temp_file_manager.create_download_url(file_id)
+                        
+                        output_file_responses.append(TempFileResponse(
+                            file_id=file_id,
+                            download_url=download_url,
+                            original_filename=file_info.original_filename,
+                            file_size=file_info.file_size,
+                            expires_at=file_info.expires_at
+                        ))
+                        
+                        # result_json의 output_files를 다운로드 URL로 교체
+                        # updated_output_files.append(download_url)
+                    except Exception as e:
+                        logger.error(f"Failed to register result file {output_path}: {e}")
+                        # 실패한 경우 원본 경로 유지
+                        # updated_output_files.append(output_path)
+                # else:
+                    # 파일이 존재하지 않는 경우 원본 경로 유지
+                    # updated_output_files.append(output_path)
+            
+            updated_result_json["output_files"] = output_file_responses
+        
         return RunResponse(
-            result=result.result_json,
+            result=updated_result_json,
             exit_code=result.exit_code,
             stderr=result.stderr,
             stdout=result.stdout,

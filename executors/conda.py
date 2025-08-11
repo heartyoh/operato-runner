@@ -3,10 +3,10 @@ import subprocess
 import tempfile
 import json
 import time
-import shutil
 from executors.base import Executor
 from models import ExecRequest, ExecResult
 from module_registry import ModuleRegistry
+from utils.delayed_cleanup import delayed_cleanup_manager
 
 class CondaExecutor(Executor):
     def __init__(self, module_registry: ModuleRegistry = None):
@@ -106,11 +106,8 @@ class CondaExecutor(Executor):
             stdout = ""
             result_json = {}
         finally:
-            # 작업 디렉토리 전체 정리 (input, output 파일 포함)
-            try:
-                shutil.rmtree(execution_work_dir, ignore_errors=True)
-            except Exception as e:
-                print(f"Error cleaning up work directory: {str(e)}")
+            # 작업 디렉토리를 30분 후 삭제하도록 예약
+            delayed_cleanup_manager.schedule_cleanup(execution_work_dir, delay_minutes=30)
             if env_path and os.path.exists(env_path):
                 try:
                     os.unlink(env_path)
