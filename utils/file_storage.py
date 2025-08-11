@@ -28,8 +28,19 @@ class TempFileManager:
     def _sanitize_filename(self, filename: str) -> str:
         """파일명을 안전하게 정리"""
         import re
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        # 앞뒤 화이트스페이스 제거
+        filename = filename.strip()
+        
         # 특수문자 제거, 공백을 언더스코어로 변경
         safe_name = re.sub(r'[^\w\-_\.]', '_', filename)
+        
+        # 디버깅용 로그
+        if filename != safe_name:
+            logger.info(f"Filename sanitized: '{filename}' -> '{safe_name}'")
+            
         return safe_name[:100]  # 최대 100자로 제한
     
     def _get_file_path(self, file_id: str, filename: str) -> str:

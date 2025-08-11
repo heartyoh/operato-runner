@@ -26,9 +26,57 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({
   return <>{children}</>;
 };
 
+// 파일 다운로드 처리 컴포넌트
+const FileDownload: React.FC = () => {
+  React.useEffect(() => {
+    const fileId = window.location.pathname.split('/').pop();
+    if (fileId) {
+      // axios를 통해 백엔드에서 파일을 받아서 다운로드 처리
+      const downloadFile = async () => {
+        try {
+          const response = await fetch(`/api/files/download/${fileId}`, {
+            headers: {
+              'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+            }
+          });
+          
+          if (response.ok) {
+            const blob = await response.blob();
+            const contentDisposition = response.headers.get('content-disposition');
+            let filename = 'download';
+            
+            if (contentDisposition) {
+              const match = contentDisposition.match(/filename="?(.+)"?/);
+              if (match) filename = match[1];
+            }
+            
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(url);
+          } else {
+            console.error('Download failed:', response.statusText);
+          }
+        } catch (error) {
+          console.error('Download error:', error);
+        }
+      };
+      
+      downloadFile();
+    }
+  }, []);
+  
+  return <div>Downloading...</div>;
+};
+
 const AppRouter: React.FC = () => {
   return (
     <Routes>
+      <Route path="/api/files/download/:fileId" element={<FileDownload />} />
       <Route path="/login" element={<LoginPage />} />
       <Route
         path="/admin"

@@ -5,7 +5,7 @@ from models.module import Module
 from module_registry import ModuleRegistry
 from executor_manager import ExecutorManager
 from sqlalchemy.ext.asyncio import AsyncSession
-from core.db import get_db, Base, get_engine, init_engine
+from core.db import get_db, Base, get_engine, init_engine, get_sessionmaker
 from models.user import User
 from schemas.user import UserCreate, UserRead, UserLogin, UserUpdate
 from schemas.role import RoleRead

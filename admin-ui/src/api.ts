@@ -105,6 +105,7 @@ export const api = {
   getDbHealth,
   getValidationLogs,
   downloadValidationLogs,
+  downloadFile,
   // 환경변수 관리 API
   getModuleEnvVars,
   addModuleEnvVar,
@@ -316,6 +317,21 @@ export async function updateModuleEnvVar(
 export async function deleteModuleEnvVar(name: string, key: string) {
   const res = await axios.delete(`/api/modules/${name}/env-vars/${key}`);
   return res.data;
+}
+
+export async function downloadFile(fileId: string, filename?: string) {
+  const res = await axios.get(`/api/files/download/${fileId}`, {
+    responseType: "blob",
+  });
+  
+  const url = window.URL.createObjectURL(new Blob([res.data]));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename || "download";
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  window.URL.revokeObjectURL(url);
 }
 
 // 사용자 관리 API
