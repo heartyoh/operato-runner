@@ -6,7 +6,6 @@ import docker
 from executors.base import Executor
 from models import ExecRequest, ExecResult
 from module_registry import ModuleRegistry
-from utils.delayed_cleanup import delayed_cleanup_manager
 
 class DockerExecutor(Executor):
     def __init__(self, module_registry: ModuleRegistry = None, base_image="python:3.10-slim"):
@@ -120,15 +119,14 @@ class DockerExecutor(Executor):
                     container.remove(force=True)
                 except Exception:
                     pass
-            # 임시 디렉토리를 30분 후 삭제하도록 예약
-            delayed_cleanup_manager.schedule_cleanup(temp_dir, delay_minutes=30)
         duration = time.time() - start_time
         return ExecResult(
             result_json=result_json,
             exit_code=exit_code,
             stderr=stderr,
             stdout=stdout,
-            duration=duration
+            duration=duration,
+            work_directory=temp_dir
         )
 
     async def cleanup(self) -> None:

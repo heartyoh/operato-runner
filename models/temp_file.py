@@ -12,7 +12,7 @@ class TempFile(Base):
     file_size = Column(BigInteger, nullable=False)  # 파일 크기 (bytes)
     content_type = Column(String(100), nullable=True)  # MIME 타입
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False)  # 파일 소유자
-    file_type = Column(String(20), nullable=False, default='input')  # 'input' 또는 'output'
+    file_type = Column(String(20), nullable=False, default='input')  # 'input', 'output', 'directory'
     created_at = Column(DateTime, default=datetime.utcnow)
     expires_at = Column(DateTime, nullable=False)  # 만료 시간
     

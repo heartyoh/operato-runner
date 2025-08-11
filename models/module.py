@@ -30,6 +30,7 @@ class ExecResult(BaseModel):
     stderr: Optional[str] = None
     stdout: Optional[str] = None
     duration: float  # seconds
+    work_directory: Optional[str] = None  # 작업 디렉토리 경로 (클린업용)
 
 class ModuleEnvVar(Base):
     __tablename__ = 'module_env_vars'

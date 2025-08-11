@@ -3,6 +3,7 @@ import uuid
 import time
 import asyncio
 import aiofiles
+import shutil
 import logging
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
@@ -28,6 +29,9 @@ class TempFileManager:
     def _sanitize_filename(self, filename: str) -> str:
         """파일명을 안전하게 정리"""
         import re
+        
+        # 앞뒤 공백 제거
+        filename = filename.strip()
         
         # 파일명에 허용할 문자들: 알파벳, 숫자, 하이픈, 언더스코어, 점, 괄호
         safe_name = re.sub(r'[^\w\-_\.\(\)]', '_', filename)
@@ -100,6 +104,32 @@ class TempFileManager:
         logger.info(f"Registered result file {file_path} as {file_id}")
         return file_id
     
+    async def register_work_directory(self, directory_path: str, user_id: int, expires_in_hours: int = 1) -> str:
+        """작업 디렉토리를 등록하고 디렉토리 ID 반환 (기본 1시간 후 만료)"""
+        if not os.path.exists(directory_path):
+            raise FileNotFoundError(f"Work directory not found: {directory_path}")
+        
+        directory_id = self._generate_file_id()
+        
+        # DB에 디렉토리 정보 저장 (file_type='directory'로 구분)
+        SessionLocal = get_sessionmaker()
+        async with SessionLocal() as db:
+            temp_file = TempFile(
+                id=directory_id,
+                file_path=directory_path,
+                original_filename=os.path.basename(directory_path),
+                file_size=0,  # 디렉토리는 크기 0
+                content_type='directory',
+                user_id=user_id,
+                file_type='directory',
+                expires_at=datetime.utcnow() + timedelta(hours=expires_in_hours)
+            )
+            db.add(temp_file)
+            await db.commit()
+        
+        logger.info(f"Registered work directory {directory_path} as {directory_id}")
+        return directory_id
+    
     async def get_file_info(self, file_id: str) -> Optional[TempFile]:
         """파일 ID로 파일 정보 조회"""
         SessionLocal = get_sessionmaker()
@@ -134,10 +164,16 @@ class TempFileManager:
             
             for file_record in expired_files.scalars():
                 try:
-                    # 물리적 파일 삭제
-                    if os.path.exists(file_record.file_path):
-                        os.unlink(file_record.file_path)
-                        logger.info(f"Deleted expired file: {file_record.file_path}")
+                    # 디렉토리인 경우 전체 디렉토리 삭제
+                    if file_record.file_type == 'directory':
+                        if os.path.exists(file_record.file_path):
+                            shutil.rmtree(file_record.file_path, ignore_errors=True)
+                            logger.info(f"Deleted expired directory: {file_record.file_path}")
+                    else:
+                        # 일반 파일인 경우 파일만 삭제
+                        if os.path.exists(file_record.file_path):
+                            os.unlink(file_record.file_path)
+                            logger.info(f"Deleted expired file: {file_record.file_path}")
                     
                     # DB 레코드 삭제
                     await db.delete(file_record)

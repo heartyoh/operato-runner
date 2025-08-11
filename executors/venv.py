@@ -6,7 +6,6 @@ import time
 import logging
 from executors.base import Executor
 from models import ExecRequest, ExecResult
-from utils.delayed_cleanup import delayed_cleanup_manager
 
 def log_module_action(module_name, version, action, message):
     logging.info(f"[{module_name}][v{version}][{action}] {message}")
@@ -126,8 +125,6 @@ with open(r'{output_path}', 'w') as f:
             result_json = {}
             log_module_action(module_name, getattr(module, 'version', 'unknown'), "execute", f"실행 에러: {str(e)}")
         finally:
-            # 작업 디렉토리를 30분 후 삭제하도록 예약
-            delayed_cleanup_manager.schedule_cleanup(execution_work_dir, delay_minutes=30)
             # 스크립트 파일은 별도 위치에 있으므로 개별 삭제
             try:
                 os.unlink(script_path)
@@ -145,7 +142,8 @@ with open(r'{output_path}', 'w') as f:
             exit_code=exit_code,
             stderr=stderr,
             stdout=stdout,
-            duration=duration
+            duration=duration,
+            work_directory=execution_work_dir
         )
 
     async def cleanup(self) -> None:

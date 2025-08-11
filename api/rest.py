@@ -28,6 +28,7 @@ from models.module_history import ModuleHistory
 from models.version import Version
 from models.deployment import Deployment
 from schemas.module_history import ModuleHistoryRead
+from utils.file_storage import temp_file_manager
 from sqlalchemy import update
 from utils.exceptions import CustomException
 import logging
@@ -705,6 +706,15 @@ def create_app() -> FastAPI:
             input_json=request.input
         )
         result = await executor_manager.execute(exec_request)
+        
+        # 작업 디렉토리를 데이터베이스에 등록하여 1시간 후 정리되도록 함
+        if result.work_directory and os.path.exists(result.work_directory):
+            try:
+                await temp_file_manager.register_work_directory(
+                    result.work_directory, current_user.id, expires_in_hours=1
+                )
+            except Exception as e:
+                logger.warning(f"Failed to register work directory for cleanup: {e}")
         
         # 결과 파일들을 임시 파일로 등록하고 result.result_json의 output_files를 업데이트
         output_file_responses = []
