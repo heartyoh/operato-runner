@@ -31,7 +31,7 @@ import {
   Stack,
 } from "@mui/material";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
-import { useNavigate, Link } from "react-router-dom";
+import { Link } from "react-router-dom";
 
 interface Module {
   id: string;
@@ -53,15 +53,105 @@ interface Module {
 
 const codeTemplates = {
   curl: (name: string, version: string) =>
-    `curl -X POST http://<서버주소>/api/modules/${name}/run \
-  -H 'Content-Type: application/json' \
-  -d '{"input": {}}'`,
+    `# JSON 입력만 있는 경우:
+curl -X POST http://<서버주소>/api/run/${name} \\
+  -H 'Content-Type: application/json' \\
+  -d '{"input": {}}'
+
+# 파일과 함께 실행하는 경우:
+curl -X POST http://<서버주소>/api/run/${name} \\
+  -F 'input={"key": "value"}' \\
+  -F 'files=@/path/to/file1.jpg' \\
+  -F 'files=@/path/to/file2.mp4'`,
   python: (name: string, version: string) =>
-    `import requests\nresp = requests.post(\n    \"http://<서버주소>/api/modules/${name}/run\",\n    json={\"input\": {}}\n)\nprint(resp.json())`,
+    `import requests
+
+# JSON 입력만 있는 경우:
+resp = requests.post(
+    "http://<서버주소>/api/run/${name}",
+    json={"input": {}}
+)
+result = resp.json()
+print(result)
+
+# 파일과 함께 실행하는 경우:
+files = [
+    ('files', open('/path/to/file1.jpg', 'rb')),
+    ('files', open('/path/to/file2.mp4', 'rb'))
+]
+data = {'input': '{"key": "value"}'}
+resp = requests.post(
+    "http://<서버주소>/api/run/${name}",
+    files=files,
+    data=data
+)
+result = resp.json()
+
+# output_files가 있으면 파일 다운로드 링크 출력
+if 'output_files' in result and result['output_files']:
+    for file in result['output_files']:
+        print(f"Download: {file['download_url']}, Filename: {file['original_filename']}")`,
   node: (name: string, version: string) =>
-    `const axios = require('axios');\naxios.post('http://<서버주소>/api/modules/${name}/run', { input: {} })\n  .then(res => console.log(res.data));`,
+    `const axios = require('axios');
+const FormData = require('form-data');
+const fs = require('fs');
+
+// JSON 입력만 있는 경우:
+axios.post('http://<서버주소>/api/run/${name}', { input: {} })
+  .then(res => {
+    console.log(res.data);
+    // output_files가 있으면 파일 다운로드 링크 출력
+    if (res.data.output_files && res.data.output_files.length > 0) {
+      res.data.output_files.forEach(file => {
+        console.log('Download:', file.download_url, 'Filename:', file.original_filename);
+      });
+    }
+  });
+
+// 파일과 함께 실행하는 경우:
+const form = new FormData();
+form.append('input', JSON.stringify({"key": "value"}));
+form.append('files', fs.createReadStream('/path/to/file1.jpg'));
+form.append('files', fs.createReadStream('/path/to/file2.mp4'));
+
+axios.post('http://<서버주소>/api/run/${name}', form, {
+  headers: form.getHeaders()
+}).then(res => {
+  console.log(res.data);
+  if (res.data.output_files && res.data.output_files.length > 0) {
+    res.data.output_files.forEach(file => {
+      console.log('Download:', file.download_url, 'Filename:', file.original_filename);
+    });
+  }
+});`,
   java: (name: string, version: string) =>
-    `// OkHttp 예시\nOkHttpClient client = new OkHttpClient();\nRequestBody body = RequestBody.create(\n    \"{\\\"input\\\": {}}\", MediaType.parse(\"application/json\"));\nRequest request = new Request.Builder()\n    .url(\"http://<서버주소>/api/modules/${name}/run\")\n    .post(body)\n    .build();\nResponse response = client.newCall(request).execute();\nSystem.out.println(response.body().string());`,
+    `// JSON 입력만 있는 경우:
+OkHttpClient client = new OkHttpClient();
+RequestBody body = RequestBody.create(
+    '{"input": {}}', MediaType.parse("application/json"));
+Request request = new Request.Builder()
+    .url("http://<서버주소>/api/run/${name}")
+    .post(body)
+    .build();
+Response response = client.newCall(request).execute();
+System.out.println(response.body().string());
+
+// 파일과 함께 실행하는 경우:
+MultipartBody requestBody = new MultipartBody.Builder()
+    .setType(MultipartBody.FORM)
+    .addFormDataPart("input", '{"key": "value"}')
+    .addFormDataPart("files", "file1.jpg",
+        RequestBody.create(new File("/path/to/file1.jpg"), MediaType.parse("image/jpeg")))
+    .addFormDataPart("files", "file2.mp4", 
+        RequestBody.create(new File("/path/to/file2.mp4"), MediaType.parse("video/mp4")))
+    .build();
+
+Request fileRequest = new Request.Builder()
+    .url("http://<서버주소>/api/run/${name}")
+    .post(requestBody)
+    .build();
+Response fileResponse = client.newCall(fileRequest).execute();
+System.out.println(fileResponse.body().string());`,
 };
 
 const MODULE_ENVS = [
@@ -95,7 +185,6 @@ const ModuleList: React.FC = () => {
   const [searchText, setSearchText] = useState("");
   const [visibilityFilter, setVisibilityFilter] = useState("all");
   const [envFilter, setEnvFilter] = useState("all");
-  const navigate = useNavigate();
 
   useEffect(() => {
     setLoading(true);

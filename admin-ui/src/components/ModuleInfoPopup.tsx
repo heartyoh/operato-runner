@@ -20,11 +20,11 @@ interface ModuleInfoPopupProps {
 
 const codeTemplates = {
   node: (name: string) =>
-    `const axios = require('axios');\naxios.post('/api/modules/${name}/run', { input: {} })\n  .then(res => console.log(res.data));`,
+    `const axios = require('axios');\nconst FormData = require('form-data');\nconst fs = require('fs');\n\n// JSON 입력만 있는 경우:\naxios.post('/api/run/${name}', { input: {} })\n  .then(res => {\n    console.log(res.data);\n    // output_files가 있으면 파일 다운로드 링크 출력\n    if (res.data.output_files && res.data.output_files.length > 0) {\n      res.data.output_files.forEach(file => {\n        console.log('Download:', file.download_url, 'Filename:', file.original_filename);\n      });\n    }\n  });\n\n// 파일과 함께 실행하는 경우:\nconst form = new FormData();\nform.append('input', JSON.stringify({"key": "value"}));\nform.append('files', fs.createReadStream('/path/to/file1.jpg'));\nform.append('files', fs.createReadStream('/path/to/file2.mp4'));\n\naxios.post('/api/run/${name}', form, {\n  headers: form.getHeaders()\n}).then(res => {\n  console.log(res.data);\n  if (res.data.output_files && res.data.output_files.length > 0) {\n    res.data.output_files.forEach(file => {\n      console.log('Download:', file.download_url, 'Filename:', file.original_filename);\n    });\n  }\n});`,
   python: (name: string) =>
-    `import requests\nresp = requests.post('/api/modules/${name}/run', json={'input': {}})\nprint(resp.json())`,
+    `import requests\n\n# JSON 입력만 있는 경우:\nresp = requests.post('/api/run/${name}', json={'input': {}})\nresult = resp.json()\nprint(result)\n\n# 파일과 함께 실행하는 경우:\nfiles = [\n    ('files', open('/path/to/file1.jpg', 'rb')),\n    ('files', open('/path/to/file2.mp4', 'rb'))\n]\ndata = {'input': '{"key": "value"}'}\nresp = requests.post(\n    '/api/run/${name}',\n    files=files,\n    data=data\n)\nresult = resp.json()\n\n# output_files가 있으면 파일 다운로드 링크 출력\nif 'output_files' in result and result['output_files']:\n    for file in result['output_files']:\n        print(f"Download: {file['download_url']}, Filename: {file['original_filename']}")`,
   curl: (name: string) =>
-    `curl -X POST '/api/modules/${name}/run' -H 'Content-Type: application/json' -d '{"input":{}}'`,
+    `# JSON 입력만 있는 경우:\ncurl -X POST '/api/run/${name}' \\\n  -H 'Content-Type: application/json' \\\n  -d '{"input":{}}\n\n# 파일과 함께 실행하는 경우:\ncurl -X POST '/api/run/${name}' \\\n  -F 'input={"key": "value"}' \\\n  -F 'files=@/path/to/file1.jpg' \\\n  -F 'files=@/path/to/file2.mp4'`,
 };
 
 export const ModuleInfoPopup: React.FC<ModuleInfoPopupProps> = ({
