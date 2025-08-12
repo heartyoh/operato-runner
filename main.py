@@ -53,7 +53,8 @@ async def main():
 
     async with async_session() as db:
         module_registry = ModuleRegistry(db)
-        executor_manager = ExecutorManager(module_registry)
+        executor_manager = ExecutorManager(module_registry, max_workers=4)
+        executor_manager.venv_path = args.venv_path  # venv_path 정보 저장
         executor_manager.register_executor("inline", InlineExecutor(module_registry))
         executor_manager.register_executor("venv", VenvExecutor(venv_path=args.venv_path, module_registry=module_registry))
         executor_manager.register_executor("conda", CondaExecutor(module_registry))
