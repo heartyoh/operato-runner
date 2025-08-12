@@ -457,8 +457,8 @@ def create_app() -> FastAPI:
                 artifact_uri=artifact_uri,
                 owner_id=module.owner_id,
                 owner_name=current_user.username,
-                latest_version=latest_version.version if latest_version else None,
-                active_version=active_version.version if active_version else None,
+                latest_version=version,
+                active_version=version,
             )
         elif artifact_type == "docker":
             # 도커 이미지 등록 처리
@@ -489,8 +489,8 @@ def create_app() -> FastAPI:
                 artifact_uri=artifact_uri,
                 owner_id=module.owner_id,
                 owner_name=current_user.username,
-                latest_version=latest_version.version if latest_version else None,
-                active_version=active_version.version if active_version else None,
+                latest_version=version,
+                active_version=version,
             )
         elif artifact_type == "zip":
             # zip 파일 업로드 처리 (기존 로직)
@@ -576,8 +576,8 @@ def create_app() -> FastAPI:
                     artifact_uri=artifact_uri,
                                     owner_id=module.owner_id,
                 owner_name=current_user.username,
-                latest_version=latest_version.version if latest_version else None,
-                active_version=active_version.version if active_version else None,
+                latest_version=version,
+                active_version=version,
                 )
         elif env == "inline":
             # 인라인 코드 등록 처리 (기존 로직)
@@ -645,8 +645,8 @@ def create_app() -> FastAPI:
                 artifact_uri=artifact_uri,
                 owner_id=module.owner_id,
                 owner_name=current_user.username,
-                latest_version=latest_version.version if latest_version else None,
-                active_version=active_version.version if active_version else None,
+                latest_version=version,
+                active_version=version,
             )
         else:
             raise HTTPException(status_code=400, detail="지원하지 않는 조합입니다.")
