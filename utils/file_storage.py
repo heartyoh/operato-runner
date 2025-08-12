@@ -76,7 +76,7 @@ class TempFileManager:
         logger.info(f"Stored upload file {file.filename} as {file_id}")
         return file_id
     
-    async def register_result_file(self, file_path: str, user_id: int, expires_in_hours: int = 72) -> str:
+    async def register_result_file(self, file_path: str, user_id: int, expires_in_hours: int = 1) -> str:
         """실행 결과 파일을 등록하고 파일 ID 반환"""
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"Result file not found: {file_path}")

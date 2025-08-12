@@ -726,7 +726,7 @@ def create_app() -> FastAPI:
                 if os.path.exists(output_path):
                     try:
                         file_id = await temp_file_manager.register_result_file(
-                            output_path, current_user.id, expires_in_hours=72
+                            output_path, current_user.id, expires_in_hours=1
                         )
                         
                         file_info = await temp_file_manager.get_file_info(file_id)
