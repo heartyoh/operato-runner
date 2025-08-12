@@ -20,6 +20,8 @@ import {
   CircularProgress,
   IconButton,
   Tooltip,
+  Tabs,
+  Tab,
 } from "@mui/material";
 import {
   PlayArrow as PlayIcon,
@@ -53,6 +55,7 @@ interface ExecutionResult {
   stderr: string;
   stdout: string;
   duration: number;
+  output_files?: OutputFile[];
 }
 
 interface OutputFile {
@@ -63,14 +66,6 @@ interface OutputFile {
   expires_at: string;
 }
 
-interface MediaExecutionResult {
-  result: any;
-  exit_code: number;
-  stderr: string;
-  stdout: string;
-  duration: number;
-  output_files: OutputFile[];
-}
 
 const ExecutableModuleList: React.FC = () => {
   const [modules, setModules] = useState<Module[]>([]);
@@ -93,10 +88,12 @@ const ExecutableModuleList: React.FC = () => {
   const [executing, setExecuting] = useState(false);
   const [executionError, setExecutionError] = useState<string | null>(null);
   
-  // 멀티미디어 실행 상태
-  const [mediaExecutionResult, setMediaExecutionResult] = useState<MediaExecutionResult | null>(null);
+  // 실행 모드
   const [executionMode, setExecutionMode] = useState<'json' | 'media'>('json');
   const [uploadFiles, setUploadFiles] = useState<FileList | null>(null);
+  
+  // 탭 상태
+  const [tabValue, setTabValue] = useState(0);
 
   // 모듈 목록 로드
   useEffect(() => {
@@ -164,9 +161,33 @@ const ExecutableModuleList: React.FC = () => {
         }
       }
 
-      const response = await axios.post(`/api/run/${executeModule.name}`, {
-        input: inputData,
-      });
+      let response;
+      
+      if (executionMode === 'media' && uploadFiles && uploadFiles.length > 0) {
+        // 파일이 있는 경우 multipart/form-data로 전송
+        const formData = new FormData();
+        formData.append('input', JSON.stringify(inputData));
+        
+        Array.from(uploadFiles).forEach(file => {
+          formData.append('files', file);
+        });
+
+        response = await axios.post(`/api/run/${executeModule.name}`, formData, {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+        });
+      } else {
+        // JSON만 있는 경우 기존 방식 사용 (하지만 새로운 API 형태로)
+        const formData = new FormData();
+        formData.append('input', JSON.stringify(inputData));
+        
+        response = await axios.post(`/api/run/${executeModule.name}`, formData, {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+        });
+      }
 
       setExecutionResult(response.data);
     } catch (err: any) {
@@ -182,10 +203,10 @@ const ExecutableModuleList: React.FC = () => {
     setExecuteModule(module);
     setExecutionInput("");
     setExecutionResult(null);
-    setMediaExecutionResult(null);
     setExecutionError(null);
     setExecutionMode('json');
     setUploadFiles(null);
+    setTabValue(0);
     
     // 파일 입력 초기화
     setTimeout(() => {
@@ -203,7 +224,6 @@ const ExecutableModuleList: React.FC = () => {
     setExecuteModule(null);
     setExecutionInput("");
     setExecutionResult(null);
-    setMediaExecutionResult(null);
     setExecutionError(null);
     setExecutionMode('json');
     setUploadFiles(null);
@@ -298,6 +318,40 @@ const ExecutableModuleList: React.FC = () => {
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
+
+  // TabPanel 컴포넌트
+  interface TabPanelProps {
+    children?: React.ReactNode;
+    index: number;
+    value: number;
+  }
+
+  function TabPanel(props: TabPanelProps) {
+    const { children, value, index, ...other } = props;
+
+    return (
+      <div
+        role="tabpanel"
+        hidden={value !== index}
+        id={`execution-tabpanel-${index}`}
+        aria-labelledby={`execution-tab-${index}`}
+        {...other}
+      >
+        {value === index && (
+          <Box sx={{ p: 0 }}>
+            {children}
+          </Box>
+        )}
+      </div>
+    );
+  }
+
+  function a11yProps(index: number) {
+    return {
+      id: `execution-tab-${index}`,
+      'aria-controls': `execution-tabpanel-${index}`,
+    };
+  }
 
   if (loading) {
     return (
@@ -604,51 +658,16 @@ const ExecutableModuleList: React.FC = () => {
                 </Typography>
               </Box>
 
-              {executionResult.stdout && (
-                <Box sx={{ mb: 2 }}>
-                  <Typography variant="subtitle2" gutterBottom>
-                    표준 출력:
-                  </Typography>
-                  <Box
-                    component="pre"
-                    sx={{
-                      backgroundColor: "grey.100",
-                      p: 1,
-                      borderRadius: 1,
-                      fontSize: "0.875rem",
-                      overflow: "auto",
-                    }}
-                  >
-                    {executionResult.stdout}
-                  </Box>
-                </Box>
-              )}
+              <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
+                <Tabs value={tabValue} onChange={(_, newValue) => setTabValue(newValue)} aria-label="실행 결과 탭">
+                  <Tab label="결과" {...a11yProps(0)} />
+                  {executionResult.stdout && <Tab label="표준 출력" {...a11yProps(1)} />}
+                  {executionResult.stderr && <Tab label="표준 에러" {...a11yProps(2)} />}
+                  {executionResult.result.output_files && executionResult.result.output_files.length > 0 && <Tab label={`다운로드 (${executionResult.result.output_files.length})`} {...a11yProps(3)} />}
+                </Tabs>
+              </Box>
 
-              {executionResult.stderr && (
-                <Box sx={{ mb: 2 }}>
-                  <Typography variant="subtitle2" gutterBottom>
-                    표준 에러:
-                  </Typography>
-                  <Box
-                    component="pre"
-                    sx={{
-                      backgroundColor: "error.light",
-                      color: "error.contrastText",
-                      p: 1,
-                      borderRadius: 1,
-                      fontSize: "0.875rem",
-                      overflow: "auto",
-                    }}
-                  >
-                    {executionResult.stderr}
-                  </Box>
-                </Box>
-              )}
-
-              <Box>
-                <Typography variant="subtitle2" gutterBottom>
-                  결과:
-                </Typography>
+              <TabPanel value={tabValue} index={0}>
                 <Box
                   component="pre"
                   sx={{
@@ -658,54 +677,34 @@ const ExecutableModuleList: React.FC = () => {
                     borderRadius: 1,
                     fontSize: "0.875rem",
                     overflow: "auto",
+                    maxHeight: "500px",
                   }}
                 >
                   {JSON.stringify(executionResult.result, null, 2)}
                 </Box>
-              </Box>
-            </Box>
-          )}
-          
-          {/* 멀티미디어 실행 결과 */}
-          {mediaExecutionResult && (
-            <Box>
-              <Typography variant="h6" gutterBottom>
-                실행 결과 (멀티미디어)
-              </Typography>
-              <Box sx={{ mb: 2 }}>
-                <Typography variant="body2" color="text.secondary">
-                  종료 코드: {mediaExecutionResult.exit_code}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  실행 시간: {mediaExecutionResult.duration.toFixed(2)}초
-                </Typography>
-              </Box>
+              </TabPanel>
 
-              {mediaExecutionResult.stdout && (
-                <Box sx={{ mb: 2 }}>
-                  <Typography variant="subtitle2" gutterBottom>
-                    표준 출력:
-                  </Typography>
+              {executionResult.stdout && (
+                <TabPanel value={tabValue} index={1}>
                   <Box
                     component="pre"
                     sx={{
-                      backgroundColor: "grey.100",
+                      backgroundColor: "info.light",
+                      color: "info.contrastText",
                       p: 1,
                       borderRadius: 1,
                       fontSize: "0.875rem",
                       overflow: "auto",
+                      maxHeight: "500px",
                     }}
                   >
-                    {mediaExecutionResult.stdout}
+                    {executionResult.stdout}
                   </Box>
-                </Box>
+                </TabPanel>
               )}
 
-              {mediaExecutionResult.stderr && (
-                <Box sx={{ mb: 2 }}>
-                  <Typography variant="subtitle2" gutterBottom>
-                    표준 에러:
-                  </Typography>
+              {executionResult.stderr && (
+                <TabPanel value={tabValue} index={2}>
                   <Box
                     component="pre"
                     sx={{
@@ -715,65 +714,51 @@ const ExecutableModuleList: React.FC = () => {
                       borderRadius: 1,
                       fontSize: "0.875rem",
                       overflow: "auto",
+                      maxHeight: "500px",
                     }}
                   >
-                    {mediaExecutionResult.stderr}
+                    {executionResult.stderr}
                   </Box>
-                </Box>
+                </TabPanel>
               )}
-              
-              {/* 결과 데이터 */}
-              <Box sx={{ mb: 2 }}>
-                <Typography variant="subtitle2" gutterBottom>
-                  결과 데이터:
-                </Typography>
-                <Box
-                  component="pre"
-                  sx={{
-                    backgroundColor: "success.light",
-                    color: "success.contrastText",
-                    p: 1,
-                    borderRadius: 1,
-                    fontSize: "0.875rem",
-                    overflow: "auto",
-                    maxHeight: "200px"
-                  }}
-                >
-                  {JSON.stringify(mediaExecutionResult.result, null, 2)}
-                </Box>
-              </Box>
-              
-              {/* 출력 파일들 */}
-              {mediaExecutionResult.output_files && mediaExecutionResult.output_files.length > 0 && (
-                <Box>
-                  <Typography variant="subtitle2" gutterBottom>
-                    결과 파일들 ({mediaExecutionResult.output_files.length}개):
-                  </Typography>
-                  {mediaExecutionResult.output_files.map((file, index) => (
-                    <Card key={index} variant="outlined" sx={{ mb: 1 }}>
-                      <CardContent sx={{ p: 2 }}>
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <Box>
-                            <Typography variant="body2">
-                              {file.original_filename}
-                            </Typography>
-                            <Typography variant="caption" color="text.secondary">
-                              크기: {formatFileSize(file.file_size)} | 
-                              만료: {new Date(file.expires_at).toLocaleString()}
-                            </Typography>
+
+              {executionResult.result.output_files && executionResult.result.output_files.length > 0 && (
+                <TabPanel value={tabValue} index={3}>
+                  <Box 
+                    sx={{ 
+                      maxHeight: "500px", 
+                      overflow: "auto",
+                      backgroundColor: "grey.50",
+                      p: 1,
+                      borderRadius: 1,
+                    }}
+                  >
+                    {executionResult.result.output_files.map((file: any, index: number) => (
+                      <Card key={index} variant="outlined" sx={{ mb: 1 }}>
+                        <CardContent sx={{ p: 2 }}>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <Box>
+                              <Typography variant="body2">
+                                {file.original_filename}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                크기: {formatFileSize(file.file_size)} | 
+                                만료: {new Date(file.expires_at).toLocaleString()}
+                              </Typography>
+                            </Box>
+                            <Button
+                              size="small"
+                              startIcon={<DownloadIcon />}
+                              onClick={() => downloadFile(file)}
+                            >
+                              다운로드
+                            </Button>
                           </Box>
-                          <Button
-                            size="small"
-                            startIcon={<DownloadIcon />}
-                            onClick={() => downloadFile(file)}
-                          >
-                            다운로드
-                          </Button>
-                        </Box>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </Box>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </Box>
+                </TabPanel>
               )}
             </Box>
           )}

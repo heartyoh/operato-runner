@@ -664,7 +664,8 @@ def create_app() -> FastAPI:
     @app.post("/api/run/{module}", response_model=RunResponse)
     async def run_module(
         module: str,
-        request: RunRequest = Body(...),
+        input: str = Form("{}"),
+        files: List[UploadFile] = File(default=[]),
         executor_manager: ExecutorManager = Depends(get_executor_manager),
         db: AsyncSession = Depends(get_db),
         current_user: User = Depends(get_current_user)
@@ -700,10 +701,37 @@ def create_app() -> FastAPI:
                 status_code=400,
                 detail="활성화된 버전이 없습니다. 배포/버전 상태를 확인하세요."
             )
+        # 입력 JSON 파싱
+        try:
+            input_data = json.loads(input) if input.strip() else {}
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="Invalid JSON in input parameter")
+        
+        # 파일이 업로드된 경우 처리
+        input_files = []
+        if files:
+            for file in files:
+                if file.filename:  # 파일이 실제로 업로드된 경우
+                    # 임시 파일로 저장
+                    file_id = await temp_file_manager.store_upload(file, current_user.id, expires_in_hours=1)
+                    file_path = await temp_file_manager.get_file_path(file_id)
+                    
+                    input_files.append({
+                        "file_id": file_id,
+                        "path": file_path,
+                        "filename": file.filename,
+                        "content_type": file.content_type,
+                        "size": file.size
+                    })
+        
+        # input_files를 input_data에 추가
+        if input_files:
+            input_data["input_files"] = input_files
+        
         # 모든 모듈을 executor_manager를 통해 실행
         exec_request = ExecRequest(
             module=module,
-            input_json=request.input
+            input_json=input_data
         )
         result = await executor_manager.execute(exec_request)
         
