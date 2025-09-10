@@ -5,30 +5,55 @@ from sqlalchemy import engine_from_config, pool
 from alembic import context
 
 # 기존 경로에 프로젝트 루트 추가
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+src_path = os.path.join(project_root, 'src')
+sys.path.insert(0, project_root)
+sys.path.insert(0, src_path)
 
 # models 전체 import (모든 테이블 인식)
-from models.base import Base
-from models.user import User
-from models.module import Module
-from models.role import Role
-from models.deployment import Deployment
-from models.version import Version
-from models.audit_log import AuditLog
+from src.models.base import Base
+from src.models.user import User
+from src.models.module import Module
+from src.models.role import Role
+from src.models.deployment import Deployment
+from src.models.version import Version
+from src.models.audit_log import AuditLog
 
-from core.db import sync_engine
+from src.core.db import sync_engine
 
 target_metadata = Base.metadata
 
-# DB URL을 .env에서 읽어오도록 설정
+# DB URL을 .env에서 읽어오도록 설정  
 from dotenv import load_dotenv
 load_dotenv(override=True)
 import os
 from alembic import context
 config = context.config
 
-# DATABASE_URL이 설정되지 않은 경우 기본값 사용
-database_url = os.getenv('DATABASE_URL', 'sqlite:///./app.db')
+def convert_to_sync_url(async_url):
+    """비동기 URL을 동기 URL로 변환"""
+    if not async_url:
+        return 'sqlite:///./app.db'
+    
+    # 드라이버 매핑
+    driver_mappings = {
+        '+asyncpg': '+psycopg2',      # PostgreSQL
+        '+aiosqlite': '',             # SQLite  
+        '+aiomysql': '+pymysql',      # MySQL
+        '+asyncmy': '+pymysql'        # MySQL alternative
+    }
+    
+    sync_url = async_url
+    for async_driver, sync_driver in driver_mappings.items():
+        if async_driver in sync_url:
+            sync_url = sync_url.replace(async_driver, sync_driver)
+            break
+    
+    return sync_url
+
+# DATABASE_URL을 동기 버전으로 변환
+async_database_url = os.getenv('DATABASE_URL', 'sqlite+aiosqlite:///./app.db')
+database_url = convert_to_sync_url(async_database_url)
 config.set_main_option('sqlalchemy.url', database_url)
 
 # this is the Alembic Config object, which provides

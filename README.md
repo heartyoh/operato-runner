@@ -274,7 +274,7 @@ operato-runner/
 │   ├── executor.proto      # 프로토콜 버퍼 정의
 │   ├── executor_pb2.py     # 생성된 프로토콜 버퍼 코드
 │   └── executor_pb2_grpc.py # 생성된 gRPC 코드
-├── operato-runner/         # Helm 차트 (Kubernetes 배포용)
+├── helm-chart/            # Helm 차트 (Kubernetes 배포용)
 ├── models.py               # 데이터 모델 정의
 ├── module_registry.py      # 모듈 레지스트리
 ├── executor_manager.py     # 실행기 관리자
@@ -300,13 +300,13 @@ docker run -p 8000:8000 -p 50051:50051 -v ./modules.yaml:/app/modules.yaml opera
 
 ```bash
 # Helm 차트 설치
-helm install operato-runner ./operato-runner -f values.yaml
+helm install operato-runner ./helm-chart -f values.yaml
 
 # 환경별 배포
-helm install operato-runner-dev ./operato-runner -f values-dev.yaml
+helm install operato-runner-dev ./helm-chart -f values-dev.yaml
 ```
 
-자세한 배포 정보는 [배포 가이드](operato-runner/ci/README.md)를 참조하세요.
+자세한 배포 정보는 [배포 가이드](helm-chart/ci/README.md)를 참조하세요.
 
 ## 라이센스
 

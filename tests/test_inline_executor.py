@@ -1,7 +1,7 @@
 import pytest
 import asyncio
-from models import ExecRequest, ExecResult
-from executors.inline import InlineExecutor
+from src.models import ExecRequest, ExecResult
+from src.executors.inline import InlineExecutor
 
 @pytest.mark.asyncio
 async def test_successful_execution():

@@ -5,10 +5,10 @@ import asyncio
 from datetime import datetime, timedelta
 from fastapi import UploadFile
 from io import BytesIO
-from utils.file_storage import TempFileManager
-from models.temp_file import TempFile
+from src.utils.file_storage import TempFileManager
+from src.models.temp_file import TempFile
 from sqlalchemy.ext.asyncio import AsyncSession
-from tests.conftest import TestingSessionLocal
+from conftest import TestingSessionLocal
 
 @pytest.fixture
 async def temp_file_manager():
@@ -25,23 +25,26 @@ async def temp_file_manager():
 def sample_video_file():
     """테스트용 가짜 동영상 파일"""
     content = b"fake video content for testing"
-    return UploadFile(
-        filename="test_video.mp4",
-        file=BytesIO(content),
-        size=len(content),
-        content_type="video/mp4"
+    file_obj = BytesIO(content)
+    # headers를 통해 content-type 설정
+    upload_file = UploadFile(
+        filename="test_video.mp4", 
+        file=file_obj,
+        headers={"content-type": "video/mp4"}
     )
+    return upload_file
 
 @pytest.fixture
 def sample_image_file():
     """테스트용 가짜 이미지 파일"""
     content = b"fake image content for testing"
-    return UploadFile(
+    file_obj = BytesIO(content)
+    upload_file = UploadFile(
         filename="test_image.jpg", 
-        file=BytesIO(content),
-        size=len(content),
-        content_type="image/jpeg"
+        file=file_obj,
+        headers={"content-type": "image/jpeg"}
     )
+    return upload_file
 
 @pytest.mark.asyncio
 async def test_store_upload_file(temp_file_manager, sample_video_file):
@@ -105,11 +108,11 @@ async def test_file_size_limit(temp_file_manager):
     """파일 크기 제한 테스트"""
     # 100MB 초과 파일 생성
     large_content = b"x" * (101 * 1024 * 1024)  # 101MB
+    large_file_obj = BytesIO(large_content)
     large_file = UploadFile(
-        filename="large_file.mp4",
-        file=BytesIO(large_content),
-        size=len(large_content),
-        content_type="video/mp4"
+        filename="large_file.mp4", 
+        file=large_file_obj,
+        headers={"content-type": "video/mp4"}
     )
     
     # 크기 제한 초과 시 예외 발생 확인
@@ -181,11 +184,11 @@ async def test_filename_sanitization(temp_file_manager):
     """파일명 안전화 테스트"""
     # 특수문자가 포함된 파일명
     dangerous_content = b"test content"
+    dangerous_file_obj = BytesIO(dangerous_content)
     dangerous_file = UploadFile(
-        filename="../../../etc/passwd",
-        file=BytesIO(dangerous_content),
-        size=len(dangerous_content),
-        content_type="text/plain"
+        filename="../../../etc/passwd", 
+        file=dangerous_file_obj,
+        headers={"content-type": "text/plain"}
     )
     
     file_id = await temp_file_manager.store_upload(dangerous_file, user_id=1)

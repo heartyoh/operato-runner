@@ -45,7 +45,7 @@ ENV APP_VERSION=${VERSION}
 ENV BUILD_DATE=${BUILD_DATE}
 
 # 필요한 디렉토리 생성
-RUN mkdir -p /app/modules /app/module_envs /app/templates
+RUN mkdir -p /app/runtime/modules /app/runtime/module_envs /app/runtime/uploads /app/runtime/logs /app/runtime/temp /app/templates
 
 # 포트 노출
 EXPOSE 8000 50051

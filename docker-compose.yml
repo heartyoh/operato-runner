@@ -19,10 +19,9 @@ services:
       - REDIS_DB=0
       - DATABASE_URL=${DATABASE_URL}
     command: >
-      sh -c "alembic upgrade head && python main.py --rest-port 8000 --grpc-port 50051 --no-redis"
+      sh -c "alembic upgrade head && python main.py --rest-port 8000 --grpc-port 50051 --no-redis --venv-path=./runtime/module_envs"
     volumes:
-      - ./modules:/app/modules
-      - ./module_envs:/app/module_envs
+      - ./runtime:/app/runtime
       - ./app.db:/app/app.db
       - ./.env:/app/.env
       - /var/run/docker.sock:/var/run/docker.sock

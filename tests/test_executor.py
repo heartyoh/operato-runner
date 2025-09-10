@@ -1,7 +1,7 @@
 import pytest
 import asyncio
-from executors.base import Executor
-from models import ExecRequest, ExecResult
+from src.executors.base import Executor
+from src.models import ExecRequest, ExecResult
 
 # 1. 추상 클래스 직접 인스턴스화 불가 테스트
 def test_executor_cannot_instantiate():

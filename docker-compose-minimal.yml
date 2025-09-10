@@ -19,8 +19,7 @@ services:
       # - DATABASE_URL=sqlite+aiosqlite:///./app.db
       # - REDIS_ENABLED=false
     volumes:
-      - ./modules:/app/modules
-      - ./module_envs:/app/module_envs
+      - ./runtime:/app/runtime
       - ./app.db:/app/app.db
     networks:
       - operato-network

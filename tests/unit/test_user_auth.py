@@ -1,9 +1,9 @@
 import pytest
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
-from models.base import Base
-from models.user import User
-from utils.security import hash_password, verify_password, validate_password_policy
+from src.models.base import Base
+from src.models.user import User
+from src.utils.security import hash_password, verify_password, validate_password_policy
 
 @pytest.mark.asyncio
 async def test_user_create_and_authenticate():

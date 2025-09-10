@@ -6,6 +6,9 @@ yarn-debug.log*
 yarn-error.log*
 dev-debug.log
 
+# Accidentally created test files
+:memory:
+
 # Dependency directories
 node_modules/
 .venv/
@@ -55,15 +58,27 @@ venvs/
 .helm/
 charts/*.tgz
 
-# modules.yaml
-modules.yaml
-venvs/
+# === Operato Runner Specific ===
 
-# DB
+# Runtime directories (auto-generated)
+runtime/modules/*
+runtime/module_envs/*
+runtime/uploads/*
+runtime/logs/*
+runtime/temp/*
+
+# Keep directory structure
+!runtime/.gitkeep
+
+# Database files
 *.sqlite3
 app.db
+*.db-journal
+*.db-wal
+*.db-shm
 
-# module and module_envs
-modules/
-module_envs/
+# modules.yaml
+modules.yaml
+
+# Admin UI
 admin-ui/package-lock.json

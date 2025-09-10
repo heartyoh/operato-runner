@@ -2,7 +2,7 @@ import pytest
 import asyncio
 import time
 from retry_policy import RetryPolicy, RetryableExecutorManager
-from models import ExecRequest, ExecResult
+from src.models import ExecRequest, ExecResult
 
 @pytest.mark.asyncio
 async def test_success_no_retry():

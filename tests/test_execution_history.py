@@ -3,7 +3,7 @@ import tempfile
 import pytest
 import json
 from execution_history import ExecutionHistory
-from models import ExecResult
+from src.models import ExecResult
 
 @pytest.fixture
 def temp_db_path(tmp_path):
