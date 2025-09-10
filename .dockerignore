@@ -97,5 +97,6 @@ docs/
 .windsurfrules
 .taskmasterconfig 
 
-/modules
-/module_envs
+runtime/*
+
+app.db
