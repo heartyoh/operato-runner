@@ -5,6 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Development Commands
 
 ### Backend (Python)
+
 ```bash
 # Install dependencies (uv recommended)
 uv pip install -r requirements.txt
@@ -13,7 +14,7 @@ uv pip install -r requirements.txt
 # Run the main server
 python main.py
 # Custom configuration:
-python main.py --config=./modules.yaml --rest-port=8080 --grpc-port=50052 --venv-path=./custom_venvs
+python main.py --rest-port=8080 --grpc-port=50052 --venv-path=./custom_venvs
 
 # Database migrations (Alembic)
 alembic revision --autogenerate -m "description"
@@ -31,6 +32,7 @@ pytest tests/test_executor.py::test_inline_executor -v
 ```
 
 ### Frontend (React TypeScript)
+
 ```bash
 cd admin-ui
 
@@ -48,6 +50,7 @@ npm test
 ```
 
 ### Docker Development
+
 ```bash
 # Full stack (with PostgreSQL & Redis)
 docker-compose up -d
@@ -69,25 +72,29 @@ docker-compose logs -f backend
 ### Core Components
 
 1. **Execution Environments** (`executors/`)
+
    - `inline.py` - Direct execution in current process
-   - `venv.py` - Python virtual environment execution  
+   - `venv.py` - Python virtual environment execution
    - `conda.py` - Conda environment execution
    - `docker.py` - Docker container execution
    - `uv.py` - UV virtual environment execution (ultra-fast)
 
 2. **Module Management** (`models/`, `schemas/`)
+
    - Module registration and versioning
    - Environment variable management
    - Execution history tracking
    - User authentication & authorization (RBAC)
 
 3. **API Layer** (`api/`)
+
    - `rest.py` - FastAPI REST API server
    - `grpc_server.py` - gRPC service implementation
    - `auth.py` - JWT-based authentication
    - `routes/modules.py` - Module-specific routes
 
 4. **Database Layer** (`models/`, `core/db.py`)
+
    - SQLAlchemy async ORM
    - SQLite (development) / PostgreSQL (production) support
    - Alembic migrations
@@ -109,13 +116,13 @@ docker-compose logs -f backend
 ### Module Structure Requirements
 
 Python modules uploaded to the platform must include:
+
 - `handler.py` - Entry point with `handler(input: dict) -> dict` function
 - `requirements.txt` - Python dependencies
 - Optional: `__main__.py` for direct execution
 
 ### Configuration
 
-- `modules.yaml` - Module definitions (inline code or file paths)
 - `.env` - Environment variables (DATABASE_URL, REDIS_URL, JWT secrets)
 - `alembic.ini` - Database migration configuration
 - Docker Compose files for different deployment scenarios

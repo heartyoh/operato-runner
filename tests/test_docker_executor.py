@@ -32,9 +32,14 @@ def handler(input_json):
     )
 
 @pytest.fixture
-def module_registry(dummy_module, tmp_path):
-    config_path = tmp_path / "modules.yaml"
-    reg = ModuleRegistry(config_path=str(config_path))
+def module_registry(dummy_module):
+    from tests.conftest import TestingSessionLocal
+    async def get_test_db():
+        async with TestingSessionLocal() as session:
+            return session
+    
+    db_session = get_test_db()
+    reg = ModuleRegistry(next(db_session))
     reg.modules[dummy_module.name] = dummy_module
     return reg
 

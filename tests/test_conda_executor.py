@@ -35,11 +35,14 @@ def handler(input_json):
     )
 
 @pytest.fixture
-def module_registry(dummy_module, tmp_path, monkeypatch):
-    config_path = tmp_path / "modules.yaml"
-    orig_exists = os.path.exists
-    monkeypatch.setattr(os.path, "exists", lambda path: False if str(path) == str(config_path) else orig_exists(path))
-    reg = ModuleRegistry(config_path=str(config_path))
+def module_registry(dummy_module):
+    from tests.conftest import TestingSessionLocal
+    async def get_test_db():
+        async with TestingSessionLocal() as session:
+            return session
+    
+    db_session = get_test_db()
+    reg = ModuleRegistry(next(db_session))
     reg.modules[dummy_module.name] = dummy_module
     return reg
 

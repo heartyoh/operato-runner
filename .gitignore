@@ -77,8 +77,5 @@ app.db
 *.db-wal
 *.db-shm
 
-# modules.yaml
-modules.yaml
-
 # Admin UI
 admin-ui/package-lock.json

@@ -14,9 +14,11 @@ Operato Runner는 다양한 실행 환경(inline, venv, conda, docker)에서 Pyt
 
 - **모듈 관리**
 
-  - YAML 기반 모듈 설정
+  - 데이터베이스 기반 모듈 관리
+  - 웹 UI를 통한 모듈 업로드 및 관리
   - 모듈 CRUD 기능
   - 태그 및 환경 기반 필터링
+  - 사용자 권한 관리 (RBAC)
 
 - **API 인터페이스**
 
@@ -105,48 +107,26 @@ docker pull operato/runner:latest
 python main.py
 
 # 사용자 정의 설정으로 실행
-python main.py --config=path/to/modules.yaml --rest-port=8080 --grpc-port=50052 --venv-path=./custom_venvs
+python main.py --rest-port=8080 --grpc-port=50052 --venv-path=./custom_venvs
 ```
 
 ### 명령줄 옵션
 
-- `--config`: 모듈 설정 파일 경로 (기본값: `./modules.yaml`)
 - `--rest-port`: REST API 포트 (기본값: `8000`)
 - `--grpc-port`: gRPC 서버 포트 (기본값: `50051`)
-- `--venv-path`: 가상환경 경로 (기본값: `./venvs`)
+- `--venv-path`: 가상환경 경로 (기본값: `./runtime/module_envs`)
+- `--no-redis`: Redis 비활성화
 - `--no-rest`: REST API 비활성화
 - `--no-grpc`: gRPC 서버 비활성화
 
-### 모듈 설정 예제
+### 웹 UI 접속
 
-```yaml
-modules:
-  - name: hello-world
-    env: inline
-    code: |
-      def handler(input):
-          return {"message": f"Hello, {input.get('name', 'World')}!"}
-    version: "0.1.0"
-    tags:
-      - example
-      - greeting
+서버 실행 후 웹 브라우저에서 `http://localhost:3000`으로 접속하여 Admin UI를 사용할 수 있습니다.
 
-  - name: data-processor
-    env: venv
-    path: ./modules/data_processor.py
-    version: "1.0.0"
-    tags:
-      - data
-      - processing
-
-  - name: fast-ml
-    env: uv
-    path: ./modules/fast_ml.py
-    version: "0.1.0"
-    tags:
-      - ml
-      - fast
-```
+- 모듈 업로드 및 관리
+- 모듈 실행 및 결과 확인
+- 사용자 및 권한 관리
+- 실행 히스토리 조회
 
 ### REST API 사용 예제
 
@@ -258,29 +238,34 @@ requests>=2.25.0
 
 ```
 operato-runner/
-├── api/                    # API 인터페이스
-│   ├── auth.py             # 인증 관련 기능
-│   ├── rest.py             # REST API (FastAPI)
-│   └── grpc_server.py      # gRPC 서버
-├── executors/              # 실행 환경 구현
-│   ├── base.py             # 기본 Executor 인터페이스
-│   ├── inline.py           # 인라인 실행기
-│   ├── venv.py             # 가상환경 실행기
-│   ├── conda.py            # Conda 실행기
-│   ├── docker.py           # Docker 실행기
-│   ├── uv.py               # uv 실행기 (초고속 Python 환경)
-│   └── ... (uv 실행기 구현 파일)
-├── proto/                  # gRPC 프로토콜 정의
-│   ├── executor.proto      # 프로토콜 버퍼 정의
-│   ├── executor_pb2.py     # 생성된 프로토콜 버퍼 코드
-│   └── executor_pb2_grpc.py # 생성된 gRPC 코드
-├── helm-chart/            # Helm 차트 (Kubernetes 배포용)
-├── models.py               # 데이터 모델 정의
-├── module_registry.py      # 모듈 레지스트리
-├── executor_manager.py     # 실행기 관리자
-├── execution_history.py    # 실행 히스토리 관리
-├── retry_policy.py         # 재시도 정책
+├── src/                    # 소스 코드
+│   ├── api/                # API 인터페이스
+│   │   ├── auth.py         # 인증 관련 기능
+│   │   ├── rest.py         # REST API (FastAPI)
+│   │   ├── grpc_server.py  # gRPC 서버
+│   │   └── routes/         # API 라우트
+│   ├── executors/          # 실행 환경 구현
+│   │   ├── base.py         # 기본 Executor 인터페이스
+│   │   ├── inline.py       # 인라인 실행기
+│   │   ├── venv.py         # 가상환경 실행기
+│   │   ├── conda.py        # Conda 실행기
+│   │   ├── docker.py       # Docker 실행기
+│   │   └── uv.py           # uv 실행기
+│   ├── models/             # 데이터베이스 모델
+│   ├── schemas/            # Pydantic 스키마
+│   ├── core/               # 핵심 기능 (DB 등)
+│   └── utils/              # 유틸리티
+├── admin-ui/               # React TypeScript 프론트엔드
+├── runtime/                # 런타임 데이터
+│   ├── modules/            # 업로드된 모듈
+│   ├── module_envs/        # 가상환경
+│   ├── uploads/            # 임시 업로드
+│   ├── logs/               # 로그 파일
+│   └── temp/               # 임시 파일
+├── tests/                  # 테스트 코드
+├── alembic/                # 데이터베이스 마이그레이션
 ├── main.py                 # 메인 애플리케이션
+├── run.py                  # 실행 스크립트
 └── requirements.txt        # 의존성 목록
 ```
 
@@ -293,20 +278,18 @@ operato-runner/
 docker build -t operato/runner:latest .
 
 # 컨테이너 실행
-docker run -p 8000:8000 -p 50051:50051 -v ./modules.yaml:/app/modules.yaml operato/runner:latest
+docker run -p 8000:8000 -p 50051:50051 -v ./runtime:/app/runtime operato/runner:latest
 ```
 
-### Kubernetes 배포 (Helm)
+### Docker Compose 배포
 
 ```bash
-# Helm 차트 설치
-helm install operato-runner ./helm-chart -f values.yaml
+# 전체 스택 (PostgreSQL + Redis 포함)
+docker-compose up -d
 
-# 환경별 배포
-helm install operato-runner-dev ./helm-chart -f values-dev.yaml
+# 최소 스택 (SQLite만 사용)
+docker-compose -f docker-compose-minimal.yml up -d
 ```
-
-자세한 배포 정보는 [배포 가이드](helm-chart/ci/README.md)를 참조하세요.
 
 ## 라이센스
 

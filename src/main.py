@@ -23,7 +23,6 @@ import uvicorn
 
 async def main():
     parser = argparse.ArgumentParser(description="Operato Runner")
-    parser.add_argument("--config", default="./modules.yaml", help="Path to modules configuration file")
     parser.add_argument("--rest-port", type=int, default=8000, help="REST API port")
     parser.add_argument("--grpc-port", type=int, default=50051, help="gRPC server port")
     parser.add_argument("--venv-path", default="./runtime/module_envs", help="Path to virtual environments")
