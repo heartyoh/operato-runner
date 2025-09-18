@@ -95,22 +95,39 @@ with open(r'{output_path}', 'w') as f:
             env_path = None
 
         try:
-            process = subprocess.run(
-                [python_bin, script_path],
-                capture_output=True,
-                text=True,
-                timeout=3600,
-                cwd=execution_work_dir,  # 격리된 작업 디렉토리에서 실행
-                env=env
-            )
+            # 출력 파일 경로 설정
+            stdout_path = os.path.join(execution_work_dir, "stdout.txt")
+            stderr_path = os.path.join(execution_work_dir, "stderr.txt")
+
+            with open(stdout_path, 'w') as stdout_f, open(stderr_path, 'w') as stderr_f:
+                process = subprocess.run(
+                    [python_bin, script_path],
+                    stdout=stdout_f,
+                    stderr=stderr_f,
+                    text=True,
+                    timeout=3600,
+                    cwd=execution_work_dir,  # 격리된 작업 디렉토리에서 실행
+                    env=env
+                )
             if os.path.exists(output_path):
                 with open(output_path, 'r') as f:
                     result_json = json.load(f)
             else:
                 result_json = {}
             exit_code = process.returncode
-            stderr = process.stderr
-            stdout = process.stdout
+
+            # 파일에서 출력 읽기
+            if os.path.exists(stderr_path):
+                with open(stderr_path, 'r') as f:
+                    stderr = f.read()
+            else:
+                stderr = ""
+
+            if os.path.exists(stdout_path):
+                with open(stdout_path, 'r') as f:
+                    stdout = f.read()
+            else:
+                stdout = ""
             log_module_action(module_name, getattr(module, 'version', 'unknown'), "execute", f"실행 완료 (exit_code={exit_code})")
         except subprocess.TimeoutExpired:
             exit_code = 124
