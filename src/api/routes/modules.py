@@ -15,6 +15,7 @@ from models.deployment import Deployment
 from pydantic import BaseModel
 from datetime import datetime
 import os
+import json
 from datetime import timezone
 
 # --- Pydantic 모델 복사 (간략화) ---
@@ -210,12 +211,42 @@ async def get_module_detail(
     # 사용법 예시 생성 (기본값)
     usage_example = {
         "input": {"example": "input_data"},
-        "description": "모듈 실행을 위한 입력 데이터 예시"
+        "description": "모듈 실행을 위한 입력 데이터 예시",
+        "client_examples": {
+            "curl": f"""curl -X POST "http://localhost:8000/api/run/{module.name}" \\
+  -H "Authorization: Bearer YOUR_TOKEN" \\
+  -F 'input={{"example": "input_data"}}'""",
+            "javascript": f"""const formData = new FormData();
+formData.append('input', JSON.stringify({{example: "input_data"}}));
+
+fetch('http://localhost:8000/api/run/{module.name}', {{
+    method: 'POST',
+    headers: {{ 'Authorization': 'Bearer YOUR_TOKEN' }},
+    body: formData
+}}).then(response => response.json());""",
+            "python": f"""import requests
+import json
+
+data = {{'input': json.dumps({{"example": "input_data"}})}}
+headers = {{'Authorization': 'Bearer YOUR_TOKEN'}}
+
+response = requests.post(
+    'http://localhost:8000/api/run/{module.name}',
+    data=data,
+    headers=headers
+)
+print(response.json())"""
+        }
     }
     if module.env == "inline" and module.code:
         try:
             if "def main(" in module.code:
                 usage_example["input"] = {"data": "example_value"}
+                # 실제 입력에 맞게 클라이언트 예시 업데이트
+                input_json = json.dumps({"data": "example_value"})
+                usage_example["client_examples"]["curl"] = f"""curl -X POST "http://localhost:8000/api/run/{module.name}" \\
+  -H "Authorization: Bearer YOUR_TOKEN" \\
+  -F 'input={input_json}'"""
             if "return" in module.code:
                 usage_example["output"] = {"result": "example_output"}
         except:

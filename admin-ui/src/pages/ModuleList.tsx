@@ -55,21 +55,26 @@ const codeTemplates = {
   curl: (name: string, version: string) =>
     `# JSON 입력만 있는 경우:
 curl -X POST http://<서버주소>/api/run/${name} \\
+  -H 'Authorization: Bearer YOUR_TOKEN' \\
   -H 'Content-Type: application/json' \\
   -d '{"input": {}}'
 
 # 파일과 함께 실행하는 경우:
 curl -X POST http://<서버주소>/api/run/${name} \\
+  -H 'Authorization: Bearer YOUR_TOKEN' \\
   -F 'input={"key": "value"}' \\
   -F 'files=@/path/to/file1.jpg' \\
   -F 'files=@/path/to/file2.mp4'`,
   python: (name: string, version: string) =>
     `import requests
 
+headers = {'Authorization': 'Bearer YOUR_TOKEN'}
+
 # JSON 입력만 있는 경우:
 resp = requests.post(
     "http://<서버주소>/api/run/${name}",
-    json={"input": {}}
+    json={"input": {}},
+    headers=headers
 )
 result = resp.json()
 print(result)
@@ -83,7 +88,8 @@ data = {'input': '{"key": "value"}'}
 resp = requests.post(
     "http://<서버주소>/api/run/${name}",
     files=files,
-    data=data
+    data=data,
+    headers=headers
 )
 result = resp.json()
 
@@ -96,8 +102,10 @@ if 'output_files' in result and result['output_files']:
 const FormData = require('form-data');
 const fs = require('fs');
 
+const headers = { 'Authorization': 'Bearer YOUR_TOKEN' };
+
 // JSON 입력만 있는 경우:
-axios.post('http://<서버주소>/api/run/${name}', { input: {} })
+axios.post('http://<서버주소>/api/run/${name}', { input: {} }, { headers })
   .then(res => {
     console.log(res.data);
     // output_files가 있으면 파일 다운로드 링크 출력
@@ -115,7 +123,7 @@ form.append('files', fs.createReadStream('/path/to/file1.jpg'));
 form.append('files', fs.createReadStream('/path/to/file2.mp4'));
 
 axios.post('http://<서버주소>/api/run/${name}', form, {
-  headers: form.getHeaders()
+  headers: { ...form.getHeaders(), ...headers }
 }).then(res => {
   console.log(res.data);
   if (res.data.output_files && res.data.output_files.length > 0) {
@@ -131,6 +139,7 @@ RequestBody body = RequestBody.create(
     '{"input": {}}', MediaType.parse("application/json"));
 Request request = new Request.Builder()
     .url("http://<서버주소>/api/run/${name}")
+    .addHeader("Authorization", "Bearer YOUR_TOKEN")
     .post(body)
     .build();
 Response response = client.newCall(request).execute();
@@ -142,12 +151,13 @@ MultipartBody requestBody = new MultipartBody.Builder()
     .addFormDataPart("input", '{"key": "value"}')
     .addFormDataPart("files", "file1.jpg",
         RequestBody.create(new File("/path/to/file1.jpg"), MediaType.parse("image/jpeg")))
-    .addFormDataPart("files", "file2.mp4", 
+    .addFormDataPart("files", "file2.mp4",
         RequestBody.create(new File("/path/to/file2.mp4"), MediaType.parse("video/mp4")))
     .build();
 
 Request fileRequest = new Request.Builder()
     .url("http://<서버주소>/api/run/${name}")
+    .addHeader("Authorization", "Bearer YOUR_TOKEN")
     .post(requestBody)
     .build();
 Response fileResponse = client.newCall(fileRequest).execute();
