@@ -175,11 +175,19 @@ services:
 export CORS_ORIGINS=""
 ```
 
-**설정된 CORS 정책:**
+**백엔드 CORS 정책:**
 - ✅ **Origin 제어**: `CORS_ORIGINS` 환경변수로 허용 도메인 지정
 - ✅ **모든 HTTP 메소드**: GET, POST, PUT, DELETE, OPTIONS, PATCH
 - ✅ **모든 헤더 허용**: Authorization, Content-Type 등
 - ✅ **자격증명 허용**: 쿠키 및 인증 헤더 포함 요청 지원
+
+**nginx CORS 정책:**
+- ✅ **모든 Origin 허용**: `Access-Control-Allow-Origin: *`
+- ✅ **Preflight 요청 처리**: OPTIONS 메소드 자동 응답
+- ✅ **캐시 최적화**: `Access-Control-Max-Age: 1728000` (20일)
+- ✅ **프록시 적용**: `/api/`, `/auth/` 경로 모두 포함
+
+> **참고**: nginx와 FastAPI 양쪽에서 CORS를 설정해도 충돌하지 않습니다. nginx가 먼저 처리하고 백엔드로 전달합니다.
 
 ### SSL/TLS 설정
 
