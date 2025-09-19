@@ -137,8 +137,49 @@ cat > .env << EOF
 POSTGRES_PASSWORD=your_secure_password
 JWT_SECRET_KEY=your_jwt_secret
 DATABASE_URL=postgresql://operato:your_secure_password@postgres:5432/operato
+CORS_ORIGINS=https://your-domain.com,https://admin.your-domain.com
 EOF
 ```
+
+### CORS 설정
+
+외부 도메인에서 API 접근을 허용하려면 CORS를 설정하세요:
+
+#### 1. 완전 개방 (개발 환경)
+
+```bash
+# 환경변수 없이 실행하면 모든 도메인 허용
+docker-compose up
+```
+
+#### 2. 특정 도메인만 허용 (권장)
+
+```bash
+# 환경변수로 특정 도메인 지정
+export CORS_ORIGINS="http://localhost:3000,https://admin.example.com"
+docker-compose up
+```
+
+또는 docker-compose.yml에서:
+
+```yaml
+services:
+  backend:
+    environment:
+      - CORS_ORIGINS=http://localhost:3000,https://your-admin-domain.com
+```
+
+#### 3. 완전 차단 (보안 환경)
+
+```bash
+export CORS_ORIGINS=""
+```
+
+**설정된 CORS 정책:**
+- ✅ **Origin 제어**: `CORS_ORIGINS` 환경변수로 허용 도메인 지정
+- ✅ **모든 HTTP 메소드**: GET, POST, PUT, DELETE, OPTIONS, PATCH
+- ✅ **모든 헤더 허용**: Authorization, Content-Type 등
+- ✅ **자격증명 허용**: 쿠키 및 인증 헤더 포함 요청 지원
 
 ### SSL/TLS 설정
 

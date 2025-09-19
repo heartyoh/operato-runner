@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException, Depends, Body, Request, UploadFile, File, Form, status
+from fastapi.middleware.cors import CORSMiddleware
 from typing import Dict, List, Any, Optional
 from pydantic import BaseModel, field_serializer
 from models.module import Module
@@ -61,6 +62,16 @@ ROOT_DIR = pathlib.Path(__file__).resolve().parent.parent.parent
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Operato Runner", description="Python module execution platform")
+
+    # CORS 설정 (환경변수로 제어 가능)
+    allowed_origins = os.environ.get("CORS_ORIGINS", "*").split(",")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=allowed_origins,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+        allow_headers=["*"],
+    )
 
     @app.on_event("startup")
     async def on_startup():
