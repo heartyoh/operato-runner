@@ -1,0 +1,28 @@
+1. keypoint 모듈 정보 확인
+
+# 토큰이 있다면 바로, 없다면 새로 받기
+TOKEN=$(curl -s -X POST "http://localhost:8000/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{"username": "admin", "password": "admin1234"}' | \
+  sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
+
+# keypoint 모듈 정보 확인
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8000/api/modules" | grep -A10 -B10 "keypoint"
+
+2. keypoint 모듈 실행 테스트
+
+# keypoint 모듈 실행
+curl -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d 'input={"test": "keypoint_test"}' \
+  "http://localhost:8000/api/run/keypoint"
+
+3. keypoint 모듈 구조 확인 (필요시)
+
+# keypoint 모듈 디렉토리 구조 확인
+docker exec operato-backend ls -la /app/runtime/module_envs/keypoint/
+
+# keypoint __main__.py 확인
+docker exec operato-backend head -20 /app/runtime/module_envs/keypoint/__main__.py

@@ -60,23 +60,18 @@ const MediaUploadForm: React.FC<MediaUploadFormProps> = ({
 
   const validateFiles = (files: FileList): string | null => {
     const maxSize = 100 * 1024 * 1024; // 100MB
-    const supportedTypes = [
-      'video/mp4', 'video/avi', 'video/quicktime', 'video/x-msvideo',
-      'image/jpeg', 'image/png', 'image/gif', 'image/webp'
-    ];
+
+    // 파일 타입 제한 제거 - 모든 파일 허용
+    // 백엔드와 모듈에서 필요한 파일 타입을 검증하도록 위임
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      
+
       if (file.size > maxSize) {
         return `파일 "${file.name}"이 100MB 제한을 초과합니다.`;
       }
-      
-      if (!supportedTypes.includes(file.type)) {
-        return `파일 "${file.name}"은 지원되지 않는 형식입니다.`;
-      }
     }
-    
+
     return null;
   };
 
@@ -189,7 +184,7 @@ const MediaUploadForm: React.FC<MediaUploadFormProps> = ({
   return (
     <Box sx={{ maxWidth: 800, mx: 'auto', p: 2 }}>
       <Typography variant="h6" gutterBottom>
-        멀티미디어 파일과 함께 실행
+        파일과 함께 실행
       </Typography>
 
       <Card sx={{ mb: 3 }}>
@@ -201,12 +196,11 @@ const MediaUploadForm: React.FC<MediaUploadFormProps> = ({
           <input
             type="file"
             multiple
-            accept="video/*,image/*"
             onChange={handleFileChange}
             style={{ display: 'none' }}
             id="file-upload"
           />
-          
+
           <label htmlFor="file-upload">
             <Button
               variant="outlined"
@@ -214,7 +208,7 @@ const MediaUploadForm: React.FC<MediaUploadFormProps> = ({
               startIcon={<UploadIcon />}
               sx={{ mb: 2 }}
             >
-              파일 선택 (동영상/이미지)
+              파일 선택
             </Button>
           </label>
 

@@ -1302,7 +1302,7 @@ const ModuleDetail: React.FC = () => {
           <Tab label="이력" />
           <Tab label="환경변수" />
           <Tab label="실제 전개 정보" />
-          <Tab label="멀티미디어 실행" />
+          <Tab label="파일 업로드 실행" />
         </Tabs>
         <Box sx={{ mt: 2 }}>
           {tab === 0 && renderInfo()}

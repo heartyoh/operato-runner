@@ -564,7 +564,7 @@ const ExecutableModuleList: React.FC = () => {
                 size="small"
                 startIcon={<VideoIcon />}
               >
-                멀티미디어 파일
+                파일 업로드
               </Button>
             </Box>
           </Box>
@@ -573,12 +573,11 @@ const ExecutableModuleList: React.FC = () => {
           {executionMode === 'media' && (
             <Box sx={{ mb: 2 }}>
               <Typography variant="body2" color="text.secondary" gutterBottom>
-                파일 업로드 (동영상/이미지):
+                파일 업로드:
               </Typography>
               <input
                 type="file"
                 multiple
-                accept="video/*,image/*"
                 onChange={handleFileChange}
                 style={{ display: 'none' }}
                 id="file-upload-execution"
@@ -671,8 +670,12 @@ const ExecutableModuleList: React.FC = () => {
                 <Box
                   component="pre"
                   sx={{
-                    backgroundColor: "success.light",
-                    color: "success.contrastText",
+                    backgroundColor: executionResult.result.error || executionResult.result.status === "error"
+                      ? "error.light"
+                      : "success.light",
+                    color: executionResult.result.error || executionResult.result.status === "error"
+                      ? "error.contrastText"
+                      : "success.contrastText",
                     p: 1,
                     borderRadius: 1,
                     fontSize: "0.875rem",
